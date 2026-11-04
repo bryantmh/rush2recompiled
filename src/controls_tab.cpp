@@ -1,5 +1,6 @@
-// Controls tab: which controllers and the keyboard may play (src/input.cpp), the 2 player split screen layout
-// (src/splitscreen.cpp), the touch controls (src/touch_controls.cpp), and below a profile picker each game save
+// Controls tab: which controllers and the keyboard may play (src/input.cpp), an All Players section (the 2 player split
+// screen layout, src/splitscreen.cpp; the touch controls, src/touch_controls.cpp; New Profile Steering, the general
+// config's default_steering), and below a profile picker each game save
 // profile's steering, stick and rumble settings (src/control_profiles.cpp), with buttons that play each rumble effect.
 //
 // Controllers aren't given to players here: in the game, whoever presses START becomes the next player. Each
@@ -193,12 +194,18 @@ namespace {
             controllers_box->set_as_navigation_container(NavigationType::Vertical);
             render_controllers();
 
-            add_heading("Split Screen", "", "How the screen is split in 2 player races. "
+            // Settings for every player, whatever profile they picked: one section so the tab needs less scrolling.
+            add_heading("All Players");
+            using rush2::splitscreen::Layout;
+            Element* split_row = add_row("How the screen is split in 2 player races. "
                 "<recomp-color primary>Top and Bottom</recomp-color> matches the original game; "
                 "<recomp-color primary>Side by Side</recomp-color> gives each player half of the screen's width. "
                 "Takes effect at the next race.");
-            using rush2::splitscreen::Layout;
-            Element* split_row = add_row("How the screen is split in 2 player races. Takes effect at the next race.");
+            // Name above the choices, as the option rows under it lay theirs out.
+            split_row->set_flex_direction(FlexDirection::Column);
+            split_row->set_align_items(AlignItems::FlexStart);
+            split_row->set_gap(4.0f);
+            context.create_element<Label>(split_row, "Split Screen", theme::Typography::LabelMD);
             Radio* layouts = context.create_element<Radio>(split_row);
             layouts->add_option("Top and Bottom");
             layouts->add_option("Side by Side");
@@ -207,12 +214,8 @@ namespace {
                 rush2::splitscreen::set_layout_option(index == 1 ? Layout::SideBySide : Layout::TopBottom);
             });
 
-            add_heading("Touch Controls");
             add_option(recompui::config::get_general_config(), rush2::touch::option_id());
-
-            // The online name is this machine's, not a profile's: above the profile picker and the sections it sets.
-            add_heading("Online", "", "How other players see you in online races (the Online tab).");
-            add_option(rush2::online_tab::config(), "display_name");
+            add_option(recompui::config::get_general_config(), "default_steering");
 
             const std::string profile_description = "The game save profile whose settings are shown below. Each player "
                 "uses the settings of the profile they picked on Select Player; " + no_profile_label + " is for players "

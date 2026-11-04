@@ -34,6 +34,7 @@
 
 #include "car_types.h"
 #include "car_mods.h"
+#include "control_profiles.h"
 #include "recomp.h"
 #include "util/file.h"
 #include "online.h"
@@ -1044,8 +1045,13 @@ namespace {
         }
         if (!started) {
             started = true;
+            // As the Online tab's Host and Join do: the first saved profile until Select Player picks one.
             if (const char* name = std::getenv("RUSH2_ONLINE_NAME")) {
                 set_display_name(name);
+            }
+            else {
+                std::string first = rush2::control_profiles::profiles().front();
+                set_display_name(first.empty() ? "Player" : first);
             }
             if (text.rfind("host", 0) == 0) {
                 HostOptions options;

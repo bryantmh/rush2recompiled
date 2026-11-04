@@ -17,6 +17,14 @@ out, keys = sys.argv[1], sys.argv[2].split(',')
 os.makedirs(out, exist_ok=True)
 exe = os.path.abspath(os.environ.get('RUSH2_EXE', os.path.join(shots.REPO, 'build', 'Rush2Recompiled.exe')))
 log = open(os.environ['RUSH2_LOG'], 'w') if os.environ.get('RUSH2_LOG') else subprocess.DEVNULL
+# Silent (CLAUDE.md): the game plays on the exe folder's sound.json, so its main_volume is 0 for the run and the
+# file's exact content goes back after.
+sound_path = os.path.join(os.path.dirname(exe), 'sound.json')
+sound_text = open(sound_path, newline='').read() if os.path.exists(sound_path) else None
+if sound_text is not None:
+    import re
+    with open(sound_path, 'w', newline='') as f:
+        f.write(re.sub(r'("main_volume":\s*)[0-9.]+', r'\g<1>0', sound_text))
 p = subprocess.Popen([exe], cwd=os.path.dirname(exe), stdout=log, stderr=subprocess.STDOUT)
 try:
     # The window shows later on a cold start (an empty shader cache, a new data folder): wait up to a minute for it.
@@ -40,3 +48,10 @@ try:
         shots.capture(hwnd, os.path.join(out, '%02d_%s.png' % (i, key)))
 finally:
     p.terminate()
+    try:
+        p.wait(10)
+    except Exception:
+        p.kill()
+    if sound_text is not None:
+        with open(sound_path, 'w', newline='') as f:
+            f.write(sound_text)

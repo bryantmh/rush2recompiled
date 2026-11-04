@@ -3,6 +3,7 @@
 
     python tools/live_ram.py PID ADDR[:LEN] ...        hex dump (N64 byte order) of each range
     python tools/live_ram.py PID --w ADDR ...          32-bit words  (--h halfwords, --b bytes, signed)
+    python tools/live_ram.py PID --dump FILE           all 16 MB (0x80000000-0x80FFFFFF) to FILE in N64 byte order
 
 ADDR is an N64 address (0x80xxxxxx). RDRAM is the process's 4 GB reservation (librecomp recomp.cpp, VirtualAlloc)
 whose first part (512 MB in this build) is read-write and the rest no-access; it holds 32-bit words in host order, so
@@ -64,7 +65,13 @@ def main():
     ram = buf.raw
 
     def byte(a):
-        return ram[((a & 0x7FFFFF) ^ 3)]
+        return ram[((a & 0xFFFFFF) ^ 3)]
+
+    if sys.argv[2:3] == ['--dump']:
+        words = struct.unpack(f'<{RDRAM_SIZE // 4}I', ram)
+        with open(sys.argv[3], 'wb') as f:
+            f.write(struct.pack(f'>{RDRAM_SIZE // 4}I', *words))
+        return
 
     mode = None
     for arg in sys.argv[2:]:

@@ -1,6 +1,7 @@
 // Online tab (docs/online.md#the-online-tab): hosting a lobby, joining one by address or from the LAN list, the lobby's
-// players, and the host's race settings. The choices that persist (name, last address, host settings, car) are the
-// "online" config, online.json; the display name is also on the Controls tab. Everything here takes effect at once.
+// players, and the host's race settings. The choices that persist (last address, host settings, car) are the
+// "online" config, online.json. There is no name setting: each player shows as their save profile (until one is
+// picked on Select Player, the first saved profile). Everything here takes effect at once.
 
 // As in src/rush2049/wings.cpp: librecomp's nlohmann::json first, so Config::load_config links.
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
@@ -18,6 +19,7 @@
 #include "elements/ui_label.h"
 
 #include "battle.h"
+#include "control_profiles.h"
 #include "data_files.h"
 #include "npc_cars.h"
 #include "online.h"
@@ -37,7 +39,6 @@ namespace {
     recomp::config::Config online_config{ "Online", config_id, false };
 
     namespace ids {
-        const std::string name = "display_name";
         const std::string address = "join_address";
         const std::string port = "host_port";
         const std::string max_players = "host_max_players";
@@ -228,14 +229,15 @@ namespace {
 
     // Pushes this machine's choices to the session (and, hosting, the race settings to everyone).
     void apply_choices() {
-        online::set_display_name(get_string(ids::name));
+        // The name shown before Select Player picks a profile (rush2::online::set_profile_name): the first saved
+        // profile, "Player" when there are none (profiles() ends with the empty No profile entry).
+        std::string first = rush2::control_profiles::profiles().front();
+        online::set_display_name(first.empty() ? "Player" : first);
         online::set_local_games(local_games());
         online::set_local_gameplay(gameplay_settings());
     }
 
     void add_options() {
-        online_config.add_string_option(ids::name, "Online Name",
-            "Your name in online lobbies (up to 16 letters). Takes effect at once.", "Player");
         online_config.add_string_option(ids::address, "Host Address",
             "The host's address, as their Online tab shows it while they host: for example 192.168.1.20 on your "
             "network or 203.0.113.7 over the internet, with \":port\" if they changed the port.", "");
@@ -247,13 +249,6 @@ namespace {
         online_config.add_number_option(ids::max_players, "Max Players",
             "How many players your lobby takes, you included. Takes effect the next time you host.",
             2, online::max_players, 1, 0, false, online::max_players);
-        for (const std::string& id : { ids::name }) {
-            online_config.add_option_change_callback(id,
-                [](recomp::config::ConfigValueVariant, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-                    apply_choices();
-                    online_config.save_config();
-                });
-        }
         for (const std::string& id : { ids::address, ids::port, ids::max_players }) {
             online_config.add_option_change_callback(id,
                 [](recomp::config::ConfigValueVariant, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {

@@ -38,9 +38,10 @@
 #include "control_profiles.h"
 #include "setup.h"
 
-// Options of the general config shown in another tab, not the General tab: Touch Controls (the Controls tab).
+// Options of the general config shown in another tab, not the General tab: Touch Controls and New Profile Steering
+// (the Controls tab's All Players section, src/controls_tab.cpp).
 static bool shown_in_other_tab(const std::string& id) {
-    return id == rush2::touch::option_id();
+    return id == rush2::touch::option_id() || id == "default_steering";
 }
 
 // Adds every option of the config that the page doesn't have yet, in the config's order (hidden ones stay hidden).
@@ -699,7 +700,7 @@ static void add_default_steering_option(recomp::config::Config& config) {
     config.add_enum_option(
         default_steering_option::id,
         "New Profile Steering",
-        "The Steering Response players start with, until they change it in the Controls tab. "
+        "The Steering Response new profiles start with, until it's changed under Driving below. "
         "<recomp-color primary>Original</recomp-color> matches the original game: barely any steering near the "
         "center of the stick, sharp turning near the edge. "
         "<recomp-color primary>Balanced</recomp-color> steers more near the center. "
@@ -994,7 +995,7 @@ void rush2::init_config() {
         // so showing one moves nothing in the others.
         create_ordered_tab(general::tab_name, "rush2_general", general::id, 3, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            default_steering_option::id, hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id } },
+                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
             { "Circuits", { circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id }, true },
             { "Other", { ghost_option::id, ghosts_kept_option::id, rush2::game_filter::option_id() } },

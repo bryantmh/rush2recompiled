@@ -25,8 +25,8 @@ each with a Join button and why it can't be joined, then Host Address and Join b
 them. Connecting or in a lobby: the lobby's name and what happens next, Cancel / Close Lobby / Leave Lobby, **Invite
 Players** for the host (the LAN address and the internet address with the router port's state, `router_port()`; when
 the port is closed, what to forward where) and **Players** (name, how far through the menus, Host / You / ping). On a
-switch the controller's focus goes to the new view's first button. The display name is on the Controls tab (Online
-heading). Port and max players apply the next time you host. The race itself is chosen in the game (the lobby).
+switch the controller's focus goes to the new view's first button. There is no name setting: players show as their
+save profile (see the lobby below). Port and max players apply the next time you host. The race itself is chosen in the game (the lobby).
 
 ## The lobby
 
@@ -37,8 +37,10 @@ lists the players and what the lobby waits for. The overlay steps aside while a 
 (the host closed it or quit its game, or the connection dropped; `take_lobby_lost`, set by the net thread's disconnect
 and not by leaving from the Online tab) gets the overlay for 8 s with the reason (`last_error`), titled "Online", in
 the lobby or in a race. Checked by quitting the host from a `menus:` lobby. Each player is shown by the name
-of the profile they picked on Select Player (`set_profile_name`, from `rush2::collectibles::player_name`), or their
-display name before that or without one.
+of the profile they picked on Select Player (`set_profile_name`, from `rush2::collectibles::player_name`). Before
+any pick the machine shows its first saved profile (`set_display_name`, from `control_profiles::profiles()` when the
+Online tab hosts or joins; "Player" with no profiles). JUST PLAY, or leaving and rejoining a lobby, keeps the last
+picked profile.
 
 The host publishes where it is every frame (`MenuState`: phase, the race settings as its menus have them, its track
 select's cursor). Each machine's progress comes from where its own game is, never from what it was told, so a player

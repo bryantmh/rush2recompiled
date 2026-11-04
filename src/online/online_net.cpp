@@ -1201,7 +1201,7 @@ bool rush2::online::host(const HostOptions& options) {
     }
     hosting = true;
     host_port = options.port;
-    cur_lobby_name = options.lobby_name.empty() ? my_name + "'s lobby" : options.lobby_name.substr(0, 32);
+    cur_lobby_name = options.lobby_name.empty() ? shown_name() + "'s lobby" : options.lobby_name.substr(0, 32);
     max_players_opt = std::clamp(options.max_players, 1, max_players);
     for (RosterEntry& e : slots) {
         e = RosterEntry{};
@@ -1490,7 +1490,12 @@ void rush2::online::set_display_name(const std::string& name) {
 
 void rush2::online::set_profile_name(const std::string& name) {
     std::lock_guard lock{ state_mutex };
-    std::string cleaned = name.empty() ? std::string() : clean_name(name);
+    // No profile picked (JUST PLAY, or Select Player not reached yet): the last picked profile keeps showing, or
+    // before any, the first saved profile (set_display_name from the Online tab).
+    if (name.empty()) {
+        return;
+    }
+    std::string cleaned = clean_name(name);
     if (cleaned == my_profile_name) {
         return;
     }

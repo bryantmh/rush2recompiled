@@ -794,7 +794,6 @@ void rush2::online::game::lobby_frame(uint8_t* rdram) {
         rush2::track2049::set_all_tracks_open(false);
         rush2::track2049::set_online_offered(rdram, {});
         host_offered.clear();
-        set_profile_name({});
         race_waiting.clear();
         bool show_dropped = !dropped.empty() && std::chrono::steady_clock::now() - dropped_at < dropped_time;
         notice = show_dropped ? dropped : std::string();
