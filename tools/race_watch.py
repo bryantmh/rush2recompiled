@@ -251,10 +251,13 @@ def peek(rd, addrs, seconds, proc, always=False):
         print('0x%08X: ' % a + ('min %d, max %d (%d samples)' % (min(vs), max(vs), len(vs)) if vs else 'no race samples'))
 
 
-def peek_changes(rd, addrs, seconds, proc, launched):
-    """Polls u32 words at addrs in every game state and prints a line, timed from launch, whenever one changes."""
+def peek_changes(rd, addrs, seconds, proc, launched, tick=None):
+    """Polls u32 words at addrs in every game state and prints a line, timed from launch, whenever one changes.
+    tick: called every poll (the --shots that are due)."""
     last, t0 = {}, time.time()
     while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
+        if tick:
+            tick()
         for a in addrs:
             v = rd.block(a, 4)
             if v:
@@ -328,7 +331,7 @@ def main():
         print('RDRAM not found')
         return 1
     if a.peek and a.peek_changes:
-        peek_changes(rd, a.peek, a.seconds, proc, launched)
+        peek_changes(rd, a.peek, a.seconds, proc, launched, take_shots)
         if proc and proc.poll() is None:
             proc.terminate()
         return 0
