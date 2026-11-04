@@ -39,6 +39,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <tuple>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -59,7 +60,7 @@ using rush2::rom2049::dc::Match;
 using rush2::rom2049::dc::TextureMode;
 
 namespace {
-    constexpr const char* format = "v3"; // of the folder's files; a new one rebuilds it
+    constexpr const char* format = "v4"; // of the folder's files; a new one rebuilds it (v4: brake light images)
     constexpr const char* matches_file = "matches_v5"; // named for the matcher that made them
     constexpr const char* old_matches_files[] = { "matches_v4" }; // older matchers' results, deleted when loading
     constexpr int thumb_size = 8;
@@ -315,6 +316,93 @@ namespace {
             ImageInfo& info = made[it->second];
             info.flags |= (t.shrunk ? flag_shrunk : 0) | (t.job != 0 ? flag_job : 0) | (t.damaged ? flag_damaged : 0);
             if (hash != 0) info.hashes.emplace_back(hash, t.shrunk);
+        }
+        // Brake lights (issue #44): src/rush2049/car2049.cpp draws a car's scaled-down texture lit while braking, its
+        // lights found by rush2::rom2049::dc::brake_light_mask over every job's copy of it; that copy gets the full-size
+        // image lit the same way (the mask found again over the full-size images).
+        {
+            std::map<std::tuple<std::string, std::string, bool>, std::vector<const rush2::rom2049::SourceTexture*>> groups;
+            for (const rush2::rom2049::SourceTexture& t : textures) {
+                bool tail = t.job == 0 && !t.damaged && rush2::rom2049::dc::tail_texture_name(t.name);
+                if ((t.job == 0 && !tail) || !t.shrunk || t.file.rfind("CAR", 0) != 0 ||
+                    rush2::rom2049::dc::front_texture_name(t.name)) {
+                    continue;
+                }
+                // The car (CARn of CARnPJm.xxx): its jobs' copies of a texture share the name.
+                std::string car = t.file.substr(0, t.file.find_first_not_of("CAR0123456789"));
+                groups[{ car, t.name, t.damaged }].push_back(&t);
+            }
+            for (const auto& [key, group] : groups) {
+                if (refreshes != refresh) return false;
+                const auto& [car, name, damaged] = key;
+                // The jobs' pristine copies decide, for the damaged copies too.
+                auto pristine = groups.find({ car, name, false });
+                if (pristine == groups.end()) continue;
+                const auto& jobs = pristine->second;
+                const rush2::rom2049::SourceTexture& first = *jobs[0];
+                std::vector<uint8_t> small_mask, full_mask;
+                std::vector<upscale::Image> fulls(jobs.size());
+                bool fulls_ok = true;
+                for (size_t i = 0; i < jobs.size() && fulls_ok; i++) {
+                    int w = 0, h = 0;
+                    fulls_ok = source.source_image(*jobs[i], fulls[i].rgba, w, h) && w > 0 && h > 0;
+                    fulls[i].width = (uint32_t)w;
+                    fulls[i].height = (uint32_t)h;
+                }
+                if (!fulls_ok) continue;
+                if (first.job == 0) {
+                    small_mask = rush2::rom2049::dc::tail_texture_mask(first.texels, first.w, first.h, first.rgba32);
+                    full_mask = rush2::rom2049::dc::tail_texture_mask(fulls[0].rgba, fulls[0].width, fulls[0].height, true);
+                }
+                else {
+                    std::vector<const std::vector<uint8_t>*> small, full;
+                    bool same = true;
+                    for (size_t i = 0; i < jobs.size(); i++) {
+                        small.push_back(&jobs[i]->texels);
+                        full.push_back(&fulls[i].rgba);
+                        same = same && fulls[i].width == fulls[0].width && fulls[i].height == fulls[0].height;
+                    }
+                    if (!same) continue;
+                    small_mask = rush2::rom2049::dc::brake_light_mask(small, first.w, first.h, first.rgba32);
+                    full_mask = rush2::rom2049::dc::brake_light_mask(full, fulls[0].width, fulls[0].height, true);
+                }
+                if (small_mask.empty()) continue;
+                if (full_mask.empty()) {
+                    full_mask = small_mask; // scaled up by light_texels
+                }
+                const bool from_small = full_mask.size() != size_t(fulls[0].width) * fulls[0].height;
+                for (const rush2::rom2049::SourceTexture* t : group) {
+                    rush2::rom2049::SourceTexture lit = *t;
+                    lit.texels = rush2::rom2049::dc::light_texels(t->texels, t->w, t->h, t->rgba32, small_mask, first.w, first.h);
+                    uint64_t hash = rush2::rom2049::dc::replacement_hash(lit);
+                    if (hash == 0 || !hashes.insert(hash).second) continue;
+                    upscale::Image image;
+                    int w = 0, h = 0;
+                    if (!source.source_image(*t, image.rgba, w, h) || w <= 0 || h <= 0) continue;
+                    image.width = (uint32_t)w;
+                    image.height = (uint32_t)h;
+                    image.rgba = rush2::rom2049::dc::light_texels(image.rgba, image.width, image.height, true, full_mask,
+                                                                 from_small ? first.w : fulls[0].width,
+                                                                 from_small ? first.h : fulls[0].height);
+                    uint64_t key = upscale::content_key(image);
+                    auto [it, added] = index.try_emplace(key, made.size());
+                    if (added) {
+                        if (!upscale::write_file(dir / (upscale::key_name(key) + ".dds"), upscale::make_dds(image))) return false;
+                        ImageInfo info;
+                        info.key = key;
+                        info.w = image.width;
+                        info.h = image.height;
+                        info.name = t->name + "_LIT";
+                        info.file = t->file.substr(0, t->file.rfind('.'));
+                        make_thumb(image, info.thumb);
+                        made.push_back(std::move(info));
+                    }
+                    ImageInfo& info = made[it->second];
+                    // Never offered to the N64 match (a job's), only drawn for its lit texels.
+                    info.flags |= flag_shrunk | flag_job | (damaged ? flag_damaged : 0);
+                    info.hashes.emplace_back(hash, true);
+                }
+            }
         }
         std::vector<uint8_t> out;
         auto put = [&](const void* p, size_t n) { out.insert(out.end(), (const uint8_t*)p, (const uint8_t*)p + n); };

@@ -3,8 +3,9 @@
 // liveries with their own texture sets and parts) a STYLE; five arcade schemes become liveries of Rush 2049's N64
 // cars. Per scheme: the body's full-detail LOD (CARBODY LOD 0) in the model dump's space (1/16 ft, x negated), one
 // material per arcade texture, drawn as authored (no paint mask: each scheme keeps the arcade's colors), and its
-// hood camera hood (HOOD, as Rush 2049's N64 cars draw theirs). The brake lights (BRAKE) and the wheels (Rush 2's
-// are drawn) are left out.
+// hood camera hood (HOOD, as Rush 2049's N64 cars draw theirs) and its brake lights (BRAKE, the lit lights the arcade
+// draws over the body while the car brakes: the car mod's "brakes", issue #44). The wheels (Rush 2's are drawn) are
+// left out.
 
 #include <algorithm>
 #include <cmath>
@@ -114,7 +115,7 @@ namespace {
         return out;
     }
 
-    // Color scheme `col` of the car (object `obj`: CARBODY, or HOOD, the hood camera's hood) as a glb in the model
+    // Color scheme `col` of the car (object `obj`: CARBODY, HOOD, the hood camera's hood, or BRAKE) as a glb in the model
     // dump's space, moved dz ft forward; empty without that object.
     std::vector<uint8_t> convert(const std::filesystem::path& data, const std::string& folder, const std::string& col,
                                  double dz, const std::string& obj, size_t& tri_count, std::string& error) {
@@ -177,7 +178,7 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
             log += std::string("no color schemes in CARS/") + car.folder + "\n";
             return false;
         }
-        nlohmann::json files = nlohmann::json::array(), hoods = nlohmann::json::array();
+        nlohmann::json files = nlohmann::json::array(), hoods = nlohmann::json::array(), brakes = nlohmann::json::array();
         for (const std::string& col : schemes) {
             if (cancelled && cancelled()) return false;
             size_t tris = 0;
@@ -195,10 +196,14 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
             std::string hood_name = hood.empty() ? "" : std::string(car.id) + "_" + col + "_HOOD.glb";
             if (!hood.empty()) out["rush2/new_cars/" + hood_name] = std::move(hood);
             hoods.push_back(hood_name);
+            std::vector<uint8_t> brake = convert(data_dir, car.folder, col, 0.0, "BRAKE", tris, error);
+            std::string brake_name = brake.empty() ? "" : std::string(car.id) + "_" + col + "_BRAKE.glb";
+            if (!brake.empty()) out["rush2/new_cars/" + brake_name] = std::move(brake);
+            brakes.push_back(brake_name);
         }
         int index = std::atoi(car.folder + 3) - 1;
         nlohmann::json spec = {
-            { "name", car.name }, { "base", car.base }, { "schemes", files }, { "hoods", hoods },
+            { "name", car.name }, { "base", car.base }, { "schemes", files }, { "hoods", hoods }, { "brakes", brakes },
             { "box", { arcade_box[index][0], arcade_box[index][1], arcade_box[index][2], 3.5 } },
             { "wheels", { { "front", { front[0] * units, wheel_y[0] * units, front[1] * units } },
                           { "rear", { rear[0] * units, wheel_y[1] * units, rear[1] * units } } } },
@@ -209,7 +214,7 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
     for (const Livery& l : liveries) {
         std::string lid;
         for (const char* c = l.car; *c; c++) if (*c != ' ' && *c != '-') lid += *c;
-        nlohmann::json files = nlohmann::json::array(), hoods = nlohmann::json::array();
+        nlohmann::json files = nlohmann::json::array(), hoods = nlohmann::json::array(), brakes = nlohmann::json::array();
         for (int c : l.cols) {
             if (cancelled && cancelled()) return false;
             std::string col = "COL" + std::to_string(c);
@@ -228,9 +233,13 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
             std::string hood_name = hood.empty() ? "" : lid + "_" + col + "_HOOD.glb";
             if (!hood.empty()) out["rush2/liveries/" + hood_name] = std::move(hood);
             hoods.push_back(hood_name);
+            std::vector<uint8_t> brake = convert(data_dir, l.folder, col, l.dz, "BRAKE", tris, error);
+            std::string brake_name = brake.empty() ? "" : lid + "_" + col + "_BRAKE.glb";
+            if (!brake.empty()) out["rush2/liveries/" + brake_name] = std::move(brake);
+            brakes.push_back(brake_name);
         }
         out["rush2/liveries/" + lid + ".json"] = text_bytes(nlohmann::json{
-            { "car", l.car }, { "styles", files }, { "hoods", hoods },
+            { "car", l.car }, { "styles", files }, { "hoods", hoods }, { "brakes", brakes },
             { "source", std::string("San Francisco Rush 2049 SE (arcade) ") + l.folder + ", built by the Games tab" } }.dump(4));
     }
     out["mod.json"] = text_bytes(nlohmann::json{

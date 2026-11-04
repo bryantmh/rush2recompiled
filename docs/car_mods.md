@@ -162,6 +162,7 @@ Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any 
   need to fit it to a Rush 2 car. Model it at its real size: Rush 2's cars are about 14 ft long. The wheels go where
   the `.json` puts them. With color schemes, one glb per scheme instead, named in the `.json`'s `schemes`.
 - `<ID>_HOOD.glb` (any name, listed in `hoods`): optional, the [hood camera hood](#the-hood-camera-hood).
+- `<ID>_BRAKE.glb` (any name, listed in `brakes`): optional, the [brake lights](#brake-lights).
 - `<ID>.json`. Every key but `name` is optional. A full example:
 
 ```json
@@ -189,6 +190,7 @@ Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any 
 | `main_color`, `accent_color` | The colors a new player starts the car in, 0-31 (Rush 2's color list). Default: the base car's. Unused with `schemes`. |
 | `schemes` | Color schemes: a list of glb file names in `rush2/new_cars/` (up to 16), in STYLE order. Without it the car is `<ID>.glb` with paint colors. |
 | `hoods` | The hood camera hood of each scheme: a list as long as `schemes` (one entry without schemes), each a glb file name in `rush2/new_cars/`, or `""` for none. Without it the hood camera shows no hood. |
+| `brakes` | The [brake lights](#brake-lights) of each scheme: a list as long as `schemes` (one entry without schemes), each a glb file name in `rush2/new_cars/`, or `""` for none. |
 | `physics_from` | A Rush 2049 car (`"BRUISER"`, `"8-BALL"`, ...) whose physics the car takes in place of the base car's (see [Physics](#physics)). |
 | `physics` | The car's handling, speed and weight (see [Physics](#physics)). Each value you leave out is the base car's. |
 
@@ -302,7 +304,8 @@ The Games tab (`src/arcade2049/arcade_cars.cpp`) builds the `rush2049_arcade_car
 (docs/arcade2049.md). It holds the three arcade cars that have no Rush 2049 (N64) counterpart as new cars: the Deuce
 (CAR10), the Caddy (CAR11) and the Truck (CAR8). Every `COL` folder of a car is one color scheme (`<ID>_COLn.glb`,
 picked with STYLE), each its body's full-detail LOD with the arcade's textures as authored, and its hood camera hood
-(the scheme's HOOD object, `<ID>_COLn_HOOD.glb`, in `hoods`). The wheels are at the
+(the scheme's HOOD object, `<ID>_COLn_HOOD.glb`, in `hoods`) and its brake lights (the BRAKE object, the lit lights the
+arcade draws over the body while the car brakes, `<ID>_COLn_BRAKE.glb`, in `brakes`). The wheels are at the
 arcade's own points, the same for every arcade car (docs/arcade2049.md#wheel-positions).
 
 Each drives as the Rush 2 car of its kind, its `base` (Truck: PICKUP, Deuce: HOTROD, Caddy: CADDY), with no
@@ -314,7 +317,9 @@ The other arcade cars are the N64 cars' models; their arcade-only color schemes 
 [liveries](#liveries) of the N64 cars (`LIVERIES` in the tool): GX-2 gets CAR2 COL6, Magnum CAR4 COL4, 6 and 7,
 Super GT CAR5 COL5 and 7, 8-Ball CAR6 COL1 and 3, and Bruiser the Cuda's (CAR7) COL1, 2, 3, 5, 6, 7 and 8. A livery
 body is moved forward by the N64 car's wheel center offset (Bruiser 0.5 ft, the others 0), which a side silhouette
-fit against the N64 body confirmed. Each livery has its scheme's HOOD as its hood.
+fit against the N64 body confirmed. Each livery has its scheme's HOOD as its hood and its BRAKE as its brake lights.
+The installed mod is keyed on the build, so a new build rebuilds it in the background at launch (an older install
+gets its brake lights that way).
 
 ## The hood camera hood
 
@@ -335,6 +340,30 @@ Code: `convert` / `build_container` (`src/car_mods.cpp`) emit the hood parts as 
 (the loader rebases a list once per part that names it, so two parts never share one); `append_liveries` adds a
 livery's as `~Lnn` + `H0_L` / `H2_L`, which `paint_livery` branches the car's own hood lists to.
 
+## Brake lights
+
+A modded car's brake lights are a glb of their own in the same space as the body: the lit lights, usually a few quads
+just over the body's own tail lights, drawn as authored only while the car brakes (Rush 2's rule: braking, the car's
+flags 0x1000 set and 0x10 clear, func_800599A0). New cars list one per scheme in the `.json`'s `brakes`, liveries one
+per style. The arcade cars' BRAKE objects are theirs. Issue #44.
+
+How it works: each scheme's (style's) brake lights are a list of their own, a model named `<prefix>BRK<scheme>` (a
+livery's `~LnnBRK`) so the loader rebases it, which the game never draws by name. The body's lists end the scheme's
+block (a livery's body lists end) with `rush2::car2049::brake_switch`: a G_NOOP marker (`brake_marker(1)`), then a
+G_NOOP holding the brake list's file offset in its low 24 bits (`brake_marker(2)`). `rush2_car49_dent`, every frame per
+race car, turns each switch of the car's copy (and of the livery it shows) into a G_DL call to the brake list while
+the car brakes, and back into the marker otherwise (`set_brake_switch`, src/rush2049/car2049.cpp; the switches are
+found by `find_scheme_blocks` and, for a livery, `find_brake_switches`). Everything starts off, so a copy just loaded
+and the car select's previews are unlit. The mirror walk (func_800776DC) turns the brake list over through its own
+model and follows calls, so `rush2::car2049::brake_mirror` (from `rush2_livery_mirror_begin` / `_end`) turns the lit
+switches off for it and on again after. A livery's brake list loads its textures inline, as its hood does: the
+relocator doesn't enter a called load list. `rush2_calspeed_brake_lights` (the func_800599A0 hook) keeps each car's
+braking for a car whose `Paint` or shown livery has lights (`Paint::lights`) and still lets Rush 2 write its palette.
+
+Test aid: `RUSH2_TEST_LIVERY=<style>` shows that STYLE on every car with liveries (JUST PLAY has no profile to keep one
+in): `tools/test_race.py 0 --cars 28 --env RUSH2_TEST_LIVERY=1 --script "14:A:5,19.2:B:3" --shots 18.8,19.6` brakes
+the Bruiser in the arcade's first Cuda livery.
+
 ## Liveries
 
 A mod's `rush2/liveries/<ID>.json` gives an existing car more looks, each a whole mesh:
@@ -354,6 +383,7 @@ A mod's `rush2/liveries/<ID>.json` gives an existing car more looks, each a whol
   the car's own wheels. Model it over a dump of the car (Dump Models) so it sits on the wheels.
 - `hoods`: optional. The [hood camera hood](#the-hood-camera-hood) of each style, by position in `styles`: a glb file
   in `rush2/liveries/`, or `""` (or a shorter list) for none. A style without one shows no hood in the hood camera.
+- `brakes`: optional. The [brake lights](#brake-lights) of each style, by position in `styles`, as `hoods`.
 
 A file that can't be read is skipped and the log says why (`[livery] <file> in <mod>: ...`).
 

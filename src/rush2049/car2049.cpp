@@ -44,6 +44,7 @@
 #include "font2049.h"
 #include "online.h"
 #include "online_sync.h"
+#include "rush2049_dc.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -209,6 +210,12 @@ namespace {
             uint32_t pristine = 0;              // file offsets of its texels and of their damaged copy (0: none)
             uint32_t damaged = 0;
             std::vector<std::vector<uint8_t>> texels, scuffed; // per job
+            uint32_t w = 0, h = 0;
+            bool rgba32 = false;
+            bool front = false;                 // a front texture (rush2::rom2049::dc::front_texture_name): no lights
+            // Its brake lights lit (rush2::rom2049::dc::brake_light_mask), per job, and where they go (0: none).
+            std::vector<std::vector<uint8_t>> lit, lit_scuffed;
+            uint32_t lit_at = 0, lit_damaged_at = 0;
         };
         std::vector<JobTexture> job_textures;
         std::vector<uint32_t> job_rgb;
@@ -255,6 +262,11 @@ namespace {
         // A California Speed car (set_calspeed_car): a body painted by California Speed's painter on its own palette
         // (colours), with its textures scuffed along that palette's ramps.
         bool calspeed = false;
+        // Brake lights drawn from lit copies of its textures (DamageLoad::lit) besides California Speed's: a
+        // Dreamcast car's (light_jobs). Rush 2's own palette lighting still runs for it.
+        bool lights = false;
+        // A Dreamcast car's tail light textures that have no paint jobs (C3_TAILIGHT): pristine texel offset -> lit.
+        std::map<uint32_t, std::vector<uint8_t>> tail_lit;
         // Its first texture record's name: every mod container is laid out alike (the same texture table and texels
         // offsets), so a body is told apart by this name (src/car_mods.cpp names the records after the car).
         char first_name[16] = {};
@@ -266,6 +278,12 @@ namespace {
         };
         std::vector<SchemeBlock> scheme_blocks;
         int schemes = 0;
+        // A mod car's brake light switches (rush2::car2049::brake_switch): each switch's file offset in every list of
+        // the car and the brake light list it calls while the car brakes (rush2_car49_dent).
+        struct BrakeBlock {
+            uint32_t at, list;
+        };
+        std::vector<BrakeBlock> brake_blocks;
     };
     Paint paints[car_count];
     // Rush 2 types drawn as one body (car mods, src/car_mods.cpp) and California Speed's (src/calspeed/calspeed_cars.cpp).
@@ -1016,6 +1034,50 @@ namespace {
                     l.damaged = s->second;
                 }
             }
+            // A Dreamcast car's brake lights: its job textures' lit copies (the job's, copied in with the job) and
+            // its tail light textures without jobs.
+            const std::vector<uint8_t>* lit_texels = nullptr;
+            const std::vector<uint8_t>* lit_scuffed = nullptr;
+            if (job != nullptr && !job->lit.empty()) {
+                lit_texels = &job->lit[0];
+                if (!job->lit_scuffed.empty()) lit_scuffed = &job->lit_scuffed[0];
+            }
+            else if (auto tail = l.settimg >= 0 ? p.tail_lit.find(l.texels) : p.tail_lit.end(); tail != p.tail_lit.end()) {
+                lit_texels = &tail->second;
+            }
+            if (lit_texels != nullptr && lit_texels->size() == size && size > 0 && l.texels + size <= car.size()) {
+                auto put = [&](const std::vector<uint8_t>& bytes) {
+                    align();
+                    uint32_t at = uint32_t(car.size());
+                    car.insert(car.end(), bytes.begin(), bytes.end());
+                    return at;
+                };
+                auto known = lit_copies.find(l.texels);
+                if (known != lit_copies.end()) {
+                    l.lit = known->second;
+                }
+                else {
+                    l.lit = put(*lit_texels);
+                    lit_copies.emplace(l.texels, l.lit);
+                }
+                l.lit_damaged = l.lit;
+                if (l.damaged != 0 && lit_scuffed != nullptr && lit_scuffed->size() == size) {
+                    auto known_damaged = lit_copies.find(l.damaged);
+                    if (known_damaged != lit_copies.end()) {
+                        l.lit_damaged = known_damaged->second;
+                    }
+                    else {
+                        l.lit_damaged = put(*lit_scuffed);
+                        lit_copies.emplace(l.damaged, l.lit_damaged);
+                    }
+                }
+                if (job != nullptr) {
+                    job->lit_at = l.lit;
+                    job->lit_damaged_at = l.lit_damaged != l.lit ? l.lit_damaged : 0;
+                }
+                // A load is switched only when it has a damaged copy: one without scuffs damages as itself.
+                if (l.damaged == 0) l.damaged = l.texels;
+            }
             if (p.calspeed && l.settimg >= 0 && ci8 && size > 0 && l.texels + size <= car.size() &&
                 calspeed_body_texture(car, l.texels)) {
                 l.lit = light(l.texels, size);
@@ -1164,6 +1226,27 @@ namespace {
     }
 
     std::map<uint32_t, uint32_t> dented;   // asset copy base -> panel damage bits last applied
+    // Brake light switches turned on (switch address -> the call's w1), turned off for the mirror walk
+    // (rush2::car2049::brake_mirror). Game thread.
+    std::map<uint32_t, uint32_t> lit_brakes;
+
+    // Turns a car copy's brake light switches (rush2::car2049::brake_switch) on: a call to the list at its file
+    // offset `list` in the copy at base; or off.
+    void set_brake_switch(uint8_t* rdram, uint32_t base, uint32_t at, uint32_t list, bool lit) {
+        at += base;
+        uint32_t w0 = lit ? 0xDE000000u : 0u;
+        uint32_t w1 = lit ? ((base + list) & 0xFFFFFF) : rush2::car2049::brake_marker(1);
+        if ((uint32_t)MEM_W(0, (int32_t)at) != w0 || (uint32_t)MEM_W(4, (int32_t)at) != w1) {
+            MEM_W(0, (int32_t)at) = (int32_t)w0;
+            MEM_W(4, (int32_t)at) = (int32_t)w1;
+        }
+        if (lit) lit_brakes[at] = w1;
+        else lit_brakes.erase(at);
+    }
+
+    void set_brake_blocks(uint8_t* rdram, uint32_t base, const Paint& p, bool lit) {
+        for (const Paint::BrakeBlock& b : p.brake_blocks) set_brake_switch(rdram, base, b.at, b.list, lit);
+    }
     uint8_t brake_lit[8] = {};             // race car -> its California Speed tail lights lit (game thread)
 }
 
@@ -1176,8 +1259,9 @@ namespace {
 // texels in every job, and each job's paint color.
 static void load_jobs(const std::vector<uint8_t>& car, const std::vector<rush2::rom2049::SourceTexture>& list, Paint& p) {
     for (const rush2::rom2049::SourceTexture& t : list) {
-        if (t.job < 1) continue;
-        size_t job = size_t(t.job - 1);
+        // The paint jobs' textures, and a tail light texture without jobs (its brake lights, issue #44).
+        if (t.job < 1 && (t.damaged || !rush2::rom2049::dc::tail_texture_name(t.name))) continue;
+        size_t job = size_t(std::max(t.job, 1) - 1);
         uint32_t record = 0;
         for (uint32_t i = 0; i < p.texture_count; i++) {
             uint32_t r = p.texture_table + i * 0x20;
@@ -1196,17 +1280,51 @@ static void load_jobs(const std::vector<uint8_t>& car, const std::vector<rush2::
             }
         }
         if (texels == 0 || texels + t.texels.size() > car.size()) continue;
+        if (t.job < 1) {
+            std::vector<uint8_t> mask = rush2::rom2049::dc::tail_texture_mask(t.texels, t.w, t.h, t.rgba32);
+            if (!mask.empty()) {
+                p.tail_lit[texels] = rush2::rom2049::dc::light_texels(t.texels, t.w, t.h, t.rgba32, mask, t.w, t.h);
+                p.lights = true;
+            }
+            continue;
+        }
         Paint::JobTexture* jt = p.job_texture(texels);
         if (jt == nullptr) {
             p.job_textures.push_back({});
             jt = &p.job_textures.back();
             jt->pristine = texels;
+            jt->w = t.w;
+            jt->h = t.h;
+            jt->rgba32 = t.rgba32;
+            jt->front = rush2::rom2049::dc::front_texture_name(t.name);
         }
         auto& slot = t.damaged ? jt->scuffed : jt->texels;
         if (slot.size() <= job) slot.resize(job + 1);
         slot[job] = t.texels;
         if (p.job_rgb.size() <= job) p.job_rgb.resize(job + 1);
         p.job_rgb[job] = t.job_rgb;
+    }
+}
+
+// A Dreamcast car's brake lights (issue #44): each job texture's lit copies, for every job and its scuffed copy.
+static void light_jobs(Paint& p) {
+    for (Paint::JobTexture& t : p.job_textures) {
+        if (t.front) continue;
+        std::vector<const std::vector<uint8_t>*> jobs;
+        for (const std::vector<uint8_t>& j : t.texels) {
+            if (!j.empty()) jobs.push_back(&j);
+        }
+        std::vector<uint8_t> mask = rush2::rom2049::dc::brake_light_mask(jobs, t.w, t.h, t.rgba32);
+        if (mask.empty()) continue;
+        t.lit.clear();
+        t.lit_scuffed.clear();
+        for (const std::vector<uint8_t>& j : t.texels) {
+            t.lit.push_back(rush2::rom2049::dc::light_texels(j, t.w, t.h, t.rgba32, mask, t.w, t.h));
+        }
+        for (const std::vector<uint8_t>& j : t.scuffed) {
+            t.lit_scuffed.push_back(rush2::rom2049::dc::light_texels(j, t.w, t.h, t.rgba32, mask, t.w, t.h));
+        }
+        p.lights = true;
     }
 }
 
@@ -1316,6 +1434,7 @@ static void load_cars(uint8_t* rdram) {
             }
             if (rom->is_dreamcast()) {
                 load_jobs(car, rom->file_textures(87 + k + 1), p);
+                light_jobs(p);
             }
             collect_body_vertices(car, "CAR" + std::to_string(k + 1), p);
             add_damage_textures(car, "CAR" + std::to_string(k + 1) + "FRAME1", k, p);
@@ -1864,9 +1983,30 @@ std::string rush2::car2049::mod_car_name(int n) {
     return n >= 0 && n < rush2::car_types::count_mod && mod_slots[n].loaded ? mod_slots[n].spec.name : std::string();
 }
 
+// The brake light switches (rush2::car2049::brake_switch) in model `model`'s lists (a livery's FRAME1).
+static void find_brake_switches(const std::vector<uint8_t>& car, const std::string& model, Paint& p) {
+    uint32_t models = be32(car, 0), names = be32(car, 4), count = be32(car, 16);
+    for (uint32_t m = 0; m < count && models + m * 0x34 + 0x34 <= car.size() && names + m * 0x18 + 0x18 <= car.size(); m++) {
+        if (strncmp(reinterpret_cast<const char*>(&car[names + m * 0x18]), model.c_str(), 15) != 0) continue;
+        uint32_t record = models + m * 0x34;
+        for (uint32_t lod = 0; lod < std::min(be32(car, record), 4u); lod++) {
+            uint32_t list = be32(car, record + 4 + lod * 12 + 8);
+            for (uint32_t pc = list; list != 0 && pc + 16 <= car.size(); pc += 8) {
+                uint32_t w0 = be32(car, pc), w1 = be32(car, pc + 4);
+                if ((w0 >> 24) == 0xDF) break;
+                if (w0 == 0 && w1 == rush2::car2049::brake_marker(1) && (be32(car, pc + 8) >> 24) == 0 &&
+                    be32(car, pc + 12) == rush2::car2049::brake_marker(2)) {
+                    p.brake_blocks.push_back({ pc, be32(car, pc + 8) & 0xFFFFFF });
+                }
+            }
+        }
+    }
+}
+
 // A mod car's color scheme blocks in every model's lists (after add_damage_textures rewrote the body's).
 static void find_scheme_blocks(const std::vector<uint8_t>& car, Paint& p) {
     p.scheme_blocks.clear();
+    p.brake_blocks.clear();
     p.schemes = 0;
     uint32_t models = be32(car, 0), count = be32(car, 16);
     std::set<uint32_t> walked;
@@ -1879,6 +2019,10 @@ static void find_scheme_blocks(const std::vector<uint8_t>& car, Paint& p) {
             for (uint32_t pc = list; pc + 8 <= car.size(); pc += 8) {
                 uint32_t w0 = be32(car, pc), w1 = be32(car, pc + 4);
                 if ((w0 >> 24) == 0xDF) break;
+                if (w0 == 0 && w1 == rush2::car2049::brake_marker(1) && pc + 16 <= car.size() &&
+                    (be32(car, pc + 8) >> 24) == 0 && be32(car, pc + 12) == rush2::car2049::brake_marker(2)) {
+                    p.brake_blocks.push_back({ pc, be32(car, pc + 8) & 0xFFFFFF });
+                }
                 if (w0 != 0 || (w1 & 0xFFFF0000u) != (rush2::car2049::scheme_marker(0, false) & 0xFFFF0000u)) continue;
                 int scheme = int((w1 >> 1) & 0x7FFF);
                 if (!(w1 & 1)) {
@@ -1913,6 +2057,7 @@ static void set_body(uint8_t* rdram, int type, std::vector<uint8_t> car, const s
     collect_body_vertices(car, prefix, p);
     add_damage_textures(car, prefix + "FRAME1", type, p);
     find_scheme_blocks(car, p);
+    p.lights = !p.brake_blocks.empty();
     if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
         MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
     }
@@ -1947,6 +2092,8 @@ int rush2::car2049::add_livery_body(int id, std::vector<uint8_t>& car, const std
     collect_body_vertices(car, prefix, p);
     if (p.vertices.empty()) return -1;
     add_damage_textures(car, prefix + "FRAME1", 0, p, loads_start, loads_end);
+    find_brake_switches(car, prefix + "FRAME1", p);
+    p.lights = !p.brake_blocks.empty();
     std::lock_guard lock{ livery_mutex };
     if (id >= 0 && id < (int)livery_bodies.size()) {
         livery_bodies[id] = std::move(p);
@@ -2830,6 +2977,8 @@ extern "C" void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx) {
             for (const Paint::JobTexture& t : p.job_textures) {
                 copy(t.pristine, t.texels);
                 copy(t.damaged, t.scuffed);
+                copy(t.lit_at, t.lit);                 // its brake lights lit (issue #44)
+                copy(t.lit_damaged_at, t.lit_scuffed);
             }
             return;
         }
@@ -2988,14 +3137,23 @@ extern "C" bool rush2_calspeed_brake_lights(uint8_t* rdram, recomp_context* ctx)
     if (car < 0 || car >= 8) return false;
     uint32_t base = 0;
     const Paint* p = car_instance(rdram, car, base);
-    if (p == nullptr || !p->calspeed) {
+    // A car mod livery with brake lights on the car (any car, Rush 2's too).
+    bool livery_lights = false;
+    uint32_t livery_base = 0;
+    if (int livery = rush2::car_mods::livery_body(rdram, car, livery_base); livery >= 0) {
+        std::lock_guard lock{ livery_mutex };
+        livery_lights = livery < (int)livery_bodies.size() && livery_bodies[livery].lights;
+    }
+    if (!livery_lights && (p == nullptr || !(p->calspeed || p->lights))) {
         brake_lit[car] = 0;
         return false;
     }
     // Lit while braking, when the car's flags have 0x1000 and not 0x10 (0x80059A1C-0x80059A28).
     uint32_t flags = (uint32_t)MEM_W(0, (int32_t)(0x80112584 + car * 0x354));
     brake_lit[car] = (int16_t)ctx->r5 != 0 && (flags & 0x1000) != 0 && (flags & 0x10) == 0;
-    return true;
+    // A Dreamcast car's lights are its lit texture copies, a mod car's and a livery's their brake light lists
+    // (Paint::lights); Rush 2's palette write runs for them too (it leaves their true-color textures alone).
+    return p != nullptr && p->calspeed;
 }
 
 extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
@@ -3033,6 +3191,15 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
     key |= uint32_t(livery + 1) << 16; // a livery shown since: its body takes the damage too
     bool lit = brake_lit[car] != 0 && !(state >= 0 && state <= 2);
     key |= uint32_t(lit) << 30;
+    // A mod car's brake lights: each block shown while braking, else branched past. Checked every frame, as a copy
+    // loaded again at the same place comes in with its blocks shown.
+    if (p != nullptr && !p->brake_blocks.empty()) set_brake_blocks(rdram, base, *p, lit);
+    if (livery >= 0) {
+        std::lock_guard lock{ livery_mutex };
+        if (livery < (int)livery_bodies.size() && !livery_bodies[livery].brake_blocks.empty()) {
+            set_brake_blocks(rdram, livery_base, livery_bodies[livery], lit);
+        }
+    }
     auto it = dented.find(base);
     if (it != dented.end() && it->second == key) {
         return;
@@ -5059,4 +5226,27 @@ int rush2::car2049::saved_type(uint8_t* rdram, uint32_t at) {
         type = it->second;
     }
     return type;
+}
+
+// Around the mirror walk (func_800776DC, which turns every model's triangles over and follows calls;
+// src/car_mods.cpp's rush2_livery_mirror_begin/_end): the brake light switches turned on are off for it, as a brake
+// light list is turned over through its own model, and on again after.
+void rush2::car2049::brake_mirror(uint8_t* rdram, bool begin) {
+    for (auto it = lit_brakes.begin(); it != lit_brakes.end();) {
+        uint32_t at = it->first;
+        uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+        if (begin && w0 == 0xDE000000u && w1 == it->second) {
+            MEM_W(0, (int32_t)at) = 0;
+            MEM_W(4, (int32_t)at) = (int32_t)rush2::car2049::brake_marker(1);
+            ++it;
+        }
+        else if (!begin && w0 == 0 && w1 == rush2::car2049::brake_marker(1)) {
+            MEM_W(0, (int32_t)at) = (int32_t)0xDE000000u;
+            MEM_W(4, (int32_t)at) = (int32_t)it->second;
+            ++it;
+        }
+        else {
+            it = lit_brakes.erase(it); // loaded over meanwhile
+        }
+    }
 }

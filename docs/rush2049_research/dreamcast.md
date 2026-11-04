@@ -247,6 +247,28 @@ for, so the car select picks them as Rush 2049 does, by style: a Dreamcast car's
 no swatch, wrapping at the car's jobs, `rush2::car2049::paint_jobs`) and ACCENT, STRIPE and STRIPE COLOR are hidden
 (src/rush2049/wings_menu.cpp; cars.md "Car select rows").
 
+### Brake lights [V]
+
+On the N64 ROM a 2049 car's tail lights are lit as Rush 2 lights its own: func_800599A0 writes its palette's tail
+light ramp (161-175) bright red while the car brakes. A disc's car draws RGBA textures, which no palette touches, so
+its lights stayed dark (issue #44). Its lights are found in its textures instead: `rush2::rom2049::dc::brake_light_mask`
+(src/rush2049dc/rush2049_dc_model.cpp) marks a texel of a job texture that is lamp red (red 50 or more, green under
+0.55 of it, which leaves the amber markers out, blue under 0.7) in every job (the paint changes between jobs, the
+lights don't), then grows two texels into reddish texels that are the same in every job (a lens's rim and highlight),
+fills texels closed in by lights within 8 texels on all four sides that are the same in every job (a lens's middle),
+and drops texels with no lit neighbor. Textures of the car's front (`front_texture_name`: FRONT, HEAD, NOSE, HOOD,
+LOWF, `_F<n>`) are left out. A texture without jobs named for a tail light (`tail_texture_name`: TAIL, TLGHT, as
+C3_TAILIGHT) takes its reddish texels. `light_texels` makes a lit copy: red 255, green and blue a third.
+
+src/rush2049/car2049.cpp (`light_jobs`, `load_jobs`) keeps each job's lit copies (of its damaged copy too), and
+`add_damage_textures` gives their loads lit copies in the car asset (`DamageLoad::lit`, `lit_damaged`), which
+`rush2_car49_paint` fills with the job's and `rush2_car49_dent` switches to while the car brakes, as California
+Speed's lit tail lights (`Paint::lights`; `rush2_calspeed_brake_lights` keeps the braking and lets Rush 2 write its
+palette too). The texture pack gets a full-size lit image for every scaled-down lit copy (pack format v4,
+`rush2049_dc_pack.cpp` build: the mask found again over the full-size images), so a braking car keeps the disc's
+resolution. Seen in game: the Bruiser's four round lights and the Magnum's two dark while driving, bright red while
+braking.
+
 ## Draw state [V]
 
 How the disc draws a model, read from its code (Sega's Kamui 2 library):

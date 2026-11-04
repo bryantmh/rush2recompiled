@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -112,6 +113,19 @@ namespace rush2::car2049 {
     constexpr uint32_t scheme_marker(int scheme, bool end) {
         return 0x5C4E0000u | (uint32_t(scheme) << 1) | (end ? 1u : 0u);
     }
+    // A mod car's or livery's brake lights (its .json's "brakes", issue #44): each scheme's are a list of their own,
+    // named as a model so the loader rebases it (the mirror walk turns it over through that model once). The body's
+    // lists end the scheme's block with brake_switch: a G_NOOP (brake_marker(1)) that the car's copy turns into a
+    // G_DL call to that list while the car brakes (rush2_car49_dent), then a G_NOOP holding the list's file offset in
+    // its low 24 bits (brake_marker(2)). Both start off, so a copy just loaded and the car select's previews are unlit.
+    constexpr uint32_t brake_marker(int which) {
+        return 0x5C4F0000u | uint32_t(which);
+    }
+    inline std::array<std::pair<uint32_t, uint32_t>, 2> brake_switch(uint32_t list) {
+        return { { { 0u, brake_marker(1) }, { list & 0xFFFFFFu, brake_marker(2) } } };
+    }
+    // Opens the brake light blocks branched past for the mirror walk (begin), closes them again after.
+    void brake_mirror(uint8_t* rdram, bool begin);
     struct ModCar {
         std::string name;              // the car select logo's text
         int base = 0;                  // Rush 2 type 0-21

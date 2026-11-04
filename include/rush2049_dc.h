@@ -33,6 +33,22 @@ namespace rush2::rom2049::dc {
     // textures, whose palette the game sets).
     uint64_t replacement_hash(const SourceTexture& t);
 
+    // Brake lights (issue #44). A Dreamcast car's tail lights are drawn in its body textures, which each paint job
+    // has its own of: a texel red in every job's copy of a texture (the paint changes between jobs, the lights don't)
+    // and next to another such texel is a light. jobs: each job's texels of one texture, w x h, RGBA5551 (big endian)
+    // or RGBA32 (bytes R, G, B, A). One byte per texel, 1 for a light; empty when the texture has none.
+    std::vector<uint8_t> brake_light_mask(const std::vector<const std::vector<uint8_t>*>& jobs, uint32_t w, uint32_t h,
+                                          bool rgba32);
+    // A texture with no paint jobs whose name says it's a tail light (C3_TAILIGHT): its red texels.
+    std::vector<uint8_t> tail_texture_mask(const std::vector<uint8_t>& texels, uint32_t w, uint32_t h, bool rgba32);
+    bool tail_texture_name(const std::string& name);
+    // A texture of the car's front (C10_FRONT, C7_F, C8_LOWF, headlights): never lit as a brake light.
+    bool front_texture_name(const std::string& name);
+    // The texels with the mask's lit: bright red, as Rush 2 lights its own brake lights (0xF801, func_800599A0),
+    // keeping a little of the lens's shading. A mask of another size (a scuffed or full-size copy) is scaled to it.
+    std::vector<uint8_t> light_texels(const std::vector<uint8_t>& texels, uint32_t w, uint32_t h, bool rgba32,
+                                      const std::vector<uint8_t>& mask, uint32_t mask_w, uint32_t mask_h);
+
     // The disc's textures at their full size (src/rush2049dc/rush2049_dc_pack.cpp), kept in
     // <app folder>/track_cache/dc_textures (built in the background once per disc and build). With a disc as the
     // source, its scaled-down textures are always drawn from those images: a texture pack RT64 loads like any other,
