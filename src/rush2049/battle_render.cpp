@@ -609,6 +609,11 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
     }
     for (const auto& c : epilogue) dl.cmd(c[0], c[1]);
     if (MEM_BU(0, (int32_t)lighting_cache) != 0) dl.cmd(0xD9FFFFFF, 0x00020000);
+    // Test aid: R2_BATTLE_TEST=dlfault loads unknown microcode once (G_LOAD_UCODE of address 0), to check that RT64
+    // ends the list and writes dl_fault.txt (docs/crash_reports.md#display-list-faults).
+    static const bool test_fault = getenv("R2_BATTLE_TEST") != nullptr && strstr(getenv("R2_BATTLE_TEST"), "dlfault") != nullptr;
+    static int fault_countdown = 600;   // views drawn with battle models first: about 10 s of racing
+    if (test_fault && fault_countdown > 0 && --fault_countdown == 0) dl.cmd(0xDD000000, 0);
     MEM_W(0, (int32_t)palette_cache) = 0;
     dl.cmd(G_ENDDL_W0, 0);
 

@@ -1183,7 +1183,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x80023390
 name = "inflate_state_a"
 type = "u32"
-desc = "Inflate shared state used by all inflate stages. (low confidence)"
+desc = "Inflate shared state used by all inflate stages; inflate_refill_buffer_80005894 stores the current input buffer here (decompress_input_a 0x800491E0 or decompress_input_b 0x8004A1E0)."
 area = "util"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -1844,6 +1844,24 @@ desc = "State word used by gfx_draw_frame_views. (low confidence)"
 area = "render"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800491E0
+name = "decompress_input_a"
+type = "u8[0x1000]"
+desc = "First 4 KB input buffer the LZSS and inflate decompressors stream compressed ROM data through (lzss_refill_buffer_80003B80, inflate_refill_buffer_80005894), right after the RDP FIFO buffer (0x800411E0-0x800491E0)."
+area = "util"
+status = "inferred"
+ref = "docs/crash_reports.md#2026-11-03-race-battle-on-haight-2049"
+
+[[var]]
+vram = 0x8004A1E0
+name = "decompress_input_b"
+type = "u8[0x1000]"
+desc = "Second 4 KB input buffer of the LZSS and inflate decompressors (the refills alternate with 0x800491E0)."
+area = "util"
+status = "inferred"
+ref = "docs/crash_reports.md#2026-11-03-race-battle-on-haight-2049"
 
 [[var]]
 vram = 0x8004B221

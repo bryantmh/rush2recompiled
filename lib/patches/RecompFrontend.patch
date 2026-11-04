@@ -662,6 +662,32 @@ index 4fdf81f..87f4c1f 100644
              return config;
          }
      }
+diff --git a/recompui/src/elements/ui_document.cpp b/recompui/src/elements/ui_document.cpp
+index a60c585..5469505 100644
+--- a/recompui/src/elements/ui_document.cpp
++++ b/recompui/src/elements/ui_document.cpp
+@@ -198,7 +198,10 @@ namespace recompui {
+ 
+             int cur_element_index = get_element_index(this_element, nav_parent->nav_children);
+             if (cur_element_index == -1) {
+-                throw std::runtime_error("This should never ever ever happen. Element not found in its parent's nav children.");
++                // The nav tree is out of step with the focused element (a menu rebuilt or torn down while a direction
++                // press was queued, e.g. the launcher as the game boots). Ignore the press: throwing here ran on the
++                // present thread with nothing to catch it, so the game aborted.
++                return nullptr;
+             }
+ 
+             // Process grid navigation if retained_grid_index is valid and grid navs are different.
+@@ -308,7 +311,8 @@ namespace recompui {
+                     }
+                 }
+ 
+-                return dive_nav_from_direction(get_closest_element(original_focused_element, this_element->nav_children));
++                Element *closest = get_closest_element(original_focused_element, this_element->nav_children);
++                return closest != nullptr ? dive_nav_from_direction(closest) : nullptr;
+             }
+         }
+     };
 diff --git a/recompui/src/elements/ui_element.cpp b/recompui/src/elements/ui_element.cpp
 index 4517152..61736bd 100644
 --- a/recompui/src/elements/ui_element.cpp

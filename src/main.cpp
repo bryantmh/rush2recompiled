@@ -17,6 +17,7 @@
 #include "texture_census.h"
 #include "texture_derive.h"
 #include "render/rt64_raster_shader_cache.h"
+#include "hle/rt64_interpreter.h"
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
@@ -841,6 +842,9 @@ int main(int argc, char** argv) {
             rush2::census::set_rdram(rdram);
             // RT64 keeps every specialized shader it compiles here and builds them all at launch (docs/hitch_profiler.md).
             RT64::RasterShaderCache::setDiskCacheDirectory(recomp::get_config_path() / "shader_cache");
+            // A display list that runs into memory that isn't one is ended there, and its report (dl_fault.txt and an
+            // RDRAM snapshot) goes in the data folder (lib/rt64 hle/rt64_interpreter.cpp, docs/crash_reports.md#display-list-faults).
+            RT64::Interpreter::setFaultReportDirectory(recomp::get_config_path());
             auto presentation_mode = ultramodern::renderer::PresentationMode::PresentEarly;
             return recompui::renderer::create_render_context(rdram, window_handle, presentation_mode, developer_mode);
         },

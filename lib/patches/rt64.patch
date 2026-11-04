@@ -308,6 +308,47 @@ index 20c0d4d..68cbeef 100644
              MapInitialized = true;
          }
      }
+diff --git a/src/gbi/rt64_gbi_f3d.cpp b/src/gbi/rt64_gbi_f3d.cpp
+index cf05674..5bc921b 100644
+--- a/src/gbi/rt64_gbi_f3d.cpp
++++ b/src/gbi/rt64_gbi_f3d.cpp
+@@ -79,11 +79,15 @@ namespace RT64 {
+             }
+ 
+             const uint32_t rdramAddress = state->rsp->fromSegmentedMasked((*dl)->w1);
++            state->recordDisplayListJump(*dl, rdramAddress, uint8_t((*dl)->w0 >> 24));
+             *dl = reinterpret_cast<DisplayList *>(state->fromRDRAM(rdramAddress)) - 1;
+         }
+ 
+         void endDl(State *state, DisplayList **dl) {
++            const DisplayList *from = *dl;
+             *dl = state->popReturnAddress();
++            const uint32_t to = (*dl != nullptr) ? uint32_t(reinterpret_cast<const uint8_t *>(*dl) - state->RDRAM) : 0;
++            state->recordDisplayListJump(from, to, uint8_t(from->w0 >> 24));
+         }
+ 
+         void sprite2DBase(State *state, DisplayList **dl) {
+diff --git a/src/gbi/rt64_gbi_f3dex.cpp b/src/gbi/rt64_gbi_f3dex.cpp
+index 4eabdee..45da102 100644
+--- a/src/gbi/rt64_gbi_f3dex.cpp
++++ b/src/gbi/rt64_gbi_f3dex.cpp
+@@ -43,10 +43,15 @@ namespace RT64 {
+         }
+ 
+         void branchZ(State *state, DisplayList **dl) {
++            DisplayList *from = *dl;
+             state->rsp->branchZ(state->microcode.half1, (*dl)->p0(1, 11), (*dl)->w1, dl);
++            if (*dl != from) {
++                state->recordDisplayListJump(from, uint32_t(reinterpret_cast<const uint8_t *>(*dl + 1) - state->RDRAM), uint8_t(from->w0 >> 24));
++            }
+         }
+-        
++
+         void loadUCode(State *state, DisplayList **dl) {
++            state->recordDisplayListJump(*dl, (*dl)->w1, uint8_t((*dl)->w0 >> 24));
+             state->ext.interpreter->loadUCodeGBI((*dl)->w1, state->microcode.half1, false);
+         }
+ 
 diff --git a/src/gui/rt64_debugger_inspector.cpp b/src/gui/rt64_debugger_inspector.cpp
 index 3298c06..1d47c1c 100644
 --- a/src/gui/rt64_debugger_inspector.cpp
@@ -398,6 +439,117 @@ index 87392d0..67fce6b 100644
                  }
              }
  
+diff --git a/src/hle/rt64_interpreter.cpp b/src/hle/rt64_interpreter.cpp
+index dccaa87..edd4715 100644
+--- a/src/hle/rt64_interpreter.cpp
++++ b/src/hle/rt64_interpreter.cpp
+@@ -4,12 +4,72 @@
+ 
+ #include "rt64_interpreter.h"
+ 
++#include <algorithm>
++#include <atomic>
+ #include <cassert>
++#include <mutex>
+ 
+ //#define DUMP_DISPLAY_LISTS
+ 
+ namespace RT64 {
+     static FILE *displayListFp = nullptr;
++    static std::mutex FaultReportMutex;
++    static std::filesystem::path FaultReportDirectory;
++    static std::atomic<bool> FaultReported = false;
++
++    void Interpreter::setFaultReportDirectory(const std::filesystem::path &directory) {
++        const std::scoped_lock lock(FaultReportMutex);
++        FaultReportDirectory = directory;
++    }
++
++    // A display list ran into memory that isn't one: it loaded microcode RT64 doesn't know (G_LOAD_UCODE read from
++    // garbage), so there is no command table to go on with. Writes the interpreter's last jumps and the first 16 MB of
++    // RDRAM (host word order) so the list that jumped there can be found offline, once per session.
++    void Interpreter::reportFault(uint32_t dlStartAddress, const DisplayList *dl) {
++        const uint32_t dlAddress = uint32_t(reinterpret_cast<const uint8_t *>(dl) - state->RDRAM);
++        fprintf(stderr, "[RT64] Display list fault: unknown microcode loaded at 0x%08X (task list 0x%08X); list ended.\n", dlAddress, dlStartAddress);
++        std::filesystem::path directory;
++        {
++            const std::scoped_lock lock(FaultReportMutex);
++            directory = FaultReportDirectory;
++        }
++
++        if (directory.empty() || FaultReported.exchange(true)) {
++            return;
++        }
++
++        FILE *fp = fopen((directory / "dl_fault.txt").string().c_str(), "w");
++        if (fp != nullptr) {
++            fprintf(fp, "Display list fault: unknown microcode loaded; the list was ended at 0x%08X.\n", dlAddress);
++            fprintf(fp, "Task display list: 0x%08X. Display list counter: %llu.\n", dlStartAddress, (unsigned long long)(state->displayListCounter));
++            fprintf(fp, "Microcode text 0x%08X data 0x%08X. RDPHALF_1: 0x%08X.\n", UCode.textAddress, UCode.dataAddress, state->microcode.half1);
++            fprintf(fp, "\nLast jumps, oldest first (from -> to, opcode; 00 = a task's start):\n");
++            const uint32_t count = std::min(state->displayListJumpCursor, State::DisplayListJumpCount);
++            for (uint32_t i = state->displayListJumpCursor - count; i < state->displayListJumpCursor; i++) {
++                const State::DisplayListJump &jump = state->displayListJumps[i % State::DisplayListJumpCount];
++                fprintf(fp, "  0x%08X -> 0x%08X  %02X\n", jump.from, jump.to, jump.opCode);
++            }
++
++            fprintf(fp, "\nReturn stack, innermost last:\n");
++            for (const DisplayList *ret : state->returnAddressStack) {
++                fprintf(fp, "  0x%08X\n", uint32_t(reinterpret_cast<const uint8_t *>(ret) - state->RDRAM));
++            }
++
++            fprintf(fp, "\nSegments:\n");
++            for (size_t i = 0; i < state->rsp->segments.size(); i++) {
++                fprintf(fp, "  %2zu 0x%08X\n", i, state->rsp->segments[i]);
++            }
++
++            fprintf(fp, "\nRDRAM snapshot: dl_fault_rdram.bin (0x1000000 bytes from 0x80000000, 32-bit words in host order).\n");
++            fclose(fp);
++        }
++
++        fp = fopen((directory / "dl_fault_rdram.bin").string().c_str(), "wb");
++        if (fp != nullptr) {
++            fwrite(state->RDRAM, 0x1000000, 1, fp);
++            fclose(fp);
++        }
++    }
+ 
+     // Interpreter
+ 
+@@ -169,7 +229,17 @@ namespace RT64 {
+         DisplayList *dl = dlStart;
+         uint8_t opCode;
+         GBIFunction func;
++        state->recordDisplayListJump(nullptr, dlStartAdddress, 0);
+         while (dl != nullptr) {
++            // A G_LOAD_UCODE with microcode RT64 doesn't know (read from memory that isn't a display list) leaves no
++            // command table: end the list instead of crashing.
++            if (hleGBI == nullptr) {
++                reportFault(dlStartAdddress, dl);
++                // The lists it was called from are abandoned too: the next task's last G_ENDDL must not return into them.
++                state->returnAddressStack.clear();
++                break;
++            }
++
+             opCode = (dl->w0 >> 24);
+ 
+             if ((extendedOpCode != 0) && (opCode == extendedOpCode)) {
+diff --git a/src/hle/rt64_interpreter.h b/src/hle/rt64_interpreter.h
+index c29e4b2..f865c16 100644
+--- a/src/hle/rt64_interpreter.h
++++ b/src/hle/rt64_interpreter.h
+@@ -24,6 +24,11 @@ namespace RT64 {
+ 
+         Interpreter();
+         void setup(State *state);
++
++        // Where a display list fault (a list that ran into memory that isn't one and loaded microcode RT64 doesn't
++        // know) writes its report: the interpreter's last jumps and an RDRAM snapshot, once per session. Empty: none.
++        static void setFaultReportDirectory(const std::filesystem::path &directory);
++        void reportFault(uint32_t dlStartAddress, const DisplayList *dl);
+         void loadUCodeGBI(uint32_t textAddress, uint32_t dataAddress, bool resetFromTask);
+         void processRDPLists(uint32_t dlStartAdddress, DisplayList* dlStart, DisplayList* dlEnd);
+         void processDisplayLists(uint32_t dlStartAdddress, DisplayList *dlStart);
 diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
 index 3227ab1..883cf36 100644
 --- a/src/hle/rt64_present_queue.cpp
@@ -554,7 +706,7 @@ index 8858dac..904b1af 100644
      };
  
 diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
-index 2970e71..6d69ca3 100644
+index 2970e71..617a8ae 100644
 --- a/src/hle/rt64_state.cpp
 +++ b/src/hle/rt64_state.cpp
 @@ -13,6 +13,7 @@
@@ -606,6 +758,46 @@ index 2970e71..6d69ca3 100644
                      const bool manualRefreshRate = (userConfig.refreshRate == UserConfiguration::RefreshRate::Manual);
                      if (manualRefreshRate) {
                          genConfigChanged = ImGui::InputInt("Refresh Rate Target", &userConfig.refreshRateTarget) || genConfigChanged;
+@@ -2705,6 +2713,14 @@ namespace RT64 {
+         returnAddressStack.push_back(dl);
+     }
+ 
++    void State::recordDisplayListJump(const DisplayList *from, uint32_t to, uint8_t opCode) {
++        DisplayListJump &jump = displayListJumps[displayListJumpCursor % DisplayListJumpCount];
++        jump.from = (from != nullptr) ? uint32_t(reinterpret_cast<const uint8_t *>(from) - RDRAM) : 0;
++        jump.to = to;
++        jump.opCode = opCode;
++        displayListJumpCursor++;
++    }
++
+     DisplayList *State::popReturnAddress() {
+         if (returnAddressStack.empty()) {
+             return nullptr;
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+index 7a8c13b..5c094dd 100644
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -90,6 +90,20 @@ namespace RT64 {
+         std::vector<FramebufferOperation> drawFbOperations;
+         std::vector<uint32_t> drawFbDiscards;
+         std::vector<DisplayList *> returnAddressStack;
++
++        // The last jumps the display list interpreter took (G_DL, G_ENDDL, a taken G_BRANCH_Z, G_LOAD_UCODE and each
++        // task's start), RDRAM offsets, for Interpreter's report when a list runs into memory that isn't one.
++        struct DisplayListJump {
++            uint32_t from = 0;
++            uint32_t to = 0;
++            uint8_t opCode = 0;
++        };
++
++        static constexpr uint32_t DisplayListJumpCount = 64;
++        std::array<DisplayListJump, DisplayListJumpCount> displayListJumps;
++        uint32_t displayListJumpCursor = 0;
++        void recordDisplayListJump(const DisplayList *from, uint32_t to, uint8_t opCode);
++
+         std::vector<Framebuffer *> differentFbs;
+         GameConfiguration gameConfig;
+         uint32_t displayListAddress;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
 index 5a331aa..35ab5c9 100644
 --- a/src/hle/rt64_workload_queue.cpp
