@@ -1149,7 +1149,7 @@ text = "    rush2_track49_stunt_select(rdram, ctx);"
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC554
-text = "    rush2_track49_stunt_select(rdram, ctx);"
+text = "    rush2_track49_stunt_select(rdram, ctx); rush2_shoulder_track_restore(rdram, ctx);"
 
 [[patches.hook]]
 func = "options_text_cb_names_values_803C6268"
@@ -1910,7 +1910,7 @@ text = "    rush2_circuit_more_step(rdram, ctx);"
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC410
-text = "    rush2_circuit_more_stepped(rdram, ctx);"
+text = "    rush2_circuit_more_stepped(rdram, ctx); rush2_shoulder_track_restore(rdram, ctx);"
 
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
@@ -8610,7 +8610,19 @@ text = "    rush2_car_rows_widget(rdram, ctx, 0, 0);"
 [[patches.hook]]
 func = "menu_screen_car_select_frame_803B9478"
 before_vram = 0x803B98A4
-text = "    rush2_wings_car_step(rdram, ctx);"
+text = "    rush2_shoulder_car_row(rdram, ctx); rush2_wings_car_step(rdram, ctx);"
+
+# L / R step CAR from any row (src/select_shoulders.cpp, issue #48).
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9738
+text = "    rush2_shoulder_car_buttons(rdram, ctx);"
+
+# L / R step TRACK from any row (src/select_shoulders.cpp, issue #48).
+[[patches.hook]]
+func = "trackselect_frame_803ABE0C"
+before_vram = 0x803ABEF8
+text = "    rush2_shoulder_track_buttons(rdram, ctx);"
 
 [[patches.hook]]
 func = "carselect_text_cb_car_title_803BC048"

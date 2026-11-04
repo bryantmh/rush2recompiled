@@ -81,6 +81,13 @@ row's index, never a fixed number.
   RUSH2_TEST_CAR=24 --script "8:START,11:A,13.5:A,17:A,..." --shots ...` reaches it at 17 s as JUST PLAY in its own
   data folder.
 
+### Shoulder buttons
+
+L and R (LB / RB and the right trigger on a controller, Q / E on the keyboard) step TRACK on the track select and
+CAR on the car select from any row, as left and right do on that row (issue #48, src/select_shoulders.cpp: the
+press becomes a D-pad left or right and the row's id TRACK's or CAR's for that step; the track select's cursor is
+moved to TRACK's row for the step and put back at 0x803AC410 / 0x803AC554). In an input script they are `L` and `R`.
+
 ### Game filter
 
 With more than one game's tracks (cars) on a select, C-up (Y, Triangle, I) opens the game filter panel
