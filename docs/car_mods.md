@@ -92,6 +92,25 @@ With texture replacements on, `rush2::derive` swaps each drawn stand-in for the 
 the paint read from the stand-in (one RT64 hash per paint), mottled darker when damaged
 (docs/texture_upscaling.md, Derived replacements). Without RT64 replacements, the stand-ins draw.
 
+### Image alignment
+
+How a mod's texture repeats comes from its glTF sampler: each image takes the `wrapS` / `wrapT` of the first texture
+using it (`Model::image_cm`), and the stand-in's render tile gets clamp (33071, clamp-to-edge) or mirror (33648)
+in its cms / cmt (`tile_cm`; both the new cars' `build_container` and the model mods' and liveries'
+`true_color_load`). Repeat (10497, glTF's default) wraps as before.
+
+A vertex's coordinate is `uv * size - 0.5` stand-in texels (the N64 samples texel i at i, glTF at i + 0.5), and
+`rush2::derive` hands RT64 the full-size image as a live replacement with the shift "center"
+(`addLiveReplacement(..., centered)`, lib/patches/rt64.patch; docs/rush2049_research/dreamcast.md#replacement-texel-centers):
+each stand-in texel lands on the middle of its block of the image, where glTF samples it. With RT64's usual "half"
+shift the image was sampled half an image texel off.
+
+Both mattered on the Bruiser's arcade liveries (CAR7): the body's mirrored halves meet on textures whose UVs run to
+the edge (`Y_ROOF` u 63.88 of 64, `Y_WINDSHID` 0, `Y_TAIL2` 127.25-127.75 of 128), and filtering there pulled in the
+texture's far edge: a hairline down the middle of the car. The arcade clamps most of them (textureMode bits 6 / 7,
+which `arcade_cars.cpp` now writes as each texture's sampler); `Y_TAIL2` wraps on the arcade too, where its UVs sit
+on its last texel's middle, which only the centered image reproduces.
+
 ## Building a mod: tools/car_mod.py
 
 ```

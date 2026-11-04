@@ -849,7 +849,11 @@ namespace {
             }
             Image out = paint_mod(m.image, m.mask, paint, mt.damaged, mt.seed);
             uint64_t content = d.hash ^ 0xCA2B0D7ull ^ (pack_generation * 0x9E3779B97F4A7C15ull);
-            RT64::addLiveReplacement(d.hash, content, rush2::upscale::make_dds(out));
+            // Centered: a mod's UVs sample its stand-in half a texel in from the glTF coordinate (car_mods.cpp), where
+            // the image is sampled at the same place; RT64's usual half shift would sample half an image texel off,
+            // pulling a wrapping texture's far edge into the seam where a body's mirrored halves meet (the Bruiser's
+            // arcade liveries, docs/car_mods.md#image-alignment).
+            RT64::addLiveReplacement(d.hash, content, rush2::upscale::make_dds(out), {}, true);
             set_outcome(d.hash, Outcome::Derived);
             std::unique_lock lock(mutex);
             owned.insert(d.hash);

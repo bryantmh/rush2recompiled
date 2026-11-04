@@ -119,7 +119,16 @@ namespace {
     struct Model {
         std::vector<Part> parts;
         std::vector<std::vector<uint8_t>> images; // encoded (PNG, JPEG...)
+        // Per image, how its texture repeats as the render tile's cms / cmt bits (G_TX_MIRROR 1, G_TX_CLAMP 2), from
+        // the glTF sampler of the first texture using it: clamp-to-edge clamps, mirrored repeat mirrors.
+        std::vector<std::array<uint32_t, 2>> image_cm;
     };
+
+    // A tile word's cms / cmt bits for an image (tile_cm | the masks).
+    uint32_t tile_cm(const Model& model, int image) {
+        if (image < 0 || image >= (int)model.image_cm.size()) return 0;
+        return (model.image_cm[image][1] << 18) | (model.image_cm[image][0] << 8);
+    }
 
     bool read_accessor(const nlohmann::json& js, const std::vector<uint8_t>& bin, int index, int width,
                        std::vector<float>& out) {
@@ -208,6 +217,14 @@ namespace {
             size_t start = v.value("byteOffset", size_t(0)), length = v.value("byteLength", size_t(0));
             if (start + length > bin.size()) return -1;
             model.images.emplace_back(bin.begin() + start, bin.begin() + start + length);
+            std::array<uint32_t, 2> cm = { 0, 0 };
+            int sampler = js["textures"][texture].value("sampler", -1);
+            if (sampler >= 0 && js.contains("samplers") && sampler < (int)js["samplers"].size()) {
+                const auto& sm = js["samplers"][sampler];
+                auto mode = [](int wrap) -> uint32_t { return wrap == 33071 ? 2u : wrap == 33648 ? 1u : 0u; };
+                cm = { mode(sm.value("wrapS", 10497)), mode(sm.value("wrapT", 10497)) };
+            }
+            model.image_cm.push_back(cm);
             return image_of_source[source] = int(model.images.size() - 1);
         };
         std::function<void(int, const std::array<float, 16>&)> node = [&](int i, const std::array<float, 16>& parent) {
@@ -584,7 +601,7 @@ namespace {
             uint32_t line = s.width / 8;            // 64-bit words per row of CI8
             uint32_t bytes = s.width * s.height;
             uint32_t masks = s.width == 64 ? 6 : 5, maskt = s.height == 64 ? 6 : 5;
-            uint32_t tile = (maskt << 14) | (masks << 4); // wrap in both
+            uint32_t tile = (maskt << 14) | (masks << 4) | tile_cm(model, s.image); // the image's sampler's repeat
             uint32_t dxt = 2048 / line;
             // Loaded as 16-bit texels (half as many), drawn as CI 8-bit: as Rush 2's car texture loads do.
             for (uint32_t w : { 0xFD500000u, s.offset, 0xF5500000u, 0x07000000u | tile, 0xE6000000u, 0u,
@@ -705,6 +722,7 @@ namespace {
         // A livery's: the copy a damaged panel draws (car2049's add_damage_textures), and its key.
         std::vector<uint8_t> scuffed;
         uint64_t scuffed_key = 0;
+        uint32_t cm = 0;                // the tile's cms / cmt bits (tile_cm): the image's sampler's repeat
     };
 
     // A livery stand-in's damaged copy, as make_stand_in scuffs a car's: its colors lighter and darker in blotches of
@@ -818,6 +836,7 @@ namespace {
         if (small) {
             for (TrueColor& s : m.stand_ins) scuff_true_color(s, uint32_t(m.glb_hash) * 977u + uint32_t(s.image));
         }
+        for (TrueColor& s : m.stand_ins) s.cm = tile_cm(*model, s.image);
         m.model = model;
         return true;
     }
@@ -853,7 +872,7 @@ namespace {
         uint32_t masks = 0, maskt = 0;
         while ((1u << masks) < s.width) masks++;
         while ((1u << maskt) < s.height) maskt++;
-        uint32_t tile = (maskt << 14) | (masks << 4);
+        uint32_t tile = (maskt << 14) | (masks << 4) | s.cm;
         return { { 0xFD100000u, texels }, { 0xF5100000u, 0x07000000u | tile }, { 0xE6000000u, 0u },
                  { 0xF3000000u, 0x07000000u | ((s.width * s.height - 1) << 12) | (2048 / line) },
                  { 0xE7000000u, 0u }, { 0xF5100000u | (line << 9), tile },
@@ -1152,7 +1171,9 @@ namespace {
         std::map<uint32_t, std::vector<uint8_t>> scuffs;               // texels -> scuffed copy
         uint32_t loads_start = 0, loads_end = 0;
         auto place = [&](const TrueColor& s) {
-            auto t = texels_at.find(s.key);
+            // One load list per content and repeat mode (the same image could clamp in one livery and wrap in another).
+            const uint64_t place_key = s.key ^ (uint64_t(s.cm) * 0x9E3779B97F4A7C15ull);
+            auto t = texels_at.find(place_key);
             if (t != texels_at.end()) return t->second;
             align8(out);
             uint32_t at = uint32_t(out.size());
@@ -1168,7 +1189,7 @@ namespace {
             if (loads_start == 0) loads_start = load;
             loads_end = uint32_t(out.size());
             scuffs[at] = s.scuffed;
-            return texels_at.emplace(s.key, std::make_pair(at, load)).first->second;
+            return texels_at.emplace(place_key, std::make_pair(at, load)).first->second;
         };
         for (size_t v = 0; v < it->second.size(); v++) {
             const ModelMod& mm = it->second[v];

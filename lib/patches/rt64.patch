@@ -130,10 +130,10 @@ index 9ac8087..ea7e4db 100644
              bool reinterpretFixULS;
 diff --git a/src/common/rt64_live_textures.h b/src/common/rt64_live_textures.h
 new file mode 100644
-index 0000000..c8ad7b6
+index 0000000..23c80df
 --- /dev/null
 +++ b/src/common/rt64_live_textures.h
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,78 @@
 +//
 +// RT64
 +//
@@ -185,8 +185,10 @@ index 0000000..c8ad7b6
 +    // share one replacement image (contentKey, any value the host picks that identifies the image's contents), which
 +    // is uploaded once. fileBytes holds a DDS or PNG file; it can be left empty when hasLiveReplacementContent says
 +    // the content is already known. These do nothing (and return false) while no renderer is running.
-+    // region is the part of the image the hash's texture is (see ReplacementRegion).
-+    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, ReplacementRegion region = {});
++    // region is the part of the image the hash's texture is (see ReplacementRegion). centered (Rush 2 recomp): the
++    // image is sampled with ReplacementShift::Center instead of Half (each texel of the texture on the middle of its
++    // block of the image), for an image the texture was scaled down from.
++    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, ReplacementRegion region = {}, bool centered = false);
 +    bool hasLiveReplacementContent(uint64_t contentKey);
 +    void removeLiveReplacement(uint64_t hash);
 +    void clearLiveReplacements();
@@ -2917,7 +2919,7 @@ index 95618bc..984759e 100644
          std::vector<uint8_t> bytesTMEM;
          bool decodeTMEM = false;
 diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
-index 0848f3e..d7dace0 100644
+index 0848f3e..4655c4c 100644
 --- a/src/render/rt64_texture_cache.cpp
 +++ b/src/render/rt64_texture_cache.cpp
 @@ -4,6 +4,10 @@
@@ -2952,9 +2954,9 @@ index 0848f3e..d7dace0 100644
 +    static std::mutex LiveCacheMutex;
 +    static TextureCache *LiveCache = nullptr;
 +
-+    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, ReplacementRegion region) {
++    bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, ReplacementRegion region, bool centered) {
 +        std::unique_lock lock(LiveCacheMutex);
-+        return (LiveCache != nullptr) && LiveCache->addLiveReplacement(hash, contentKey, std::move(fileBytes), region);
++        return (LiveCache != nullptr) && LiveCache->addLiveReplacement(hash, contentKey, std::move(fileBytes), region, centered);
 +    }
 +
 +    bool hasLiveReplacementContent(uint64_t contentKey) {
@@ -3463,13 +3465,13 @@ index 0848f3e..d7dace0 100644
 +                        while ((((upload.width >> mipLevels) << mipLevels) == upload.width) && (((upload.height >> mipLevels) << mipLevels) == upload.height)) {
 +                            mipLevels++;
 +                        }
-+
+ 
 +                        uploadMipLevels[i] = mipLevels;
 +                        uploadMipDescriptorBase[i] = mipDescriptorSetCount;
 +                        mipDescriptorSetCount += mipLevels - 1;
 +                    }
 +                }
- 
++
 +                while (mipDescriptorSets.size() < mipDescriptorSetCount) {
 +                    mipDescriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
 +                }
@@ -3574,7 +3576,7 @@ index 0848f3e..d7dace0 100644
  #                           if !ONLY_USE_LOW_MIP_CACHE
                              // Make sure the replacement map hasn't queued or loaded the relative path already.
                              auto &streamSet = textureMap.replacementMap.fileSystemStreamSets[resolvedPath.fileSystemIndex];
-@@ -1176,6 +1542,44 @@ namespace RT64 {
+@@ -1176,6 +1542,46 @@ namespace RT64 {
                      }
                  }
                  
@@ -3589,6 +3591,7 @@ index 0848f3e..d7dace0 100644
 +                            for (uint64_t hash : contentIt->second.hashes) {
 +                                liveHashKeys.erase(hash);
 +                                liveHashRegions.erase(hash);
++                                liveHashCentered.erase(hash);
 +                            }
 +
 +                            liveContents.erase(contentIt);
@@ -3610,16 +3613,17 @@ index 0848f3e..d7dace0 100644
 +
 +                for (uint64_t hash : liveApplyQueueCopy) {
 +                    ReplacementRegion liveRegion;
-+                    Texture *liveTexture = getLiveTexture(hash, &liveRegion);
++                    bool liveCentered = false;
++                    Texture *liveTexture = getLiveTexture(hash, &liveRegion, &liveCentered);
 +                    if ((liveTexture != nullptr) && !packReplaces(hash)) {
-+                        replacementMapAdditions.emplace_back(ReplacementMapAddition{ hash, liveTexture, ReplacementShift::Half, false, true, liveRegion });
++                        replacementMapAdditions.emplace_back(ReplacementMapAddition{ hash, liveTexture, liveCentered ? ReplacementShift::Center : ReplacementShift::Half, false, true, liveRegion });
 +                    }
 +                }
 +
                  // Execute the copy worker and signal a semaphore so it synchronizes with the direct worker afterwards.
                  const RenderCommandList *copyCommandList = copyWorker->commandList.get();
                  RenderCommandSemaphore *syncSemaphore = copyToDirectSemaphore.get();
-@@ -1205,6 +1609,7 @@ namespace RT64 {
+@@ -1205,6 +1611,7 @@ namespace RT64 {
                          decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
                          decodeCB.tlut = upload.tlut;
                          decodeCB.palette = upload.loadTile.palette;
@@ -3627,7 +3631,7 @@ index 0848f3e..d7dace0 100644
  
                          // Dispatch compute shader for decoding texture.
                          const uint32_t ThreadGroupSize = 8;
-@@ -1214,6 +1619,16 @@ namespace RT64 {
+@@ -1214,6 +1621,16 @@ namespace RT64 {
                          directWorker->commandList->setComputeDescriptorSet(descriptorSets[i]->get(), 0);
                          directWorker->commandList->dispatch(dispatchX, dispatchY, 1);
  
@@ -3644,7 +3648,7 @@ index 0848f3e..d7dace0 100644
                          afterDecodeBarriers.emplace_back(RenderTextureBarrier(textureMapAdditions[i].texture->texture.get(), RenderTextureLayout::SHADER_READ));
                      }
                  }
-@@ -1235,18 +1650,31 @@ namespace RT64 {
+@@ -1235,18 +1652,31 @@ namespace RT64 {
                  {
                      std::unique_lock lock(textureMapMutex);
                      for (const TextureMapAddition &addition : textureMapAdditions) {
@@ -3679,7 +3683,7 @@ index 0848f3e..d7dace0 100644
                      std::unique_lock queueLock(uploadQueueMutex);
                      newQueue = std::vector<TextureUpload>(uploadQueue.begin() + queueSize, uploadQueue.end());
                      uploadQueue = std::move(newQueue);
-@@ -1279,6 +1707,43 @@ namespace RT64 {
+@@ -1279,6 +1709,43 @@ namespace RT64 {
          uploadQueueChanged.notify_all();
      }
  
@@ -3723,7 +3727,7 @@ index 0848f3e..d7dace0 100644
      void TextureCache::waitForGPUUploads() {
          std::unique_lock queueLock(uploadQueueMutex);
          uploadQueueFinished.wait(queueLock, [this]() {
-@@ -1312,9 +1777,9 @@ namespace RT64 {
+@@ -1312,9 +1779,9 @@ namespace RT64 {
          }
      }
  
@@ -3735,7 +3739,7 @@ index 0848f3e..d7dace0 100644
      }
  
      bool TextureCache::useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex) {
-@@ -1323,7 +1788,10 @@ namespace RT64 {
+@@ -1323,7 +1790,10 @@ namespace RT64 {
          bool textureReplaced;
          bool hasMipmaps;
          bool shiftedByHalf;
@@ -3747,11 +3751,11 @@ index 0848f3e..d7dace0 100644
      }
      
      bool TextureCache::addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift) {
-@@ -1406,6 +1874,176 @@ namespace RT64 {
+@@ -1406,6 +1876,186 @@ namespace RT64 {
          return false;
      }
  
-+    bool TextureCache::addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region) {
++    bool TextureCache::addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region, bool centered) {
 +        {
 +            std::unique_lock liveLock(liveMutex);
 +            auto hashIt = liveHashKeys.find(hash);
@@ -3783,6 +3787,10 @@ index 0848f3e..d7dace0 100644
 +            liveHashKeys[hash] = contentKey;
 +            if (!region.isWhole()) {
 +                liveHashRegions[hash] = region;
++            }
++
++            if (centered) {
++                liveHashCentered.insert(hash);
 +            }
 +            queueApply = (contentIt->second.texture != nullptr);
 +        }
@@ -3828,6 +3836,7 @@ index 0848f3e..d7dace0 100644
 +            auto contentIt = liveContents.find(hashIt->second);
 +            liveHashKeys.erase(hashIt);
 +            liveHashRegions.erase(hash);
++            liveHashCentered.erase(hash);
 +            if (contentIt == liveContents.end()) {
 +                return;
 +            }
@@ -3859,6 +3868,7 @@ index 0848f3e..d7dace0 100644
 +            hashKeys.swap(liveHashKeys);
 +            contents.swap(liveContents);
 +            liveHashRegions.clear();
++            liveHashCentered.clear();
 +        }
 +
 +        // Textures still waiting to be uploaded are deleted by the upload thread once it finds their content gone.
@@ -3889,7 +3899,7 @@ index 0848f3e..d7dace0 100644
 +        uploadQueueChanged.notify_all();
 +    }
 +
-+    Texture *TextureCache::getLiveTexture(uint64_t hash, ReplacementRegion *region) {
++    Texture *TextureCache::getLiveTexture(uint64_t hash, ReplacementRegion *region, bool *centered) {
 +        std::unique_lock liveLock(liveMutex);
 +        auto hashIt = liveHashKeys.find(hash);
 +        if (hashIt == liveHashKeys.end()) {
@@ -3904,6 +3914,10 @@ index 0848f3e..d7dace0 100644
 +        if (region != nullptr) {
 +            auto regionIt = liveHashRegions.find(hash);
 +            *region = (regionIt != liveHashRegions.end()) ? regionIt->second : ReplacementRegion();
++        }
++
++        if (centered != nullptr) {
++            *centered = (liveHashCentered.find(hash) != liveHashCentered.end());
 +        }
 +
 +        return contentIt->second.texture;
@@ -3924,7 +3938,7 @@ index 0848f3e..d7dace0 100644
      void TextureCache::clearReplacementDirectories() {
          // Wait for the streaming threads to be finished.
          waitForAllStreamThreads(true);
-@@ -1431,9 +2069,14 @@ namespace RT64 {
+@@ -1431,9 +2081,14 @@ namespace RT64 {
  
          // Lock the texture map and start changing replacements. This function is assumed to be called from the only
          // thread that is capable of submitting new textures and must've waited beforehand for all textures to be uploaded.
@@ -3942,7 +3956,7 @@ index 0848f3e..d7dace0 100644
      }
  
      void TextureCache::reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash) {
-@@ -1459,71 +2102,77 @@ namespace RT64 {
+@@ -1459,71 +2114,77 @@ namespace RT64 {
          return loadReplacementDirectories({ replacementDirectory });
      }
      
@@ -4049,7 +4063,7 @@ index 0848f3e..d7dace0 100644
                              }
                          }
                      }
-@@ -1532,37 +2181,59 @@ namespace RT64 {
+@@ -1532,37 +2193,59 @@ namespace RT64 {
                      }
                  }
  
@@ -4129,7 +4143,7 @@ index 0848f3e..d7dace0 100644
  
          // Queue all textures that must be preloaded to the stream queues.
          bool texturesPreloaded = false;
-@@ -1579,8 +2250,11 @@ namespace RT64 {
+@@ -1579,8 +2262,11 @@ namespace RT64 {
          if (texturesPreloaded) {
              streamDescStackChanged.notify_all();
  
@@ -4144,7 +4158,7 @@ index 0848f3e..d7dace0 100644
  
          reloadReplacements(true);
 diff --git a/src/render/rt64_texture_cache.h b/src/render/rt64_texture_cache.h
-index 9131697..ac2500e 100644
+index 9131697..369d44c 100644
 --- a/src/render/rt64_texture_cache.h
 +++ b/src/render/rt64_texture_cache.h
 @@ -5,6 +5,7 @@
@@ -4263,13 +4277,14 @@ index 9131697..ac2500e 100644
          std::mutex uploadQueueMutex;
          std::condition_variable uploadQueueChanged;
          std::condition_variable uploadQueueFinished;
-@@ -229,6 +275,13 @@ namespace RT64 {
+@@ -229,6 +275,14 @@ namespace RT64 {
          std::mutex uploadResourcePoolMutex;
          uint32_t lockCounter;
          bool developerMode;
 +        std::mutex liveMutex; // Taken on its own, or inside uploadQueueMutex; never around another lock.
 +        std::unordered_map<uint64_t, uint64_t> liveHashKeys;
 +        std::unordered_map<uint64_t, ReplacementRegion> liveHashRegions; // Hashes whose region isn't the whole image.
++        std::unordered_set<uint64_t> liveHashCentered; // Hashes drawn with ReplacementShift::Center.
 +        std::unordered_map<uint64_t, LiveContent> liveContents;
 +        std::vector<LiveUpload> liveUploadQueue; // Guarded by uploadQueueMutex.
 +        std::deque<LiveUpload> liveLoadQueue;    // Rush 2 recomp: waiting for a stream thread. Guarded by streamDescStackMutex.
@@ -4277,7 +4292,7 @@ index 9131697..ac2500e 100644
  
          TextureCache(RenderWorker *directWorker, RenderWorker *copyWorker, uint32_t threadCount, const ShaderLibrary *shaderLibrary);
          ~TextureCache();
-@@ -236,14 +289,30 @@ namespace RT64 {
+@@ -236,14 +290,30 @@ namespace RT64 {
          void queueGPUUploadTMEM(uint64_t hash, uint64_t creationFrame, const uint8_t *bytes, int bytesCount, int width, int height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM);
          void waitForGPUUploads();
          void addResolvedPaths(uint64_t hash, uint32_t width, uint32_t height, uint32_t tlut, const LoadTile &loadTile, const std::vector<uint8_t> &bytesTMEM, bool decodeTMEM, std::vector<ReplacementResolvedPath> &resolvedPaths, uint64_t exclusiveDbHash = 0);
@@ -4286,7 +4301,7 @@ index 9131697..ac2500e 100644
          bool useTexture(uint64_t hash, uint64_t submissionFrame, uint32_t &textureIndex);
          bool addReplacement(uint64_t hash, const std::string &relativePath, ReplacementShift shift);
          bool hasReplacement(uint64_t hash);
-+        bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region);
++        bool addLiveReplacement(uint64_t hash, uint64_t contentKey, std::vector<uint8_t> fileBytes, const ReplacementRegion &region, bool centered = false);
 +        // Rush 2 recomp: texture prewarming (rt64_live_textures.h).
 +        void queuePrewarmTMEM(uint64_t hash, std::vector<uint8_t> bytesTMEM, uint16_t width, uint16_t height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM);
 +        void unpinPrewarmed();
@@ -4295,7 +4310,7 @@ index 9131697..ac2500e 100644
 +        void removeLiveReplacement(uint64_t hash);
 +        void clearLiveReplacements();
 +        void queueLiveReapply();
-+        Texture *getLiveTexture(uint64_t hash, ReplacementRegion *region = nullptr);
++        Texture *getLiveTexture(uint64_t hash, ReplacementRegion *region = nullptr, bool *centered = nullptr);
 +        bool packReplaces(uint64_t hash);
          void clearReplacementDirectories();
          void reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash = 0);

@@ -153,10 +153,15 @@ namespace {
                                  { "pbrMetallicRoughness", { { "metallicFactor", 0.0 }, { "roughnessFactor", 1.0 } } } };
             int image = g.image(tex.name, png(rgba, tex.w, tex.h));
             if (!g.js.contains("samplers")) {
-                g.js["samplers"] = { { { "magFilter", 9729 }, { "minFilter", 9987 }, { "wrapS", 10497 }, { "wrapT", 10497 } } };
+                g.js["samplers"] = nlohmann::json::array();
                 g.js["textures"] = nlohmann::json::array();
             }
-            g.js["textures"].push_back({ { "sampler", 0 }, { "source", image } });
+            // The arcade's clamp (textureMode bits 6 / 7): the textures meeting on the car's centerline (the Bruiser
+            // liveries' Y_ROOF, Y_HOOD, Y_WINDSHID...) clamp, their UVs running to the edge; wrapped, each half's
+            // middle filtered in the texture's far edge (a hairline down the car). car_mods sets the tile from it.
+            g.js["samplers"].push_back({ { "magFilter", 9729 }, { "minFilter", 9987 },
+                                         { "wrapS", tex.clamp_s() ? 33071 : 10497 }, { "wrapT", tex.clamp_t() ? 33071 : 10497 } });
+            g.js["textures"].push_back({ { "sampler", g.js["samplers"].size() - 1 }, { "source", image } });
             m["pbrMetallicRoughness"]["baseColorTexture"] = { { "index", g.js["textures"].size() - 1 } };
             g.js["materials"].push_back(m);
             p.material = int(g.js["materials"].size()) - 1;
