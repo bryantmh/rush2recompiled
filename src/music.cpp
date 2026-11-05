@@ -8,7 +8,7 @@
 // 20 songs (rush2::audio2049::disc_songs, a song per track at 0x8C0BA76C), listed instead of the N64's while it's the
 // 2049 source. With both the N64 ROM and the disc installed, the Rush 2049 Soundtrack option picks the N64's, the
 // disc's or both (the other source's songs then load beside the first's, audio2049::load_music); with both, a 2049
-// track's Original is its N64 or its disc song and the menu plays either game's menu song. California Speed's nine songs (its song file, ROM 0xD69FC0) play through Rush 2's player as sequences
+// track's Original is its N64 or its disc song. California Speed's nine songs (its song file, ROM 0xD69FC0) play through Rush 2's player as sequences
 // 29-37 (src/rush1/track1_audio.cpp). California Speed has no per-track songs (the player picks one: its options'
 // Audio Track), so like SF Rush its tracks play a random one of its songs by default.
 //
@@ -25,7 +25,7 @@
 // 0x8008C46C); a Rush 2049 song is queued on the 2049 player and the call turned into the "music off" case, whose
 // stop command starts it (src/rush2049/track2049_audio.cpp).
 //
-// Menu: each game's main menu song has a switch; each time the front end's song starts (command 0x0009FFFF) a random
+// Menu: each game's main menu song has a switch (Rush 2049 two: the N64's and the Dreamcast's); each time the front end's song starts (command 0x0009FFFF) a random
 // one of those switched on plays (not the last one, when there's another), Rush 2's when none is on or can play.
 // Older versions' single Main Menu Music choice (sound.json "menu_music") becomes the switches at startup
 // (src/data_files.cpp).
@@ -255,15 +255,18 @@ namespace {
     constexpr int rush2049_menu_song = 6;
     constexpr int disc_menu_song = disc + 19;   // Select.rom, the disc's menu song.
 
-    // The main menu songs, each with its switch (sound.json "menu_song_<key>"). Rush 2's is on by default.
+    // The main menu songs, each with its switch (sound.json "menu_song_<key>"). Rush 2's is on by default. Rush 2049
+    // has two: the N64's song 6 and the disc's Select.rom, each listed while its soundtrack is in use.
     struct MenuSong {
         Game game;
         const char* key;
+        Only only = Only::Any;   // Rush 2049's are listed under its N64 or Dreamcast heading.
     };
-    constexpr std::array<MenuSong, 3> menu_songs = {{
+    constexpr std::array<MenuSong, 4> menu_songs = {{
         { Game::Rush2, "r2" },
         { Game::Rush1, "r1" },
-        { Game::Rush2049, "r49" },
+        { Game::Rush2049, "r49", Only::N64 },
+        { Game::Rush2049, "r49dc", Only::Disc },
     }};
     constexpr int menu_count = (int)menu_songs.size();
     std::array<std::atomic_bool, menu_count> menu_enabled{};
@@ -339,8 +342,8 @@ namespace {
     std::atomic<uint32_t> soundtrack = (uint32_t)Soundtrack::Source;
     const std::string soundtrack_description =
         "Which Rush 2049 songs play. <recomp-color primary>Both</recomp-color> mixes the N64's and the Dreamcast's: "
-        "Original plays the track's N64 or Dreamcast song, Shuffle any song of either, and the main menu either "
-        "theme. <recomp-color primary>Same as Source</recomp-color> follows Rush 2049 Source in the Games tab. "
+        "Original plays the track's N64 or Dreamcast song and Shuffle any song of either; each main menu song "
+        "has its own switch. <recomp-color primary>Same as Source</recomp-color> follows Rush 2049 Source in the Games tab. "
         "Applies from the next song.";
 
     // Whether the N64's and the disc's Rush 2049 songs may play.
@@ -526,10 +529,25 @@ namespace {
         int song_2049 = -1;
     };
 
-    // Whether menu song m can play now (the 2049 sound banks load in the background).
+    // Rush 2049 menu song m's song number (the N64's song 6 or the disc's Select.rom).
+    int menu_song_2049(int m) {
+        return menu_songs[m].only == Only::Disc ? disc_menu_song : rush2049_menu_song;
+    }
+
+    // Whether menu song m can play now: its soundtrack in use, and loaded (the 2049 sound banks load in the
+    // background).
     bool menu_playable(int m) {
-        Game g = menu_songs[m].game;
-        return game_available(g) && (g != Game::Rush2049 || rush2::track2049::music_ready());
+        const MenuSong& s = menu_songs[m];
+        if (!game_available(s.game)) {
+            return false;
+        }
+        if (s.game != Game::Rush2049) {
+            return true;
+        }
+        bool n64, disc;
+        soundtracks(n64, disc);
+        return (s.only == Only::Disc ? disc : n64) && rush2::track2049::music_ready() &&
+               rush2::audio2049::song_loaded(menu_song_2049(m));
     }
 
     // Menu song m as a MenuChoice; false if it can't play (no ROM, or SF Rush's sequence not found).
@@ -542,25 +560,10 @@ namespace {
             case Game::Rush1:
                 c.sequence = rush2::track1::song_sequence(rdram, ctx, rush1_menu_song);
                 return c.sequence >= 0;
-            case Game::Rush2049: {
-                // The N64's menu song or the disc's Select.rom, whichever soundtrack is in use (with both, either).
-                bool n64, disc;
-                soundtracks(n64, disc);
-                std::vector<int> own;
-                for (int id : { n64 ? rush2049_menu_song : -1, disc ? disc_menu_song : -1 }) {
-                    if (id >= 0 && rush2::audio2049::song_loaded(id)) {
-                        own.push_back(id);
-                    }
-                }
-                if (own.empty()) {
-                    return false;
-                }
-                // Not rng: this runs both under choice_mutex (menu_choice) and outside it (previews).
-                thread_local std::mt19937 menu_rng{ std::random_device{}() };
+            case Game::Rush2049:
                 c.sequence = -1;
-                c.song_2049 = own[std::uniform_int_distribution<size_t>(0, own.size() - 1)(menu_rng)];
+                c.song_2049 = menu_song_2049(m);
                 return true;
-            }
             default:
                 return true;
         }
@@ -914,8 +917,9 @@ namespace {
                     continue;
                 }
                 bool menu = r.id >= song_count;
-                // Rush 2049's race songs are the N64's, the disc's or both, as its Soundtrack says.
-                bool listed = menu || song_listed(songs[r.id], n64, disc);
+                // Rush 2049's songs (race and menu) are the N64's, the disc's or both, as its Soundtrack says.
+                Only only = menu ? menu_songs[r.id - song_count].only : songs[r.id].only;
+                bool listed = only == Only::Any || (only == Only::Disc ? disc : n64);
                 bool active = available && (menu || on);
                 r.row->set_display(listed ? Display::Flex : Display::None);
                 r.button->set_enabled(available);
@@ -1166,12 +1170,16 @@ namespace {
                 h.shuffle_all = add_switch(add_setting(column, "In Shuffle All", shuffle_all_description),
                                            shuffle_all_option_id(g));
 
-                for (int m = 0; m < menu_count; m++) {
-                    if (menu_songs[m].game == g) {
-                        add_song_row(column, menu_preview(m), "Main Menu", menu_option_id(m),
-                            [this]() { show(menu_song_description); });
+                // The game's menu song; Rush 2049's N64 and Dreamcast ones go first under their own headings.
+                auto add_menu_rows = [&](Only only) {
+                    for (int m = 0; m < menu_count; m++) {
+                        if (menu_songs[m].game == g && menu_songs[m].only == only) {
+                            add_song_row(column, menu_preview(m), "Main Menu", menu_option_id(m),
+                                [this]() { show(menu_song_description); });
+                        }
                     }
-                }
+                };
+                add_menu_rows(Only::Any);
 
                 for (int i = 0; i < song_count; i++) {
                     if (songs[i].game != g) {
@@ -1184,6 +1192,7 @@ namespace {
                             songs[i].only == Only::Disc ? "Dreamcast" : "N64", theme::Typography::LabelSM);
                         heading->set_color(theme::color::TextDim);
                         heading->set_padding_top(8.0f);
+                        add_menu_rows(songs[i].only);
                     }
                     add_song_row(column, i, songs[i].name, song_option_id(songs[i]), [this, i]() {
                         const Song& song = songs[i];
@@ -1215,7 +1224,8 @@ void rush2::music::create_sound_tab() {
     for (int m = 0; m < menu_count; m++) {
         Game g = menu_songs[m].game;
         menu_enabled[m] = g == Game::Rush2;
-        config.add_bool_option(menu_option_id(m), std::string(game_name(g)) + " Menu Song", menu_song_description,
+        config.add_bool_option(menu_option_id(m), std::string(game_name(g)) +
+            (menu_songs[m].only == Only::Disc ? " Dreamcast Menu Song" : " Menu Song"), menu_song_description,
             g == Game::Rush2, true);
         config.add_option_change_callback(menu_option_id(m),
             [m](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {

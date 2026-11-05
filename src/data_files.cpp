@@ -348,6 +348,24 @@ namespace {
         write_json(path, sound, 4);
     }
 
+    // Rush 2049's one menu song switch (menu_song_r49), which played the N64's or the Dreamcast's menu song as the
+    // Soundtrack allowed, split into the N64's and the Dreamcast's (menu_song_r49dc, src/music.cpp): the new one
+    // starts as the old one was.
+    void migrate_menu_song_dc() {
+        fs::path path = app_folder() / "sound.json";
+        json sound;
+        if (!read_json(path, sound)) {
+            return;
+        }
+        auto it = sound.find("menu_song_r49");
+        if (it == sound.end() || !it->is_boolean() || sound.contains("menu_song_r49dc")) {
+            return;
+        }
+        sound["menu_song_r49dc"] = it->get<bool>();
+        // As librecomp writes its configs.
+        write_json(path, sound, 4);
+    }
+
     // Rush 2049 Menus (games.json "rush2049_menus": false / true, then "Off", "Style" or "Layout") as its style
     // (Off, Minimal = "Style", Full = "Layout") plus switches for the fonts, sounds and background
     // (src/rush2049/wings.cpp), which "Style" and "Layout" both brought.
@@ -406,5 +424,6 @@ void rush2::data_files::migrate() {
     migrate_games_config();
     migrate_wing_styles();
     migrate_menu_music();
+    migrate_menu_song_dc();
     migrate_menus2049();
 }
