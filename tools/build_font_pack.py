@@ -53,7 +53,8 @@ swept along their own texels (texel_sweep_polygons), straight through diagonal s
 The Block font (5, style "segment") is a segment display: 1-texel segments apart at the corners with a dim glow. Its
 characters are drawn on one segment layout (SEGMENTS: an 8's seven, two center verticals, half and full crosses, V's
 point), each segment the same tapered bar (display_segment), the lit ones read from the texels (segment_layout) or
-set by SEGMENT_OVERRIDES ($, *, @, ', !, ^, Z); the glow is a halo. Characters off the layout (parentheses, braces, =)
+set by SEGMENT_OVERRIDES ($, *, @, ', !, ^, Z); the glow is each segment widened on its own (offset_polygon), not a
+halo round the glyph, because highlighted text draws the glow at full color and a halo ran the segments together. Characters off the layout (parentheses, braces, =)
 keep their texel runs as pointed segments. Pixel's sheet carries a copy of Block's texels below its characters, read at
 Pixel's width (its "segment_rows"), redrawn the same way.
 
@@ -1890,8 +1891,41 @@ def segment_elements(sheet, rect, cells=None):
         for x, y in left:
             polygons.append(np.array([(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)], float))
     polygons = [(p if signed_area(p) > 0 else p[::-1]) + (x0, y0) for p in polygons]
-    return [clear_element(rect), {'d': polygons_path(polygons), 'rule': 'nonzero', 'fill': full, 'stroke': glow,
-                                  'halo': 1.0 if glow else 0.0, 'clip': rect}]
+    core = {'d': polygons_path(polygons), 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0, 'clip': rect}
+    if not glow:
+        return [clear_element(rect), core]
+    # The glow: each segment widened on its own (mitred, so its points stay points), not a halo round the whole
+    # glyph. Highlighted text (the flashing lap record, the player's name) draws every texel that isn't 0 at full
+    # color, glow included: a round halo there filled the gaps between segments and the holes of 0, 8 and B, and the
+    # letters ran together into blobs. Widened segments keep those gaps, so the highlight reads as bold segments.
+    widened = [offset_polygon(p, SEGMENT_GLOW) for p in polygons]
+    return [clear_element(rect), dict(core, d=polygons_path(widened), fill=glow), core]
+
+
+SEGMENT_GLOW = 0.35     # How far a segment font's glow reaches past each segment, in texels.
+
+
+def offset_polygon(points, d, miter_limit=2.0):
+    """A counter-clockwise polygon pushed out by d along each edge's normal, corners mitred (a mitre longer than
+    miter_limit x d is cut to that length along the corner's bisector)."""
+    n = len(points)
+    out = []
+    for i in range(n):
+        p, a, b = points[i], points[i - 1], points[(i + 1) % n]
+        e0, e1 = p - a, b - p
+        if np.hypot(*e0) < 1e-9 or np.hypot(*e1) < 1e-9:
+            continue
+        e0, e1 = e0 / np.hypot(*e0), e1 / np.hypot(*e1)
+        n0, n1 = np.array([e0[1], -e0[0]]), np.array([e1[1], -e1[0]])   # outward for counter-clockwise (y down)
+        bis = n0 + n1
+        length = np.hypot(*bis)
+        if length < 1e-9:
+            out.append(p + n0 * d)
+            continue
+        bis /= length
+        miter = d / max(float(np.dot(bis, n0)), 1e-9)
+        out.append(p + bis * min(miter, miter_limit * d))
+    return np.array(out)
 
 
 def block_elements(style, sheet, block_cells, traced_cells, uncovered):
