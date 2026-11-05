@@ -1,5 +1,7 @@
 // Rush 2: Recompiled entry point. Structure follows BanjoRecomp's main.cpp (RecompFrontend integration).
 
+#include <atomic>
+#include <cmath>
 #include <array>
 #include <chrono>
 #include <cassert>
@@ -56,6 +58,8 @@
 #include "data_files.h"
 #include "wings.h"
 #include "track2049.h"
+#include "audio2049.h"
+#include "sfx_sweep.h"
 #include "track_mod_runtime.h"
 #include "touch_controls.h"
 #include "prewarm.h"
@@ -239,8 +243,91 @@ static uint32_t discarded_output_frames;
 
 constexpr uint32_t bytes_per_frame = input_channels * sizeof(float);
 
+// Test aid: RUSH2_AUDIO_LEVELS=1 in a simulation run mixes each source apart at 100% main volume (nothing is played)
+// and prints their RMS levels in dBFS once a second: Rush 2's own audio (its music and effects) with its peak, the
+// wings, all of Rush 2049's output (a Dreamcast disc's too) with its peak, the N64 MusyX player's music, effects and
+// engines apart, and the 2049 car engines (src/car_engines.cpp).
+static std::atomic<uint64_t> level_frames_total = 0;   // stream frames measured so far (rush2::sfx_sweep::dump_frames)
+
+uint64_t rush2::sfx_sweep::dump_frames() {
+    return level_frames_total.load();
+}
+
+uint32_t rush2::sfx_sweep::dump_rate() {
+    return sample_rate;
+}
+
+static void log_audio_levels(int16_t* audio_data, size_t sample_count) {
+    static std::vector<float> buf;
+    static double sq[7]{};
+    static float peak[7]{};
+    static uint64_t frames = 0;
+    static bool started = false;
+    if (!started) {
+        rush2::audio2049::measure_buses(true);
+        started = true;
+    }
+    // RUSH2_AUDIO_LEVELS=<folder> (not "1") also writes each source's stream there as raw interleaved stereo f32 at
+    // the mix rate (<source>.f32; rate.txt), for tools/audio_loudness.py.
+    static const char* dump_dir = std::getenv("RUSH2_AUDIO_LEVELS");
+    static FILE* dumps[7]{};
+    static const bool dumping = dump_dir != nullptr && std::strcmp(dump_dir, "1") != 0;
+    if (dumping && dumps[0] == nullptr) {
+        static const char* names[7] = { "rush2", "wings", "", "", "", "car_engines", "rush2049" };
+        std::filesystem::create_directories(dump_dir);
+        for (int i = 0; i < 7; i++) {
+            if (names[i][0] != '\0') dumps[i] = fopen((std::filesystem::path(dump_dir) / (std::string(names[i]) + ".f32")).string().c_str(), "wb");
+        }
+        if (FILE* f = fopen((std::filesystem::path(dump_dir) / "rate.txt").string().c_str(), "w")) {
+            fprintf(f, "%u\n", sample_rate);
+            fclose(f);
+        }
+    }
+    auto sum = [&](int slot) {
+        for (size_t i = 0; i < sample_count; i++) {
+            sq[slot] += double(buf[i]) * buf[i];
+            peak[slot] = std::max(peak[slot], std::fabs(buf[i]));
+        }
+        if (dumps[slot] != nullptr) {
+            fwrite(buf.data(), sizeof(float), sample_count, dumps[slot]);
+            fflush(dumps[slot]);
+        }
+    };
+    buf.assign(sample_count, 0.0f);
+    for (size_t i = 0; i < sample_count; i++) buf[i] = audio_data[i] * (0.5f / 32768.0f);
+    sum(0);
+    buf.assign(sample_count, 0.0f);
+    rush2::wings::mix_sound(buf.data(), sample_count, sample_rate, 0.5f / 32768.0f);
+    sum(1);
+    buf.assign(sample_count, 0.0f);
+    rush2::track2049::mix_audio(buf.data(), sample_count, sample_rate, 0.5f);
+    sum(6);
+    double bus[3];
+    uint64_t bus_frames;
+    rush2::audio2049::take_bus_energy(bus, bus_frames);
+    for (int b = 0; b < 3; b++) sq[2 + b] += bus[b];
+    buf.assign(sample_count, 0.0f);
+    rush2::car_engines::mix(buf.data(), sample_count, sample_rate, 0.5f / 32768.0f);
+    sum(5);
+    frames += sample_count / 2;
+    level_frames_total += sample_count / 2;
+    if (frames >= sample_rate) {
+        auto db = [&](double s) { return s > 0.0 ? 10.0 * std::log10(s / double(frames * 2)) : -999.0; };
+        auto pk = [](float p) { return p > 0.0f ? 20.0 * std::log10(p) : -999.0; };
+        printf("[levels] rush2 %.1f (peak %.1f)  wings %.1f  2049 all %.1f (peak %.1f): music %.1f  sfx %.1f  engines %.1f"
+               "  car engines %.1f dBFS\n", db(sq[0]), pk(peak[0]), db(sq[1]), db(sq[6]), pk(peak[6]), db(sq[2]), db(sq[3]),
+               db(sq[4]), db(sq[5]));
+        fflush(stdout);
+        for (double& s : sq) s = 0.0;
+        for (float& p : peak) p = 0.0f;
+        frames = 0;
+    }
+}
+
 void queue_samples(int16_t* audio_data, size_t sample_count) {
     if (rush2::sim::active()) {
+        static const bool levels = std::getenv("RUSH2_AUDIO_LEVELS") != nullptr;
+        if (levels) log_audio_levels(audio_data, sample_count);
         return; // a simulation run is silent, and in turbo makes audio far faster than it plays
     }
     static std::vector<float> swap_buffer;

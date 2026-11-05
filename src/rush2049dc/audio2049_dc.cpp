@@ -6,9 +6,13 @@
 //   .KAT is u32 count, then count x 0x2C bytes {u32 1, u32 offset, u32 size (bytes), u32 rate, u32 loops, u32 format
 //   (4 Yamaha/AICA ADPCM, 8 signed PCM8, 16 PCM16), u32, u32 loop start, u32 loop end (samples), u32, u32}.
 // - Volume (0x8C016508): x -> 1 - (1 - x)^2 -> index x 255 into the attenuation table 0x8C0BADA8 (u8[256]), sent as
-//   127 - a / 2; every sound but 0x99 (the plane) is scaled by 0.8 first (0x8C016210). The attenuation is taken as
-//   AICA total-level steps of 0.375 dB [I]. Pan goes out as (1 - p) / 2 x 127 [the sound library's pan law isn't
-//   traced; an equal-power pan stands in].
+//   127 - a / 2; every sound but 0x99 (the plane) is scaled by 0.8 first (0x8C016210). The sound library
+//   (amSoundSetVolume 0x8C0A2DB2 -> acDigiSetVolume 0x8C09D9AE, its table mode never switched on) sends that level
+//   to the AICA driver (AUDIO64.DRV 1.90f, command 0x96) as total level a & ~1, 0.375 dB steps. The driver's channel
+//   template (0x1134) keeps the direct send level and master volume full. Pan goes out as (1 - p) / 2 x 127, and the
+//   library sends it >> 2 (amSoundSetPan 0x8C0A2E1C); the driver (command 0x97, 0x3F24) makes that 0-31 value the
+//   channel's DIPAN: 16 and up attenuate the right side by value - 16 steps, 1-15 the left by 16 - value, 0 the left
+//   fully; 3 dB a step, 15 silent (pan_gains). The game's centre, 63, is one step left: left 3 dB down.
 // - Songs: list 0x8C0BA818 of 20 file names (18 .STR, then HighScore.rom and Select.rom); per-track song table
 //   0x8C0BA76C, s32 per 2049 track id 0-18 (-1 random). The pack keeps the .STR songs as IMA ADPCM
 //   (src/rush2049dc/rush2049_dc.cpp); the .ROM ones are raw mono PCM16, taken as 22050 Hz looping [I].
@@ -26,6 +30,7 @@
 #include <string>
 #include <thread>
 
+#include "audio2049.h"
 #include "audio2049_dc.h"
 #include "rush2049_dc_internal.h"
 
@@ -45,12 +50,14 @@ namespace {
     constexpr int plane_sound = 0x99;               // played without the 0.8 scale (0x8C016250)
     constexpr int voice_count = 32;
     constexpr float release_seconds = 0.01f;
-    // audio2049's callers (src/rush2049/track2049_audio.cpp) boost its MusyX output to make up for MusyX's headroom (music
-    // 2.8x, effects 2x, times 127/114 for Rush 2049's default master volume). The disc's streams and samples are
-    // already at full level, so they're scaled back to play at their own level at full volume.
-    constexpr float musyx_full = 127.0f / 114.0f;
-    constexpr float music_scale = 1.0f / (2.8f * musyx_full);
-    constexpr float sfx_scale = 1.0f / (2.0f * musyx_full);
+    // The gains audio2049's callers pass (src/rush2049/track2049_audio.cpp) are 1 at Rush 2's default settings, which
+    // play the disc as it plays at its own defaults: music and effects volume 1.0 (set at 0x8C06AE30), so its songs
+    // at their full level (0x8C06A086: volume 1 -> attenuation table entry 255, which is 0) and its effects by the
+    // law in volume_gain. Played so, the disc is louder than Rush 2 in songs, effects and engines alike, so each is
+    // turned down by its measured difference (audio2049::disc_*_compensation, include/audio2049.h).
+    constexpr float music_scale = rush2::audio2049::disc_music_compensation;
+    constexpr float effects_scale = rush2::audio2049::disc_effects_compensation;
+    constexpr float engine_scale = rush2::audio2049::disc_engine_compensation;
 
     struct SoundPair {
         int n64, dc;
@@ -201,11 +208,23 @@ namespace {
         return a >= 254 ? 0.0f : std::pow(10.0f, -0.375f * (float)a / 20.0f);
     }
 
+    // The disc's pan (-1 left .. 1 right) as the game, its sound library and the AICA driver send it (see the top).
+    void pan_gains(float pan, float& left, float& right) {
+        int v = int((1.0f - std::clamp(pan, -1.0f, 1.0f)) / 2.0f * 127.0f) >> 2;
+        int steps_left = 0, steps_right = 0;
+        if (v >= 16) steps_right = v - 16;
+        else steps_left = v == 0 ? 15 : 16 - v;
+        auto gain = [](int steps) { return steps >= 15 ? 0.0f : std::pow(10.0f, -3.0f * (float)steps / 20.0f); };
+        left = gain(steps_left);
+        right = gain(steps_right);
+    }
+
     void set_gains(const State& s, Voice& v, int id, float volume, float pan, float pitch) {
         float g = volume_gain(s, volume) * (id == plane_sound ? 1.0f : 0.8f);
-        float angle = (std::clamp(pan, -1.0f, 1.0f) + 1.0f) * 0.25f * 3.14159265f;
-        v.gain_l = g * std::min(1.0f, std::cos(angle) * 1.41421356f);
-        v.gain_r = g * std::min(1.0f, std::sin(angle) * 1.41421356f);
+        float pl, pr;
+        pan_gains(pan, pl, pr);
+        v.gain_l = g * pl;
+        v.gain_r = g * pr;
         v.pitch = std::clamp(pitch, 0.0f, 4.0f);
     }
 
@@ -488,7 +507,7 @@ void rush2::audio2049::dc::mix(float* out, size_t frames, uint32_t sample_rate, 
     // Effects.
     for (Voice& v : st->voices) {
         if (v.s == nullptr) continue;
-        float fx = (v.engine ? engine_gain : sfx_gain) * sfx_scale / 32768.0f;
+        float fx = (v.engine ? engine_gain * engine_scale : sfx_gain * effects_scale) / 32768.0f;
         const Sample& s = *v.s;
         size_t n = s.pcm.size();
         double step = (double)s.rate * v.pitch / sample_rate;

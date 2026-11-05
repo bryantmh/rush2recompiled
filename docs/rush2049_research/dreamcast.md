@@ -104,7 +104,15 @@ The disc has no MusyX. `src/rush2049dc/audio2049_dc.cpp` plays it behind the sam
   loop start, loop end (samples), u32, u32}.
 - **Playing** (0x8C016210, from the sound queue 0x8C016A02; 3D emitters 0x8C01164C): volume x -> 1 - (1 - x)^2 ->
   index x 255 into the attenuation table 0x8C0BADA8 -> sent as 127 - a/2 (0x8C016508); every id but 0x99 is scaled
-  by 0.8 first. The port takes the attenuation as 0.375 dB steps [I] and uses an equal-power pan [I].
+  by 0.8 first. [V] Sega's sound library (amSoundSetVolume 0x8C0A2DB2 -> acDigiSetVolume 0x8C09D9AE, its volume
+  table mode at 0x8C1A7334 never switched on) sends the level to the AICA driver (`AUDIO64.DRV` 1.90f on the disc,
+  command 0x96) as total level a & ~1, the AICA's 0.375 dB steps. Pan: the game sends (1 - p) / 2 x 127 (0x8C0162AC),
+  amSoundSetPan (0x8C0A2E1C) sends it >> 2, and the driver (command 0x97, handler 0x3F24) makes that 0-31 value the
+  channel's DIPAN: 16 and up attenuate the right side by value - 16 steps, 1-15 the left by 16 - value, 0 the left
+  fully (3 dB a step, 15 silent). The game's centre (63 -> 15) leaves the left 3 dB down and the right full. The
+  driver's channel template (0x1134: +0x24 = 0x0F10, +0x28 = 0x0020) and its init keep the direct send level and the
+  master volume full; the game never changes them (acDspSetMixerChannel, acSystemSetMasterVolume uncalled). Driver
+  commands from its jump table at 0x2FF4: 0x81 master volume, 0x90 open, 0x95 mixer channel, 0x96 volume, 0x97 pan.
 - **Effect ids**: `tools/rush2049/dc_sounds.py` pairs N64 and disc ids from the type table's sounds (by type name),
   the engine layers, the battle weapon table (N64 0x803942C0 / disc 0x8C0D1D7C) and the explosion call (N64
   func_800AF06C 0x2D/0x45/0x2F = disc 0x8C062D40 0x09/0x3D/0x3E). It emits `src/rush2049dc/rush2049_dc_sounds.inc`; every id the
@@ -122,6 +130,11 @@ The disc has no MusyX. `src/rush2049dc/audio2049_dc.cpp` plays it behind the sam
   block is 0, so `read_song` skips those blocks (start and loop); songs used to sound only after 6 s, and after the
   whole song was decoded. The mixer now decodes the ADPCM a block ahead of the play position (`decode_song`), so a
   song sounds within about 10 ms of the request (`dc_test audio` prints the time).
+- Songs' volume and pan: a song starts through the same volume law (0x8C06A086, the music volume 0x8C17843C, 1.0 by
+  default: full level); its stream (amStreamSetVolume 0x8C09F7FC, track 0) and every stream track open with volume 127
+  and pan 63 (0x8C09FD14), which the game never changes (amStreamSetPan uncalled, the song's pan field +0x43F unread),
+  and each track's pan goes to the driver as an effect's does (0x8C0A09B4). So by the code the disc plays both
+  channels of a song at the same near-centre pan, folded to mono; the port keeps the songs in stereo [decision pending].
 - Levels: the streams play at their mastered level (about -10 dBFS RMS), close to the N64 songs after the port's
   boosts; `audio2049_dc.cpp` divides those boosts back out.
 - Both soundtracks: with the N64 ROM and the disc both installed, the Sound tab's Rush 2049 Soundtrack (Same as

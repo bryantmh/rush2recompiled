@@ -58,6 +58,7 @@
 #include <vector>
 
 #include "recompui/config.h"
+#include "sfx_sweep.h"
 #include "librecomp/config.hpp"
 #include "elements/ui_config_page.h"
 #include "elements/ui_icon_button.h"
@@ -1434,6 +1435,7 @@ bool rush2::music::game_command(uint8_t* rdram, recomp_context* ctx) {
 
 // func_800631A4 (the audio thread) at 0x80063AA0, before it takes the queued music commands: runs preview requests.
 extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
+    rush2::sfx_sweep::audio_frame(rdram, ctx); // test aid, off unless RUSH2_TEST_SFX_SWEEP is set
     if (menu_apply.load()) {
         std::lock_guard lock{ preview_mutex };
         if (menu_apply.exchange(false) && !apply_menu_music(rdram, ctx)) {

@@ -198,6 +198,10 @@ stays released until let go (gas and brake excepted), so pulse other keys after 
 were checked with `1:Up:45` and `Space` held 1.8 s every 2 s from 10 s in stunt arena 25, with `RUSH2_WINGS_LOG=1`
 printing the stick and torque the wings steer with while out (src/rush2049/wings_state.cpp; issue #54).
 
+`RUSH2_AUDIO_LEVELS=1` prints each sound source's level once a second in a test run (src/main.cpp
+`log_audio_levels`); `RUSH2_AUDIO_LEVELS=<folder>` also writes their streams for `tools/audio_loudness.py <folder>`
+(integrated loudness, docs/rush2049_research/audio.md#10-loudness-against-rush-2).
+
 ### Touch controls
 
 The on-screen touch controls (src/touch_controls.cpp, Controls tab > Touch Controls, Auto by default) are tested with

@@ -24,6 +24,11 @@ MANUAL = {
     # Explosions: N64 func_800AF06C plays 0x2D at size >= 1, 0x45 from 0.5, else 0x2F; the disc's (0x8C062D40) 0x09,
     # 0x3D, 0x3E (0x45 and 0x2F also pair through the type table: WPR_MINE and RAT).
     0x2D: 0x09,
+    # Menu sounds: the N64's helpers (menus.md, Menu sounds) and the disc's, which test the same input bits and play
+    # common.kat ids 0-8. Up / down: N64 func_800B5F4C 0x27 / 0x28 (bit 0x400), disc 0x8C0115BE 2 / 8. Right / left:
+    # N64 func_800B5F88 0x29 / 0x2C (bit 0x1000), disc 0x8C0115A4 3 / 6. A / B / START: N64 func_800B5FC4 0x2E / 0x26
+    # / 0x25, disc 0x8C011586 7 on bit 1, else 0 on bits 2 or 8, else 1.
+    0x27: 0x02, 0x28: 0x08, 0x29: 0x03, 0x2C: 0x06, 0x2E: 0x07, 0x26: 0x00, 0x25: 0x01,
 }
 # The N64's per-track songs (main 0x8010FFD4, s32 per 2049 track id 0-18) and the disc's (0x8C0BA76C).
 N64_TRACK_SONGS = 0x8010FFD4

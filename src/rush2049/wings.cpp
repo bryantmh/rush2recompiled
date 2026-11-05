@@ -15,6 +15,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -600,6 +601,20 @@ void rush2::wings::load_config() {
     load_chosen_source();
     config_loaded = true;
     update_rom_ui();
+    // Test aid (docs/crash_reports.md, 2026-11-04 LOADTLUT fault): RUSH2_TEST_SOURCE_FLIP=<ms> flips Rush 2049 Source
+    // between N64 and Dreamcast every <ms>, from a thread of its own as the Games tab does from the UI thread.
+    if (const char* flip = getenv("RUSH2_TEST_SOURCE_FLIP")) {
+        int ms = std::max(50, atoi(flip));
+        std::thread([ms]() {
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+                auto rom = rush2::wings::get_rom();
+                SourceChoice next = rom != nullptr && rom->is_dreamcast() ? SourceChoice::N64 : SourceChoice::Dreamcast;
+                fprintf(stderr, "[test] Rush 2049 Source -> %s\n", next == SourceChoice::N64 ? "N64" : "Dreamcast");
+                wings_config.update_option_value(source_option_id, static_cast<uint32_t>(next));
+            }
+        }).detach();
+    }
 }
 
 bool rush2::wings::rom_to_big_endian(std::vector<uint8_t>& data) {

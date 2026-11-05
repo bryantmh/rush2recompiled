@@ -58,6 +58,37 @@ It didn't reproduce in 15 runs (`tools/test_race.py 13 --drones 7 --env RUSH2_TE
 R2_BATTLE_TEST=log,fire,give<n>` for every pickup kind 0-10, and with `--user-settings` and a 2049 car). The next time it
 happens, `dl_fault.txt` and the snapshot name the list.
 
+### 2026-11-04: LOADTLUT off the end of RDRAM on the Start Game menu
+
+Graphics thread crash in `RT64::RDP::loadTLUTOperation` (inlined `loadWord`), replayed from
+`State::fullSyncFramebufferPairTiles` at the frame's G_RDPFULLSYNC: a read at RDRAM offset `0x20000000`. Rush 2049
+Menus on Layout with the background, 2049 source switched N64/Dreamcast once in the session (menus2049's
+`built_generation` 3), the game thread in `loading_screen_wait_frame_80088C64` (the per-frame sync, not a load). From the
+registers and stack (`loadTLUTOperation`'s locals: loadTile +0xE uls, +0x10 ult, +0x12 lrs, +0x14 lrt):
+
+- `(uls >> 2) - (lrs >> 2) = 332` and `(lrt >> 2) - (ult >> 2) = 815`: a reversed range, so
+  `wordsPerRow = lrs - uls + 1` wrapped to about 4 billion and the copy walked from `0x8001E01A` to the end of the
+  512 MB mapping. Tile line 4, tmem 0 (or 0x200); the texture image width 1, 16-bit (an `FD100000` setup).
+- No emitter writes that: Rush 2's `gfx_load_palette_tlut_80078190` and every LOADTLUT in src/ write `F0000000` (uls
+  and ult 0, lrt 0). So the list had run into memory that isn't one, as on Haight.
+- Task list `0x80255900` again (frame block `0x80250000` + 0x5900, src/players4.cpp); the interpreter was at
+  `0x80255A80`, 48 commands in, when FULLSYNC replayed the load. menus2049 had placed 10 buttons that frame (Start Game's
+  rows and the title plate).
+- The palette address `0x8001D000`-`0x8001E01A` is boot data, as `0x800491E0` (Haight) is boot bss: both look like a
+  G_DL to a small or zero address, with boot code and data then read as commands (MIPS `sd` words start `FD`).
+
+The minidump has no RDRAM or RT64 heap, so it can't name the list. Ruled out: menus2049's art rebuild after a source
+switch (built from the N64 ROM either way, same bytes); its list addresses (all absolute, button lists within 512
+bytes); a main-list overflow (frame blocks are 0x40000 each); interpolation's side lists (always `0x80B0xxxx`).
+
+RT64 now ignores a LOADTLUT with a reversed range, as it already did for LOADTILE and LOADBLOCK, and reports it through
+the fault report above (`State::displayListFault`, "LOADTLUT with a reversed range"), so this no longer crashes and the
+next one writes `dl_fault.txt` and the snapshot. Not reproduced in three 40-120 s menu runs with
+`RUSH2_TEST_SOURCE_FLIP=1500` (src/rush2049/wings.cpp: flips Rush 2049 Source every 1.5 s, as the Games tab does; 78
+flips reached the 2049 cars' and liveries' reloads), driving Start Game, SETUP, Select Player and the track select:
+`py tools/test_race.py menus --user-settings --seconds 110 --data tmp/<dir> --env RUSH2_TEST_SOURCE_FLIP=1500 --script
+"14:START,..."` (the title can take 5-12 s, so START at 14 s).
+
 ## Menu navigation exception
 
 `recompui::RecompNav::unwind_nav_in_direction` (lib/RecompFrontend `recompui/src/elements/ui_document.cpp`) threw

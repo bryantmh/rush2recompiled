@@ -14,11 +14,29 @@
 // Threading: mix() runs on the audio thread; every other call may come from any thread. All calls are serialised by
 // one internal mutex, so keep calls cheap and infrequent (a few per frame).
 //
-// Levels: with music_gain = sfx_gain = 1.0, mix() produces Rush 2049's mix at its default options (music and sound
-// effects volume 10/10, which Rush 2049 turns into MusyX master volume 114/127). Voice gains match the N64; a full
-// 15-bit voice gain comes out at 0.5, as the RSP mixer's own scale isn't ported (see docs/rush2049_research/audio.md
-// §4). The race songs then run at -17..-23 dBFS RMS; loud passages can still pass 1.0, so clamp after mixing.
+// Levels: with music_gain = sfx_gain = 1.0, mix() produces Rush 2049's N64 output at its default options (music and
+// sound effects volume 10/10, which Rush 2049 turns into MusyX master volume 114/127), as the N64 plays it: voice
+// gains match the running game and a full 15-bit voice gain is unity, as the game's RSP mixer has it
+// (docs/rush2049_research/audio.md#4-volume-calibration). Loud passages can pass 1.0, so clamp after mixing.
 namespace rush2::audio2049 {
+    // Rush 2's own volume settings at their defaults (music 0x800D5773, effects 0x800D5774 and engine 0x800D577A: 35 of
+    // 40 each, read at the main menu of a fresh run), which play Rush 2049 at its own defaults: the callers
+    // (src/rush2049/track2049_audio.cpp) pass the live setting / default as the gains, so each game plays as it shipped
+    // and moves with the settings alike. (In a race Rush 2 lowers the live engine byte, to 32 at the defaults; its own
+    // engines and 2049's follow it together.)
+    constexpr float rush2_default_volume = 35.0f;
+    constexpr float rush2_default_engine_volume = 35.0f;
+
+    // Where a source plays louder than Rush 2 (at both games' defaults), it is turned down by the measured difference;
+    // a quieter one is left as the game plays it (docs/rush2049_research/audio.md#10-loudness-against-rush-2). Songs:
+    // mean integrated loudness of the race songs (Rush 2 -16.1 LUFS; N64 -18.4, disc -12.6). Effects and engines: power
+    // mean of each sound's loudest 400 ms at full volume, centred (RUSH2_TEST_SFX_SWEEP; Rush 2 effects -16.63, engines
+    // -14.16; N64 -14.67 and -14.41; disc -11.68 and -11.46).
+    constexpr float n64_effects_compensation = 0.798f;    // -1.96 dB
+    constexpr float disc_music_compensation = 0.666f;     // -3.53 dB
+    constexpr float disc_effects_compensation = 0.566f;   // -4.95 dB
+    constexpr float disc_engine_compensation = 0.733f;    // -2.70 dB
+
     constexpr int song_count = 12;   // Rush 2049 songs 0-11 (ROM files 10-21). 10 and 11 end; 0-9 loop forever.
     constexpr int sfx_count = 0x77;  // Rush 2049 sound effect ids 0x00-0x76.
 
@@ -88,6 +106,11 @@ namespace rush2::audio2049 {
     // music_gain, engine effects (sfx_set_engine) by engine_gain and other effect voices by sfx_gain.
     void mix(float* interleaved_stereo, size_t frames, uint32_t sample_rate, float music_gain, float sfx_gain,
              float engine_gain);
+    // Test aid (RUSH2_AUDIO_LEVELS, src/main.cpp): while on, mix() also sums each bus's squared output (0 music,
+    // 1 effects, 2 engines; the N64 MusyX player only); take_bus_energy returns the sums and frames since the last
+    // call and clears them.
+    void measure_buses(bool on);
+    void take_bus_energy(double sq[3], uint64_t& frames);
 
     // Rush 2049's 3D emitter law for one listener (func_80098AE4): the volume, pan and surround it would pass to
     // sfx_update for an emitter at `emitter` heard by a listener at `listener` (Rush 2049 uses the player car's

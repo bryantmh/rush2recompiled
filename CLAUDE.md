@@ -1,6 +1,6 @@
 Agents are expensive and I want token usage kept down. Default to doing the work yourself; think twice before spawning one and only do so when it clearly saves tokens (focused or repetitive tasks that can be fully specified in the prompt). Always set `model` explicitly to one tier below your own (Opus -> sonnet, Sonnet -> haiku), at medium effort, never inheriting the parent model.
 
-We aren't british. no "colour" and the like
+We aren't British. no "colour", no "centre", no "normalise". Stop using British spellings
 
 Ensure you document code and functions that you have taken the time to disassemble so that other sessions can easily reference and add to the knowledge base instead of working everything out again from scratch
 

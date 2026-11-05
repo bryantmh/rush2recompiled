@@ -42,7 +42,7 @@
 // a linear ADSR stepped per millisecond and the gains ramped over 5 ms. Instead of mixing at 22050 Hz and resampling,
 // each voice is resampled straight to the host rate with 4-point (Catmull-Rom) interpolation. The surround gain is
 // matrixed into stereo as left + S, right - S (Dolby Surround style; music never uses it). A 15-bit gain of 32767
-// comes out at 0.5 (output_gain: the RSP mixer itself isn't ported). Checked against the N64: the wing sound as Rush
+// comes out at unity, as the game's RSP mixer adds it (output_gain). Checked against the N64: the wing sound as Rush
 // 2049 plays it (sfx 0x3D at volume 0.5, pan 0, pitch 0.75) gets voice gains 3568 / 3490 and step 1535/4096, the
 // values src/rush2049/wings_sound.cpp took from the running game.
 //
@@ -92,10 +92,12 @@ namespace {
     constexpr int master_music_fader = 21;
     constexpr int master_sfx_fader = 22;
     constexpr int default_master = 114; // (int)(10 / 10 * 127 * 0.9)
-    // Output scale of a voice gain of 32767. The N64 RSP mixer ("N64 RSP mixer V1.1") isn't reverse engineered; with
-    // Q15 gains (1.0) Rush 2049's songs would peak up to +6.7 dBFS and run at -11..-16 dBFS RMS, so the mixer evidently
-    // keeps 6 dB of headroom: 0.5 puts the race songs at -17..-23 dBFS RMS, peaking near full scale.
-    constexpr float output_gain = 0.5f;
+    // Output scale of a voice gain of 32767: unity, as Rush 2049's RSP mixer ("N64 RSP mixer V1.1", text at boot
+    // 0x8002A050, task built by func_80011910) mixes each voice into its output buffers with vmulf (sample x gain x 2
+    // / 65536, rounded) then vmadh (+ buffer x 1) at IMEM 0x700-0x708, the 15-bit gain being the high half of the
+    // voice record's volume word; the output pass (IMEM 0x800) only adds a per-channel constant and interleaves.
+    // docs/rush2049_research/audio.md#4-volume-calibration
+    constexpr float output_gain = 1.0f;
 
     // Rush 2049 boot 0x8002CA40 / 0x8002CC44.
     constexpr float vol_tab[129] = {
@@ -2995,14 +2997,31 @@ namespace {
         return !e.empty() && std::find(e.begin(), e.end(), h.owner) != e.end() ? engine_gain : sfx_gain;
     }
 
+    // Test aid (rush2::audio2049::measure_buses): each bus's output (0 music, 1 effects, 2 engines) summed apart, its
+    // squares added up for take_bus_energy.
+    bool measuring = false;
+    double bus_sq[3]{};
+    uint64_t bus_frames = 0;
+    std::vector<float> bus_tmp[3];
+
+    int voice_bus(const HwVoice& h) {
+        if (!h.fx) return 0;
+        const auto& e = eng->engine_vids;
+        return !e.empty() && std::find(e.begin(), e.end(), h.owner) != e.end() ? 2 : 1;
+    }
+
     void render(float* out, u32 n, float music_gain, float sfx_gain, float engine_gain) {
+        if (measuring) {
+            for (auto& b : bus_tmp) b.assign(size_t(n) * 2, 0.0f);
+        }
         for (int i = 0; i < voice_num; i++) {
             HwVoice& h = eng->hw[i];
             if (!h.active || h.starting || h.smp == nullptr || h.smp->pcm.empty()) {
                 continue;
             }
             float g = voice_gain(h, music_gain, sfx_gain, engine_gain);
-            if (!render_voice(h, out, n, eng->ms_pos, eng->ms_len, g, true)) {
+            float* dst = measuring ? bus_tmp[voice_bus(h)].data() : out;
+            if (!render_voice(h, dst, n, eng->ms_pos, eng->ms_len, g, true)) {
                 hw_deactivate(i, true, false);
             }
         }
@@ -3010,7 +3029,8 @@ namespace {
             Tail& t = eng->tails[k];
             u32 m = std::min(n, t.left);
             float g = voice_gain(t.v, music_gain, sfx_gain, engine_gain);
-            bool alive = render_voice(t.v, out, m, 0, 1, g, false, t.gain_l, t.gain_r, t.left, t.total);
+            float* dst = measuring ? bus_tmp[voice_bus(t.v)].data() : out;
+            bool alive = render_voice(t.v, dst, m, 0, 1, g, false, t.gain_l, t.gain_r, t.left, t.total);
             t.left -= m;
             if (!alive || t.left == 0) {
                 eng->tails.erase(eng->tails.begin() + k);
@@ -3018,6 +3038,15 @@ namespace {
             else {
                 k++;
             }
+        }
+        if (measuring) {
+            for (int b = 0; b < 3; b++) {
+                for (size_t k = 0; k < size_t(n) * 2; k++) {
+                    out[k] += bus_tmp[b][k];
+                    bus_sq[b] += double(bus_tmp[b][k]) * bus_tmp[b][k];
+                }
+            }
+            bus_frames += n;
         }
     }
 
@@ -3316,11 +3345,27 @@ namespace rush2::audio2049 {
                 continue;
             }
             u32 n = u32(std::min<size_t>(eng->ms_left, frames - done));
-            render(out + done * 2, n, music_gain, sfx_gain, engine_gain);
+            // The N64's effects are louder than Rush 2's at both games' defaults: turned down by the difference.
+            render(out + done * 2, n, music_gain, sfx_gain * n64_effects_compensation, engine_gain);
             done += n;
             eng->ms_left -= n;
             eng->ms_pos += n;
         }
+    }
+
+    void measure_buses(bool on) {
+        std::lock_guard lock{ engine_mutex };
+        measuring = on;
+    }
+
+    void take_bus_energy(double sq[3], uint64_t& frames) {
+        std::lock_guard lock{ engine_mutex };
+        for (int b = 0; b < 3; b++) {
+            sq[b] = bus_sq[b];
+            bus_sq[b] = 0.0;
+        }
+        frames = bus_frames;
+        bus_frames = 0;
     }
 
     EmitterParams emitter_mix(const float emitter[3], const float listener[3], const float back[3], const float up[3],

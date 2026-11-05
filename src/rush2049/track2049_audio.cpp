@@ -131,17 +131,11 @@ namespace {
         if (!(fade >= 0.0f && fade <= 1.0f)) {
             fade = 1.0f;
         }
-        // audio2049's gain 1 is Rush 2049's default mix (master volume 114/127); Rush 2's full volume (40) maps to
-        // Rush 2049's full volume.
-        constexpr float full = 127.0f / 114.0f;
-        // Music and effects get back the 6 dB of headroom audio2049 leaves (its full voice gain is 0.5). Music gets
-        // 3 dB more: at 2x alone it still sounded quieter than Rush 2's own. Effects (2049 engines among them) stay at
-        // 2x; at 2.8x the engines were too loud. Peaks are soft-limited in mix_audio.
-        constexpr float music_boost = 2.8f;
-        constexpr float sfx_boost = 2.0f;
-        music_gain = (int8_t)MEM_B(0, (int32_t)music_volume) / 40.0f * full * music_boost * fade;
-        sfx_gain = (int8_t)MEM_B(0, (int32_t)sfx_volume) / 40.0f * full * sfx_boost;
-        engine_gain = (int8_t)MEM_B(0, (int32_t)engine_volume) / 40.0f * full * sfx_boost;
+        // audio2049's gain 1 is Rush 2049's N64 output at its default options; Rush 2's settings at their defaults play
+        // it so (include/audio2049.h). Peaks are soft-limited in mix_audio.
+        music_gain = (int8_t)MEM_B(0, (int32_t)music_volume) / audio::rush2_default_volume * fade;
+        sfx_gain = (int8_t)MEM_B(0, (int32_t)sfx_volume) / audio::rush2_default_volume;
+        engine_gain = (int8_t)MEM_B(0, (int32_t)engine_volume) / audio::rush2_default_engine_volume;
     }
 
     // Per moving object: the sound effect it plays and the loop it waits to start.
