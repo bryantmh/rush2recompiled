@@ -32,6 +32,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,15 +43,20 @@
 #include <string>
 #include <vector>
 
+#include "json/json.hpp"
+
 #include "recomp.h"
 #include "rush2.h"
 #include "rush2_hooks.h"
+#include "audio2049.h"
 #include "font2049.h"
 #include "menus2049.h"
 #include "rush2049_rom.h"
+#include "track2049.h"
 #include "wings.h"
 
 #include "recompui/recompui.h"
+#include "util/file.h"
 #include "ultramodern/config.hpp"
 
 #define F3DEX_GBI_2
@@ -80,7 +87,6 @@ namespace {
     constexpr uint32_t dl_2d_cursor = 0x80125ABC;     // the 2D display list
     constexpr int flash_style = 0x14;
     constexpr int first_gray_style = 2, last_gray_style = 4; // Rush 2's grays: 0xA0, 0x78, 0x50 (style 1 is 0xE6)
-    constexpr int16_t home_screen = 0;                // front_end_screen: Start Game
     constexpr int16_t select_player_screen = 1;
     constexpr int32_t header_bottom = 42;             // the header plates' band, y 10-42 (docs/menus.md)
     // 2049's title node (func_800D71D0, entry 11 of 0x801102B4): BUTTON_S2G1 textured BUTTON_TITLE at (0, 115, 200),
@@ -90,7 +96,17 @@ namespace {
     constexpr float title_z = 200.0f, title_y = 115.0f;
     constexpr int title_cx = 160, title_cy = 28;       // 120 - 115 * 160 / 200
     constexpr int home_cx = 160;                       // 2049's menu lists are centered (x = 0)
-    constexpr uint32_t start_game_frame_callback = 0x803C3560; // the Start Game panel and HALFBOTBAR (menu_widget_handler_font6_menu_bytes)
+    // Style and Layout: the screens whose list is laid out like 2049's (centered on the background, Rush 2's panel
+    // behind it and its HALFBOTBAR left out). Each prints its rows centered on the panel (x 88); the panel is its
+    // widget table's first entry (param 0) and the bar the entry `bar_param`, both drawn by `panel_callback`
+    // (tools/menu_widgets.py dumps the tables).
+    struct ListScreen { int list; int16_t screen; uint32_t panel_callback; uint32_t bar_param; };
+    constexpr ListScreen list_screens[] = {
+        { 0, 0, 0x803C3560, 1 },    // Start Game (widgets 0x803C8804)
+        { 3, 5, 0x803C3244, 1 },    // SETUP (menu_screen_options_list_803B17A8, widgets 0x803C8730)
+        { 1, 10, 0x803BD42C, 2 },   // the circuit menu (0x803C78A0; its info box below, params 1 and 3-6, stays)
+        { 4, 3, 0x803C3874, 1 },    // RECORDS' STATISTICS / BEST AVERAGES / BEST LAPS chooser (screen 3, 0x803C88EC)
+    };
     // TMEM caches the game's own draws trust: the 2D image last loaded (func_80055F78 skips loading it again) and the
     // palette last loaded (func_80078190). Both are cleared after a draw here loads textures.
     constexpr uint32_t last_2d_image = 0x80119638;
@@ -115,6 +131,10 @@ namespace {
     constexpr float text_hidden_max = 2.4434609f;     // 0x80124830: 140 degrees
     constexpr float button_z = 300.0f;                // 2049's buttons' depth
     constexpr float row_units = 40.0f;                // between 2049's rows
+    constexpr float button_units = 34.0f;             // a button's height (file 54 BUTTON_S*G1: z -17..17)
+    constexpr float title_units = 34.0f;              // the title button's (BUTTON_S2G1, at title_z)
+    // 2049's rows (func_800FEE04 selects font 11, AERO-PLAIN10, for them): Rush 2's font 9 holds it (fonts_2049).
+    constexpr int row_font = 9;
     constexpr float text_inset = 19.7f;               // 2049 pixels from a button's end to its text (0x37 in S3)
     constexpr float near_plane = 2.5f, far_plane = 2000.0f; // func_800A5908, both x 16 for guPerspective
     constexpr float sfx_depth = 1025.0f;              // the swirl's quads (0x801391E4)
@@ -130,6 +150,12 @@ namespace {
     };
 
     // Everything built from the ROM, laid out from `region` as it goes into RDRAM.
+    // A set of fonts for Rush 2's records 8-10 and the title: text size follows 2049's buttons, the lettering its fonts
+    // switch. Rush2 is Rush 2's own (nothing swapped); Aero 2049's menu fonts; Rush2AtAero Rush 2's lettering at
+    // 2049's sizes (its buttons, its fonts off); AeroAtRush2 2049's lettering at Rush 2's sizes (its fonts without its
+    // buttons). The art holds one set at a time (RDRAM is short): another is built when the options call for it.
+    enum class FontSet { Rush2, Aero, Rush2AtAero, AeroAtRush2 };
+
     struct Art {
         std::vector<uint8_t> image;
         uint32_t frame_area = 0;                      // the per-frame slots start here
@@ -137,24 +163,31 @@ namespace {
         int frame_slot_buttons = 0;
         uint32_t empty_dl = 0, empty_string = 0, viewport = 0;
         struct FontInfo { uint32_t ranges = 0; int range_count = 0; int space = 0; int cap = 0; int half_height = 0; }
-            fonts[4];                                 // Rush 2's fonts 8, 9, 10, then the title font
+            fonts[4];                                 // the set's fonts 8, 9, 10, then its title font
+        FontSet set = FontSet::Aero;
         Texture sfx, bg_a, bg_b, button[2], title;
         struct Model { uint32_t dl = 0; float half_width = 0; } models[button_models];
     };
 
-    std::atomic_int option_mode = 0;                 // rush2::menus2049::Mode
-    bool layout = false;                              // Style and Layout, while the menus are up (game thread)
+    // The options (rush2::menus2049::Mode, and the fonts, sounds and background switches).
+    std::atomic_int option_mode = 0;
+    std::atomic_bool option_fonts = false, option_sounds = false, option_background = false;
+    // While the menus are up (game thread): the buttons and colors (Minimal or Full), Full's layout, the fonts and
+    // the background, each on when its option is and the art is built.
+    bool style_on = false, layout = false, fonts_on = false, background_on = false;
     std::mutex art_mutex;
     std::shared_ptr<const Art> built;                 // set by the build thread
     std::shared_ptr<const rush2::rom2049::Source> built_from;
     std::atomic_bool building = false;
     std::atomic<uint64_t> source_generation = 1;
     uint64_t built_generation = 0;
+    FontSet built_set = FontSet::Aero;
 
     // Game thread state.
     std::shared_ptr<const Art> art;                   // the art in RDRAM
     bool active = false;
-    bool fonts_swapped = false;
+    FontSet fonts_swapped = FontSet::Rush2;           // the set in Rush 2's records 8-10
+    std::atomic_int wanted_set = (int)FontSet::Aero;  // the set the options call for (the art's to build)
     std::array<std::array<uint8_t, 16>, 3> saved_fonts{};
     bool styles_swapped = false;
     std::array<uint8_t, 24> saved_styles{};
@@ -174,8 +207,16 @@ namespace {
 
     struct Row { float angle = 0.0f; uint32_t frame = 0; uint32_t gen = 0; int model = -1; float scale = 0.0f; };
     std::map<uint32_t, Row> rows;
-    struct List { float width = 0.0f; int normal_font = 0; int pitch = 16; int prev_y = keep_position; int min_dy = 0; int rows = 0; };
-    std::array<List, 4> lists;                        // 0 Start Game, 1 the circuit menu, 2 Select Player, 3 SETUP
+    // A list's rows this frame. A centered list (Layout's list screens) is drawn at 2049's size: its rows' centers
+    // (as the game places them) are moved about map_from to about map_to, spread by map_k, and its buttons drawn at
+    // draw_pitch (finish_buttons); other lists keep the game's places, their buttons at its pitch.
+    struct List {
+        float width = 0.0f; int normal_font = 0; int pitch = 16; int prev_y = keep_position; int min_dy = 0; int rows = 0;
+        bool mapped = false; float map_from = 0.0f, map_to = 0.0f, map_k = 1.0f, draw_pitch = 16.0f;
+        float map(float cy) const { return mapped ? map_to + (cy - map_from) * map_k : cy; }
+    };
+    std::array<List, 5> lists;                        // 0 Start Game, 1 the circuit menu, 2 Select Player, 3 SETUP,
+                                                      // 4 the RECORDS chooser
 
     float read_f32(uint8_t* rdram, uint32_t addr) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
@@ -414,8 +455,70 @@ namespace {
         return count <= 15;
     }
 
-    std::shared_ptr<const Art> build(const rush2::rom2049::Source& rom) {
+    // The synthesized fonts (assets/menu_fonts_synth.json, tools/build_font_pack.py synth) as 2049 fonts: a page a
+    // glyph, its cell the whole page.
+    std::map<std::string, rush2::font2049::Font> load_synth_fonts() {
+        std::map<std::string, rush2::font2049::Font> out;
+        std::ifstream in{ recompui::file::get_program_path() / "assets" / "menu_fonts_synth.json" };
+        nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
+        if (j.is_discarded() || !j.is_object()) return out;
+        for (const auto& [id, font] : j.items()) {
+            rush2::font2049::Font f;
+            f.line_height = font.value("line_height", 0);
+            f.space = font.value("space", 0);
+            f.gap = font.value("gap", 1);
+            f.ascent = font.value("ascent", 0);
+            f.descent = font.value("descent", 0);
+            for (const auto& [code, g] : font["glyphs"].items()) {
+                int w = g.value("w", 0), h = g.value("h", 0);
+                std::string hex = g.value("coverage", std::string{});
+                if (w <= 0 || h <= 0 || hex.size() != (size_t)w * h * 2) continue;
+                rush2::font2049::Font::Page page{ w, h, std::vector<uint8_t>((size_t)w * h) };
+                for (size_t i = 0; i < page.coverage.size(); i++) {
+                    page.coverage[i] = (uint8_t)std::stoi(hex.substr(i * 2, 2), nullptr, 16);
+                }
+                f.glyphs[(char)std::stoi(code)] = { (int)f.pages.size(), 0, 0, w - 1, h - 1 };
+                f.pages.push_back(std::move(page));
+            }
+            out.emplace(id, std::move(f));
+        }
+        return out;
+    }
+
+    // Fonts 8, 9, 10 and the title of a set (not Rush2) into info[0..3]; `dump` gets their sheets.
+    bool build_set(Builder& b, const rush2::rom2049::Source& rom, FontSet set, Art::FontInfo* info, std::string& dump,
+                   const std::map<std::string, rush2::font2049::Font>& synth) {
+        static const char* const synth_ids[2][4] = {
+            { "rush2_at_aero_8", "rush2_at_aero_9", "rush2_at_aero_10", "rush2_at_aero_title" },
+            { "aero_at_rush2_8", "aero_at_rush2_9", "aero_at_rush2_10", nullptr },   // 2049's own title
+        };
+        for (int i = 0; i < 4; i++) {
+            const char* sid = set == FontSet::Rush2AtAero ? synth_ids[0][i] : set == FontSet::AeroAtRush2 ? synth_ids[1][i] : nullptr;
+            std::optional<rush2::font2049::Font> f;
+            std::string id;
+            if (sid != nullptr) {
+                auto it = synth.find(sid);
+                if (it != synth.end()) f = it->second;
+                id = sid;
+            }
+            else {
+                f = rush2::font2049::load(rom, fonts_2049[i]);
+                id = i < 3 ? "rush2049_menu_" + std::to_string(rush2_fonts[i]) : "rush2049_menu_title";
+            }
+            if (dump.size() > 2) dump += ",\n";
+            dump += "{\"id\":\"" + id + "\",";
+            if (!f || !build_font(b, *f, info[i], dump)) {
+                fprintf(stderr, "[menus2049] menu font %s couldn't be read\n", id.c_str());
+                return false;
+            }
+            dump += "}";
+        }
+        return true;
+    }
+
+    std::shared_ptr<const Art> build(const rush2::rom2049::Source& rom, FontSet set) {
         auto out = std::make_shared<Art>();
+        out->set = set == FontSet::Rush2 ? FontSet::Aero : set;
         Builder b{ *out };
         static const uint8_t end_dl[8] = { 0xDF, 0, 0, 0, 0, 0, 0, 0 };
         out->empty_dl = b.add(end_dl, 8);
@@ -424,20 +527,23 @@ namespace {
         static const uint8_t vp[16] = { 0x02, 0x80, 0x01, 0xE0, 0x01, 0xFF, 0, 0, 0x02, 0x80, 0x01, 0xE0, 0x01, 0xFF, 0, 0 };
         out->viewport = b.add(vp, 16);
         std::string dump = "[\n";
-        for (int i = 0; i < 4; i++) {
-            auto f = rush2::font2049::load(rom, fonts_2049[i]);
-            char head[64];
-            if (i < 3) snprintf(head, sizeof(head), "%s{\"id\":\"rush2049_menu_%d\",", i ? ",\n" : "", rush2_fonts[i]);
-            else snprintf(head, sizeof(head), ",\n{\"id\":\"rush2049_menu_title\",");
-            dump += head;
-            if (!f || !build_font(b, *f, out->fonts[i], dump)) {
-                fprintf(stderr, "[menus2049] Rush 2049 font %d couldn't be read\n", fonts_2049[i]);
-                return nullptr;
-            }
-            dump += "}";
-        }
-        // RUSH2_DUMP_MENU_FONTS=<path>: the sheets as font tables, for tools/build_font_pack.py trace-2049-menus.
+        auto synth = load_synth_fonts();
+        if (!build_set(b, rom, out->set, out->fonts, dump, synth)) return nullptr;
+        // RUSH2_DUMP_MENU_FONTS=<path>: the sheets as font tables, for tools/build_font_pack.py trace-2049-menus; the
+        // other sets too, packed the same way into a scratch art (sheets don't depend on where they're put).
         if (const char* path = getenv("RUSH2_DUMP_MENU_FONTS")) {
+            for (FontSet other : { FontSet::Aero, FontSet::Rush2AtAero, FontSet::AeroAtRush2 }) {
+                if (other == out->set) continue;
+                Art scratch;
+                Builder sb{ scratch };
+                Art::FontInfo info[4];
+                std::string more = "[\n";
+                if (build_set(sb, rom, other, info, more, synth)) {
+                    // AeroAtRush2 repeats 2049's title, which the dump already has: only its own fonts.
+                    if (other == FontSet::AeroAtRush2) more = more.substr(0, more.rfind(",\n{\"id\":\"rush2049_menu_title\""));
+                    dump += ",\n" + more.substr(2);
+                }
+            }
             if (FILE* fp = fopen(path, "w")) {
                 fputs((dump + "\n]\n").c_str(), fp);
                 fclose(fp);
@@ -477,16 +583,18 @@ namespace {
     void start_build() {
         if (building.exchange(true)) return;
         uint64_t generation = source_generation.load();
-        std::thread([generation]() {
+        FontSet set = (FontSet)wanted_set.load();
+        std::thread([generation, set]() {
             // The N64 ROM even with the Dreamcast disc as the source (the disc has no menu fonts in this format).
             auto rom = rush2::wings::get_rom();
             if (rom == nullptr || rom->is_dreamcast()) rom = rush2::wings::open_source(false);
-            std::shared_ptr<const Art> a = rom != nullptr ? build(*rom) : nullptr;
+            std::shared_ptr<const Art> a = rom != nullptr ? build(*rom, set) : nullptr;
             {
                 std::lock_guard lock{ art_mutex };
                 built = a;
                 built_from = rom;
                 built_generation = generation;
+                built_set = set;
             }
             building = false;
         }).detach();
@@ -787,6 +895,13 @@ namespace {
         EX(gEXPushGeometryMode);
         EX(gEXPushProjectionMatrix);
         EX(gEXPushViewport);
+        EX(gEXPushScissor);
+        {
+            // 2049's menus use the whole screen; Rush 2's front-end scissor stops at line 230.
+            GfxCommand g[2]{};
+            gEXSetScissor(&g[0], G_SC_NON_INTERLACE, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, 0, 0, 240);
+            c.add(g, 2);
+        }
         {
             GfxCommand g[4]{};
             gEXMatrixGroupSimple(&g[0], id, G_EX_PUSH, 1 /* projection */,
@@ -817,6 +932,7 @@ namespace {
             gEXPopMatrixGroup(&g[1], 1 /* projection */);
             c.add(g, 2);
         }
+        EX(gEXPopScissor);
         EX(gEXPopViewport);
         EX(gEXPopProjectionMatrix);
         EX(gEXPopGeometryMode);
@@ -859,9 +975,9 @@ namespace {
         if (uint32_t m = place_slot(rdram)) pending.push_back({ list, key, cx, cy, angle, m });
     }
 
-    // Style and Layout: a row of the home screen (Start Game), printed once its list's buttons are laid out
+    // Style and Layout: a row of a centered list (list_screens), printed once its list's buttons are laid out
     // (list_end), left-aligned at 2049's inset from its button's end.
-    struct RowText { uint32_t str; int32_t y; uint32_t fg, bg; int font; };
+    struct RowText { int list; uint32_t str; float cy; uint32_t fg, bg; int font; };   // cy as the game placed it
     std::vector<RowText> row_texts;
 
     void set_colors(uint8_t* rdram, uint32_t fg, uint32_t bg) {
@@ -872,14 +988,18 @@ namespace {
     }
 
     // 2049's style 0x16: black blended to E0E000 by f, a triangle wave of the time (func_800947F0: f = frac(2 t),
-    // folded at 0.5, doubled), converted with truncation; the shadow stays the last style's (style 1's in its menus).
+    // folded at 0.5, doubled), converted with truncation. 2049 keeps the last style's shadow (style 1's 3C3C3C), and
+    // text is a ramp from the shadow color to the text color by the texel's intensity, so every partly covered texel
+    // (the HD sheets' edges and joins) stays dark gray while the letters turn yellow: stray dark pixels that don't
+    // flash. The shadow takes the pulse color instead, so those texels only soften the letters' edges.
     void set_pulse(uint8_t* rdram) {
         float f = 2.0f * pulse_time;
         f -= (float)(int32_t)f;
         if (f > 0.5f) f = 1.0f - f;
         f *= 2.0f;
         uint32_t y = (uint32_t)(int32_t)((float)pulse_yellow * f);
-        set_colors(rdram, y << 24 | y << 16 | 0xFF, shadow_white);
+        uint32_t color = y << 24 | y << 16 | 0xFF;
+        set_colors(rdram, color, color);
     }
 
     bool menus_up(uint8_t* rdram) {
@@ -896,22 +1016,34 @@ namespace {
         }
     }
 
-    void swap_fonts(uint8_t* rdram, bool on) {
-        if (on == fonts_swapped) return;
+    // A set's fonts, while the art holds them (else null: Rush 2's stay until it does).
+    const Art::FontInfo* font_set(FontSet set) {
+        return set != FontSet::Rush2 && art != nullptr && art->set == set ? art->fonts : nullptr;
+    }
+
+    void swap_fonts(uint8_t* rdram, FontSet set) {
+        if (set == fonts_swapped) return;
+        if (fonts_swapped != FontSet::Rush2) {
+            for (int i = 0; i < 3; i++) {
+                int32_t rec = (int32_t)(font_table + rush2_fonts[i] * 0x10);
+                for (int k = 0; k < 16; k++) MEM_B(k, rec) = (int8_t)saved_fonts[i][k];
+            }
+            fonts_swapped = FontSet::Rush2;
+        }
+        const Art::FontInfo* infos = font_set(set);
+        bool on = infos != nullptr;
+        if (!on) set = FontSet::Rush2;
         for (int i = 0; i < 3; i++) {
             int32_t rec = (int32_t)(font_table + rush2_fonts[i] * 0x10);
             if (on) {
                 for (int k = 0; k < 16; k++) saved_fonts[i][k] = (uint8_t)MEM_B(k, rec);
-                const Art::FontInfo& f = art->fonts[i];
+                const Art::FontInfo& f = infos[i];
                 MEM_B(5, rec) = (int8_t)f.space;
                 MEM_B(9, rec) = (int8_t)f.range_count;
                 MEM_W(0xC, rec) = (int32_t)f.ranges;
             }
-            else {
-                for (int k = 0; k < 16; k++) MEM_B(k, rec) = (int8_t)saved_fonts[i][k];
-            }
         }
-        fonts_swapped = on;
+        fonts_swapped = set;
     }
 
     // Rush 2's green styles 9-11 (titles, labels) as 2049's white and gray.
@@ -955,8 +1087,37 @@ namespace {
         return w;
     }
 
-    bool is_home_screen(uint8_t* rdram) {
-        return MEM_W(0, (int32_t)game_state) == 0 && MEM_H(0, (int32_t)front_end_screen) == home_screen;
+    // A menu font's capitals' cell height (font 8, 9 or 10) in the set in Rush 2's records (Rush 2's own: 7, 9, 11).
+    int cap_of(int font) {
+        int i = font == 8 ? 0 : font == 9 ? 1 : 2;
+        constexpr int rush2_cells[3] = { 7, 9, 11 };
+        const Art::FontInfo* infos = font_set(fonts_swapped);
+        return infos != nullptr ? infos[i].cap : rush2_cells[i];
+    }
+
+    // How far above its center 2049 starts a line in a menu font (text_draw_800B71D4's vertical mode 1, which
+    // func_800FEE04 prints its rows with: half the glyph table's ascent + descent, truncated), in the set in Rush 2's
+    // records; half the capitals' cell while Rush 2's own are there.
+    int half_line_of(int font) {
+        int i = font == 8 ? 0 : font == 9 ? 1 : 2;
+        const Art::FontInfo* infos = font_set(fonts_swapped);
+        return infos != nullptr ? infos[i].half_height : (int)std::lround((float)cap_of(font) / 2.0f);
+    }
+
+    // The list_screens entry for the screen up, or null.
+    const ListScreen* list_screen(uint8_t* rdram) {
+        if (MEM_W(0, (int32_t)game_state) != 0) return nullptr;
+        int16_t screen = MEM_H(0, (int32_t)front_end_screen);
+        for (const ListScreen& ls : list_screens) {
+            if (ls.screen == screen) return &ls;
+        }
+        return nullptr;
+    }
+
+    // Style and Layout lays this list out like 2049's on the screen up.
+    bool centered_list(uint8_t* rdram, int list) {
+        const ListScreen* ls = layout ? list_screen(rdram) : nullptr;
+        return ls != nullptr && ls->list == list;
     }
 
     // Puts back the font before_print changed for the row under the cursor, once that row is printed: at the next
@@ -979,12 +1140,24 @@ void rush2::menus2049::set_option(Mode mode) {
     option_mode = (int)mode;
 }
 
+void rush2::menus2049::set_fonts(bool on) {
+    option_fonts = on;
+}
+
+void rush2::menus2049::set_sounds(bool on) {
+    option_sounds = on;
+}
+
+void rush2::menus2049::set_background(bool on) {
+    option_background = on;
+}
+
 void rush2::menus2049::source_changed() {
     source_generation++;
 }
 
 uint32_t rush2::menus2049::model_list(uint8_t* rdram, uint32_t dl, bool menu_background) {
-    if (!menu_background || !active) return dl;
+    if (!menu_background || !background_on) return dl;
     background_seen = frame_counter;
     return art->empty_dl;
 }
@@ -995,10 +1168,40 @@ void rush2::menus2049::finish_buttons(uint8_t* rdram) {
     // buttons the narrowest model that holds the widest row with 2049's inset at each end.
     for (List& l : lists) {
         if (l.min_dy > 0) l.pitch = l.min_dy;
+        l.mapped = false;
+        l.draw_pitch = (float)l.pitch;
+    }
+    // A centered list at 2049's size: rows 40 units apart at z = 300 (21.3 pixels), buttons full size, between the
+    // title button and the screen's bottom with 2049's gap between buttons; a list too long for that is squeezed
+    // only as far as it must be. It stays about the game's center unless that pushes it out of its room.
+    constexpr float row_px = row_units * 160.0f / button_z, button_rows = button_units / row_units;
+    constexpr float gap_px = row_px - button_units * 160.0f / button_z;
+    constexpr float room_top = (float)title_cy + title_units * 160.0f / title_z / 2.0f + gap_px;
+    constexpr float room_bottom = 240.0f - gap_px;
+    for (size_t i = 0; i < lists.size(); i++) {
+        if (!centered_list(rdram, (int)i)) continue;
+        float lo = 1e9f, hi = -1e9f;
+        int n = 0;
+        for (const Pending& p : pending) {
+            if (p.list != (int)i) continue;
+            lo = std::min(lo, p.cy);
+            hi = std::max(hi, p.cy);
+            n++;
+        }
+        if (n == 0) continue;
+        List& l = lists[i];
+        float pitch = std::min(row_px, (room_bottom - room_top) / ((float)(n - 1) + button_rows));
+        float half = pitch * ((float)(n - 1) + button_rows) / 2.0f;
+        float from = (lo + hi) / 2.0f;
+        l.mapped = true;
+        l.map_from = from;
+        l.map_to = std::clamp(from, room_top + half, std::max(room_top + half, room_bottom - half));
+        l.map_k = n > 1 && hi > lo ? pitch * (float)(n - 1) / (hi - lo) : 1.0f;
+        l.draw_pitch = pitch;
     }
     for (const Pending& p : pending) {
         const List& l = lists[p.list];
-        float scale = (float)l.pitch / (row_units * 160.0f / button_z);
+        float scale = l.draw_pitch / (row_units * 160.0f / button_z);
         float need = (l.width / 2.0f / scale + text_inset) * button_z / 160.0f;
         int model = button_models - 1;
         for (int k = 0; k < button_models; k++) {
@@ -1010,7 +1213,7 @@ void rush2::menus2049::finish_buttons(uint8_t* rdram) {
         r.model = model;
         r.scale = scale;
         uint32_t id = group_ids | (r.gen & 0xFFF) << 12 | (p.key & 0xFFF);
-        draw_button(rdram, p.slot, id, model, p.cx, p.cy, scale, p.angle);
+        draw_button(rdram, p.slot, id, model, p.cx, l.map(p.cy), scale, p.angle);
     }
     pending.clear();
 }
@@ -1029,23 +1232,25 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
         int32_t y = (int16_t)ctx->r5;
         if (y == keep_position) y = MEM_H(0, (int32_t)text_y);
         if (y >= 0 && y < header_bottom) {
+            // In 2049's title font, or with its fonts off Rush 2's lettering at that font's size.
             int32_t rec = (int32_t)(font_table + title_font * 0x10);
             for (int k = 0; k < 16; k++) saved_record[k] = (uint8_t)MEM_B(k, rec);
             record_forced = true;
-            const Art::FontInfo& t = art->fonts[3];
+            const Art::FontInfo& t = art->fonts[3];   // 2049's, or with its fonts off Rush 2's at its size
             MEM_B(5, rec) = (int8_t)t.space;
             MEM_B(9, rec) = (int8_t)t.range_count;
             MEM_W(0xC, rec) = (int32_t)t.ranges;
+            int half_height = t.half_height;
             int32_t width = measure(rdram, ctx, (int32_t)ctx->r6);
             int32_t x = title_cx - (int32_t)((uint32_t)width >> 1);
             int justify = MEM_W(0, (int32_t)text_justify);
             ctx->r4 = justify == 1 ? x + width / 2 : justify == 2 ? x + width : x;
-            ctx->r5 = title_cy - t.half_height;
+            ctx->r5 = title_cy - half_height;
             set_colors(rdram, text_white, shadow_white);
         }
         return;
     }
-    if (list < 0 || (font != 8 && font != 9)) return;
+    if (!style_on || list < 0 || (font != 8 && font != 9)) return;
 
     // The row's center as the game places it, in the font it chose.
     int32_t str = (int32_t)ctx->r6;
@@ -1056,24 +1261,27 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     else if (justify == 1) x -= width / 2;
     else if (justify == 2) x -= width;
     if (y == keep_position) y = MEM_H(0, (int32_t)text_y);
-    float cx = (float)x + (float)width / 2.0f, cy = (float)y + (float)art->fonts[font == 8 ? 0 : 1].cap / 2.0f;
+    float cx = (float)x + (float)width / 2.0f, cy = (float)y + (float)cap_of(font) / 2.0f;
 
     // Rush 2 prints the row under the cursor in the other menu font; Rush 2049 (func_800FEE04) only changes the
     // style, so that row is printed in the font of the list's other rows, for this one print (restore_font), about
     // the same center.
     List& l = lists[list];
     bool selected = last_style == flash_style;
+    // Layout's list screens: 2049's own row font for every row (printed at list_end, so no font change here).
+    bool home = centered_list(rdram, list);
+    if (home && font != row_font) width = measure_in(rdram, ctx, str, row_font);
     // A row too wide for 2049's widest button (at the list's row spacing) keeps Rush 2's look: no button.
     {
-        int32_t own = selected && l.normal_font != 0 && l.normal_font != font ? measure_in(rdram, ctx, str, l.normal_font)
-                                                                              : width;
-        float scale = (float)l.pitch / (row_units * 160.0f / button_z);
+        int32_t own = !home && selected && l.normal_font != 0 && l.normal_font != font
+                          ? measure_in(rdram, ctx, str, l.normal_font) : width;
+        float scale = (home ? l.draw_pitch : (float)l.pitch) / (row_units * 160.0f / button_z);
         if (((float)own / 2.0f / scale + text_inset) * button_z / 160.0f > art->models[button_models - 1].half_width) {
             return;
         }
     }
     if (!selected) l.normal_font = font;
-    else if (l.normal_font != 0 && l.normal_font != font) {
+    else if (!home && l.normal_font != 0 && l.normal_font != font) {
         forced_font = true;
         saved_font[0] = MEM_B(0, (int32_t)font_byte);
         saved_font[1] = MEM_B(0, (int32_t)font_height);
@@ -1084,7 +1292,7 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
         MEM_B(0, (int32_t)letter_spacing) = MEM_B(font * 16 + 6, (int32_t)font_table);
         width = measure(rdram, ctx, str);
         x = (int32_t)std::lround(cx - (float)width / 2.0f);
-        y = (int32_t)std::lround(cy - (float)art->fonts[font == 8 ? 0 : 1].cap / 2.0f);
+        y = (int32_t)std::lround(cy - (float)cap_of(font) / 2.0f);
         ctx->r4 = justify == 1 ? x + width / 2 : justify == 2 ? x + width : x;
         ctx->r5 = y;
     }
@@ -1109,9 +1317,8 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     }
     r.frame = frame_counter;
 
-    // Style and Layout on the home screen: the list centered like 2049's, its rows (in the list's own font, as with
-    // Style) printed at the end of the frame's widgets once the list's widest row is known (list_end).
-    bool home = layout && list == 0 && is_home_screen(rdram);
+    // Style and Layout on a list screen (list_screens): the list laid out like 2049's, its rows (in 2049's row font)
+    // printed at the end of the frame's widgets once the list's rows are known (list_end).
     if (home) cx = (float)home_cx;
     queue_button(rdram, list, key, cx, cy, r.angle);
 
@@ -1124,13 +1331,12 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     bool hidden = r.angle > text_hidden_min && r.angle < text_hidden_max;
     if (home) {
         if (!hidden) {
-            int32_t top = (int32_t)std::lround(cy - (float)art->fonts[font == 8 ? 0 : 1].cap / 2.0f);
             uint32_t fg = 0, bg = 0;
             for (int k = 0; k < 4; k++) {
                 fg = fg << 8 | MEM_BU(k, (int32_t)text_fg);
                 bg = bg << 8 | MEM_BU(k, (int32_t)text_bg);
             }
-            row_texts.push_back({ (uint32_t)str, top, fg, bg, font });
+            row_texts.push_back({ list, (uint32_t)str, cy, fg, bg, row_font });
         }
         ctx->r6 = (int32_t)art->empty_string;
     }
@@ -1139,7 +1345,7 @@ void rush2::menus2049::before_print(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-bool rush2::menus2049::skip_widget(uint8_t* rdram, const char* name, uint32_t callback, bool hidden) {
+bool rush2::menus2049::skip_widget(uint8_t* rdram, const char* name, uint32_t callback, uint32_t param, bool hidden) {
     if (!active || !layout || hidden) return false;
     static const char* const left_plates[] = { "STARTTITLELEFT", "TITLELEFT", "PAKSCRTITLEL", "CRSCRTITLEL", "AUDIOTITLEL" };
     static const char* const right_plates[] = { "STARTTITLERIGHT", "TITLERIGHT", "PAKSCRTITLER", "CRSCRTITLER", "AUDIOTITLER" };
@@ -1159,8 +1365,9 @@ bool rush2::menus2049::skip_widget(uint8_t* rdram, const char* name, uint32_t ca
             if (strcmp(name, n) == 0) return true;
         }
     }
-    // The home screen's panel and bottom bar: 2049's home screen is its buttons on the background.
-    return callback == start_game_frame_callback && is_home_screen(rdram);
+    // A list screen's panel and bottom bar: 2049's lists are their buttons on the background.
+    const ListScreen* ls = list_screen(rdram);
+    return ls != nullptr && callback == ls->panel_callback && (param == 0 || param == ls->bar_param);
 }
 
 void rush2::menus2049::list_end(uint8_t* rdram, recomp_context* ctx) {
@@ -1173,32 +1380,50 @@ void rush2::menus2049::list_end(uint8_t* rdram, recomp_context* ctx) {
     // The last row's one-print font change (the selected row's, when it is the list's last) is settled first: put
     // back by the first print below, it would print that row in the selected row's larger font.
     restore_font(rdram);
-    // The home screen's rows, left-aligned 2049's inset in from their buttons' left end (func_800FEE04 prints at the
+    // A centered list's rows, left-aligned 2049's inset in from their buttons' left end (func_800FEE04 prints at the
     // button's center less 0x37 on its S3 buttons: 19.7 pixels in, at 2049's size).
-    const List& l = lists[0];
-    float scale = (float)l.pitch / (row_units * 160.0f / button_z);
-    float half = 0.0f;
-    for (const auto& [key, r] : rows) {
-        if ((key >> 8) == 0 && r.frame == frame_counter && r.model >= 0) {
-            half = art->models[r.model].half_width * 160.0f / button_z * scale;
-            break;
+    std::array<int32_t, std::tuple_size_v<decltype(lists)>> list_x{};
+    for (size_t i = 0; i < lists.size(); i++) {
+        float scale = lists[i].draw_pitch / (row_units * 160.0f / button_z);
+        float half = 0.0f;
+        for (const auto& [key, r] : rows) {
+            if ((key >> 8) == i && r.frame == frame_counter && r.model >= 0) {
+                half = art->models[r.model].half_width * 160.0f / button_z * scale;
+                break;
+            }
         }
+        list_x[i] = (int32_t)std::lround((float)home_cx - half + text_inset * scale);
     }
-    int32_t x = (int32_t)std::lround((float)home_cx - half + text_inset * scale);
     recomp_context saved = *ctx;
     int8_t font_state[3] = { MEM_B(0, (int32_t)font_byte), MEM_B(0, (int32_t)font_height), MEM_B(0, (int32_t)letter_spacing) };
     int32_t justify = MEM_W(0, (int32_t)text_justify);
     uint32_t colors[2] = { (uint32_t)MEM_W(0, (int32_t)text_fg), (uint32_t)MEM_W(0, (int32_t)text_bg) };
     MEM_W(0, (int32_t)text_justify) = 0;
+    // The whole screen, as the buttons (Rush 2's front-end scissor stops at line 230; 2049's lists reach lower).
+    {
+        Cmds c;
+        EX(gEXEnable);
+        EX(gEXPushScissor);
+        GfxCommand g[2]{};
+        gEXSetScissor(&g[0], G_SC_NON_INTERLACE, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, 0, 0, 240);
+        c.add(g, 2);
+        write_cmds(rdram, dl_2d_cursor, c);
+    }
     for (const RowText& t : row_texts) {
         MEM_B(0, (int32_t)font_byte) = (int8_t)t.font;
         MEM_B(0, (int32_t)font_height) = MEM_B(t.font * 16 + 4, (int32_t)font_table);
         MEM_B(0, (int32_t)letter_spacing) = MEM_B(t.font * 16 + 6, (int32_t)font_table);
         set_colors(rdram, t.fg, t.bg);
-        ctx->r4 = x;
-        ctx->r5 = t.y;
+        ctx->r4 = list_x[t.list];
+        // As func_800FEE04 prints a row: at its button's center, vertical mode 1.
+        ctx->r5 = (int32_t)std::lround(lists[t.list].map(t.cy)) - half_line_of(t.font);
         ctx->r6 = (int32_t)t.str;
         text_print_string_800734E0(rdram, ctx);
+    }
+    {
+        Cmds c;
+        EX(gEXPopScissor);
+        write_cmds(rdram, dl_2d_cursor, c);
     }
     row_texts.clear();
     MEM_B(0, (int32_t)font_byte) = font_state[0];
@@ -1228,34 +1453,39 @@ void rush2_menus49_frame(uint8_t* rdram, recomp_context* ctx) {
         l.rows = 0;
     }
 
-    bool option = option_mode.load() != (int)rush2::menus2049::Mode::Off;
+    int mode = option_mode.load();
+    bool option = mode != (int)rush2::menus2049::Mode::Off || option_fonts.load() || option_background.load();
+    bool want_style = mode != (int)rush2::menus2049::Mode::Off, want_fonts = option_fonts.load();
+    FontSet wanted = want_fonts ? (want_style ? FontSet::Aero : FontSet::AeroAtRush2)
+                                : (want_style ? FontSet::Rush2AtAero : FontSet::Aero);
+    wanted_set = (int)wanted;
     if (option && rush2::wings::rom_available()) {
         std::shared_ptr<const Art> ready;
         bool stale;
         {
             std::lock_guard lock{ art_mutex };
             ready = built;
-            stale = built_generation != source_generation.load();
+            stale = built_generation != source_generation.load() || built_set != wanted;
         }
         if (stale) start_build();
         if (ready != nullptr && ready != art) {
-            swap_fonts(rdram, false);
+            swap_fonts(rdram, FontSet::Rush2);
             art = ready;
             upload(rdram);
         }
     }
     bool want = option && art != nullptr && rush2::wings::rom_available() && menus_up(rdram);
-    if (want != active) {
-        active = want;
-        swap_fonts(rdram, active);
-        swap_styles(rdram, active);
-        if (!active) rows.clear();
-    }
-    if (!active) {
-        layout = false;
-        return;
-    }
-    layout = option_mode.load() == (int)rush2::menus2049::Mode::Layout;
+    active = want;
+    bool style = active && mode != (int)rush2::menus2049::Mode::Off;
+    if (!style && style_on) rows.clear();
+    style_on = style;
+    layout = active && mode == (int)rush2::menus2049::Mode::Layout;
+    fonts_on = active && option_fonts.load();
+    background_on = active && option_background.load();
+    swap_fonts(rdram, fonts_on ? (style_on ? FontSet::Aero : FontSet::AeroAtRush2)
+                                : (style_on ? FontSet::Rush2AtAero : FontSet::Rush2));
+    swap_styles(rdram, style_on);
+    if (!active) return;
 
     // func_800FC9F8: each vertex's texture coordinates move 0.2 texture widths a second, truncated a frame.
     if (!sfx_started) {
@@ -1268,7 +1498,7 @@ void rush2_menus49_frame(uint8_t* rdram, recomp_context* ctx) {
     if (sfx_u - (art->sfx.w << 5) >= (art->sfx.w << 5)) sfx_u -= art->sfx.w << 5;
     if (sfx_v - (art->sfx.h << 5) >= (art->sfx.h << 5)) sfx_v -= art->sfx.h << 5;
 
-    if (frame_counter - background_seen <= 2) {
+    if (background_on && frame_counter - background_seen <= 2) {
         draw_background(rdram);
     }
 }
@@ -1279,7 +1509,7 @@ void rush2_menus49_style_begin(uint8_t* rdram, recomp_context* ctx) {
 }
 
 void rush2_menus49_style_end(uint8_t* rdram, recomp_context* ctx) {
-    if (active && last_style == flash_style) set_pulse(rdram);
+    if (style_on && last_style == flash_style) set_pulse(rdram);
 }
 
 // Before a text_print_string call that prints a row of a menu list (us.toml lists them): the row gets a button.
@@ -1291,6 +1521,38 @@ void rush2_menus49_row(uint8_t* rdram, recomp_context* ctx, int list) {
 // (the select returns the font it replaces).
 void rush2_menus49_font(uint8_t* rdram, recomp_context* ctx) {
     restore_font(rdram);
+}
+
+// menu_play_sound_80064908 entry ($a0 = the sound): while the 2049 look is up, Rush 2's menu sounds play as the ones
+// Rush 2049's menus play for the same action (rush2::audio2049; docs/rush2049_research/menus.md, Menu sounds). True
+// when it played one, and the game's isn't played.
+bool rush2_menus49_sound(uint8_t* rdram, recomp_context* ctx) {
+    // Sounds don't need the art: only the option, the menus and the 2049 sound banks loaded and mixed.
+    if (!option_sounds.load() || !menus_up(rdram) || !rush2::wings::rom_available() || !rush2::track2049::music_ready()) {
+        return false;
+    }
+    constexpr uint32_t pressed_buttons = 0x8011962A, repeat_buttons = 0x80125A68;   // u16, Rush 2's menu input
+    constexpr uint16_t button_left = 0x0200, button_right = 0x0100;
+    int sound;
+    switch ((int)ctx->r4) {
+        case 0x3B: sound = 0x27; break;                // up (2049 func_800B5F4C)
+        case 0x44: sound = 0x28; break;                // down
+        case 0x31: sound = 0x2E; break;                // confirm, A (func_800B5FC4)
+        case 0x32: sound = 0x26; break;                // back, B
+        case 0x50: sound = 0x25; break;                // START
+        case 0x49: {                                   // a value changed: right or left (func_800B5F88)
+            uint16_t b = (uint16_t)(MEM_HU(0, (int32_t)pressed_buttons) | MEM_HU(0, (int32_t)repeat_buttons));
+            sound = (b & button_left) && !(b & button_right) ? 0x2C : 0x29;
+            break;
+        }
+        default: return false;
+    }
+    // The 2049 mixer keeps effects muted unless effects are running (track2049_audio.cpp sounds_paused); this also
+    // sets their volume from the game's SFX volume.
+    rush2::track2049::effects_running(rdram);
+    rush2::audio2049::sfx_start(sound);
+    ctx->r2 = 0;
+    return true;
 }
 
 }

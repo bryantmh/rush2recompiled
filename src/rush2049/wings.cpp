@@ -52,6 +52,9 @@ namespace {
     const std::string odometer_option_id = "rush2049_odometer";
     const std::string stunt_option_id = "stunt_scoring";
     const std::string menus_option_id = "rush2049_menus";
+    const std::string menu_fonts_option_id = "rush2049_menu_fonts";
+    const std::string menu_sounds_option_id = "rush2049_menu_sounds";
+    const std::string menu_background_option_id = "rush2049_menu_background";
     const std::string source_option_id = "rush2049_source";
     const char* rom_file_name = "rush2049.z64";
 
@@ -502,15 +505,15 @@ void rush2::wings::init_config() {
     wings_config.add_enum_option(
         menus_option_id,
         "Rush 2049 Menus",
-        "Dresses the menus as Rush 2049's. "
-        "<recomp-color primary>Style</recomp-color> gives them Rush 2049's lettering and text colors, its swirling "
-        "circuit-board background, and its menu buttons, which flip over to their yellow side for the item you're on. "
-        "<recomp-color primary>Style and Layout</recomp-color> also puts each screen's title on Rush 2049's title bar "
-        "and lays out the main menu like Rush 2049's. Takes effect at once. Requires a Rush 2049 (USA) N64 ROM.",
+        "Rush 2049's menu buttons and text colors. "
+        "<recomp-color primary>Minimal</recomp-color> puts Rush 2049's buttons behind the menu items, flipping over to "
+        "their yellow side for the item you're on. "
+        "<recomp-color primary>Full</recomp-color> also puts each screen's title on Rush 2049's title bar and centers "
+        "the main lists as Rush 2049 does. Takes effect at once. Requires a Rush 2049 (USA) N64 ROM.",
         {
             { rush2::menus2049::Mode::Off, "Off", "Off" },
-            { rush2::menus2049::Mode::Style, "Style", "Style" },
-            { rush2::menus2049::Mode::Layout, "Layout", "Style and Layout" },
+            { rush2::menus2049::Mode::Style, "Style", "Minimal" },
+            { rush2::menus2049::Mode::Layout, "Layout", "Full" },
         },
         rush2::menus2049::Mode::Off
     );
@@ -526,6 +529,45 @@ void rush2::wings::init_config() {
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::menus2049::set_option((rush2::menus2049::Mode)std::get<uint32_t>(cur_value));
         });
+
+    wings_config.add_bool_option(
+        menu_fonts_option_id,
+        "Rush 2049 Menu Fonts",
+        "Writes the menus in Rush 2049's lettering. Takes effect at once. Requires a Rush 2049 (USA) N64 ROM.",
+        false
+    );
+    wings_config.add_option_change_callback(menu_fonts_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::menus2049::set_fonts(std::get<bool>(cur_value));
+        });
+    wings_config.add_bool_option(
+        menu_sounds_option_id,
+        "Rush 2049 Menu Sounds",
+        "Plays Rush 2049's sounds when you move, pick and back out in the menus. Takes effect at once. Requires a "
+        "Rush 2049 (USA) N64 ROM.",
+        false
+    );
+    wings_config.add_option_change_callback(menu_sounds_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::menus2049::set_sounds(std::get<bool>(cur_value));
+        });
+    wings_config.add_bool_option(
+        menu_background_option_id,
+        "Rush 2049 Menu Background",
+        "Shows Rush 2049's swirling circuit-board background behind the menus. Takes effect at once. Requires a "
+        "Rush 2049 (USA) N64 ROM.",
+        false
+    );
+    wings_config.add_option_change_callback(menu_background_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::menus2049::set_background(std::get<bool>(cur_value));
+        });
+}
+
+void rush2::wings::add_menu_options(rush2::ui::OptionsPage* page) {
+    for (const std::string& id : { menus_option_id, menu_fonts_option_id, menu_sounds_option_id, menu_background_option_id }) {
+        page->add_option(wings_config, id);
+    }
 }
 
 void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
@@ -535,7 +577,7 @@ void rush2::wings::add_games_section(rush2::ui::OptionsPage* page, std::function
     button->set_flex_shrink(0.0f);  // Beside a long title in a narrow column, the title wraps instead.
     button->add_pressed_callback(select_rom);
     for (const std::string& id : { source_option_id, wings_option_id, tracks_option_id, cars_option_id, drones_option_id,
-                                    speeds_option_id, odometer_option_id, stunt_option_id, menus_option_id }) {
+                                    speeds_option_id, odometer_option_id, stunt_option_id }) {
         page->add_option(wings_config, id);
     }
     refresh = [note = heading.note, shown = rom_status_text()]() mutable {

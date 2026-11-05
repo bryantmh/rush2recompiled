@@ -90,6 +90,7 @@ void rush2_menus49_style_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_menus49_style_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_menus49_row(uint8_t* rdram, recomp_context* ctx, int list);
 void rush2_menus49_font(uint8_t* rdram, recomp_context* ctx);
+bool rush2_menus49_sound(uint8_t* rdram, recomp_context* ctx);
 
 // Three and four player races (src/players4.cpp).
 void rush2_players4_init(uint8_t* rdram, recomp_context* ctx);

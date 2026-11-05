@@ -18,6 +18,8 @@ namespace rush2::wings {
     void init_config();
     // Adds the Rush 2049 section (ROM picker and options) to the Games tab; refresh keeps its ROM status current.
     void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
+    // Adds Rush 2049 Menus and its Fonts, Sounds and Background switches, at the end of the section.
+    void add_menu_options(rush2::ui::OptionsPage* page);
     void save_config();
     // A player's (0-3) wing style, 0-2, chosen on the car select and kept in the saves' "wings" section
     // (src/rush2049/wings_menu.cpp); setting it saves it. load_styles reads them at startup.

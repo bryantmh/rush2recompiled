@@ -670,7 +670,12 @@ loader, `widget`: the 2D widget draw, `flip`: an offline render of a button turn
 - Style table 0x80118E34 (8 bytes a style: text RGBA, shadow RGBA). Menu text is style 1 (0xE6E6E6, shadow 0x3C3C3C).
 - The row under the cursor is style 0x16, whose color `func_800947F0` / `func_800B74C0` blend each frame from
   0x801146C0 (black) to 0x801146BC (0xE0E000) by f = tri(frac(2t)) * 2 (a triangle wave, period 0.5 s); the port
-  writes y = trunc(224 * f) into Rush 2's text color 0x800D3E38 for its flashing style 0x14, shadow 0x3C3C3C.
+  writes y = trunc(224 * f) into Rush 2's text color 0x800D3E38 for its flashing style 0x14.
+- Text is a ramp from the shadow color (Rush 2's 0x800D3E3C, the combiner's env) to the text color (prim) by the
+  texel's intensity (`gfx_draw_rect_pair_8005858C` with a1 = 4 sets prim and env from the 8 color bytes). 2049
+  keeps style 1's 0x3C3C3C shadow under the pulse, so every partly covered texel stays dark gray while the letters
+  turn yellow (2049 shows these stray dark pixels too). The port gives the shadow the pulse color (`set_pulse`):
+  those texels only soften the edges.
 - `func_800FEE04` (the options rows) picks style 1 or 0x16 per row and never changes the font, so the selected row
   is lettered like the others. Rush 2 prints its selected row in the other menu font (8 <-> 9); the port prints it
   in the list's own font, centered where Rush 2 centered it, switching the font (0x800D402C, 0x800D3E60, 0x800D3E92,
@@ -706,8 +711,15 @@ loader, `widget`: the 2D widget draw, `flip`: an offline render of a button turn
   texture is BUTTON, past it BUTTON_SELECT (yellow).
 - `func_800FEE04` hides a row's text while the angle is between 40 degrees (0x80124834) and 140 degrees
   (0x80124830), and places it 0x37 pixels in from the button's end.
-- 2049's rows are 40 units apart at z = 300 (21.3 pixels); the port scales each button to the Rush 2 list's row
-  pitch and picks the narrowest model that holds the list's widest row. Rows get buttons at these Rush 2 print
+- 2049's rows are 40 units apart at z = 300 (21.3 pixels), its buttons 34 units tall (BUTTON_S*G1 z -17..17: 18.1
+  pixels), and `func_800FEE04` prints them in font 11 (AERO-PLAIN10; font 13 for the title) with vertical mode 1 at
+  the button's center. On Full's list screens (`list_screens`) the port lays the list out the same way (`finish_buttons`,
+  `List::map`): 2049's spacing and button size, every row in AERO-PLAIN10 (Rush 2's font 9 slot; Rush 2 lettering at
+  its size with the fonts off), between the title button and the screen's bottom with 2049's 3.2-pixel gap at each
+  end, squeezed only when a list doesn't fit, under a full-screen scissor (Rush 2's front end stops at line 230). The
+  rows were first drawn in AERO-PLAIN7 on buttons scaled to Rush 2's 16-pixel pitch, about two thirds of 2049's size
+  (user: too small). Elsewhere (Minimal, Select Player) the port scales each button to the Rush 2 list's row pitch.
+  Either way it picks the narrowest model that holds the list's widest row. Rows get buttons at these Rush 2 print
   sites (us.toml): Start Game `menu_text_cb_start_game_labels_803C364C` 0x803C3818 and
   `menu_text_cb_start_game_alt_803C3334` 0x803C34FC; the circuit menu `menu_text_cb_name_entry_screen_803BD718`
   0x803BDDC4; Select Player `records_text_draw_page_a_803BFD54` 0x803C01B8 (JUST PLAY) and 0x803C0260 (CREATE
@@ -736,16 +748,40 @@ loader, `widget`: the 2D widget draw, `flip`: an offline render of a button turn
 
 ### 11.5 Style and Layout (port)
 
-The option's second setting (`Mode::Layout`) also lays the screens out like 2049's, except Select Player:
+The port's options (Games tab, games.json): `rush2049_menus` Off / Minimal (saved "Style": the buttons and 2049's text
+colors) / Full (saved "Layout": also the layout below), and separate switches `rush2049_menu_fonts`,
+`rush2049_menu_sounds` and `rush2049_menu_background`. A games.json from before the split ("Style" or "Layout", or
+true) gets all three switches on at startup (`migrate_menus2049`, src/data_files.cpp).
+
+Text size follows the buttons, the lettering the fonts switch: with 2049's buttons (Minimal or Full) menu text is
+shown at 2049's sizes, without them at Rush 2's. Two of the four combinations have no font of their own, so
+`tools/build_font_pack.py synth` draws them from the drawn designs: Rush 2's lettering (rush2_glyphs.py) at AERO-PLAIN7,
+AERO-PLAIN10, 4BAERO-PLAIN12 and AERO-PLAIN16's metrics, and AERO (aero_glyphs.py) at Rush 2's fonts 8-10, each
+glyph's capitals on the target font's cap rows (its H, sub-texel), its space and gap the target's. A glyph's cell
+is at least the target's H cell tall (rows center on the cell, `cap_of`: Rush 2's 7-row font 8 A sat half a row low
+on 2049's 8-row cells) and as wide as its ink measured at 16 samples a texel, rounded (rounding the outline's box
+up gave T, A and R nearly a texel of extra space). The game packs their
+coverage (assets/menu_fonts_synth.json) like 2049's fonts and swaps the set the options call for into records 8-10:
+2049's (fonts and buttons on), Rush 2 at 2049's sizes (buttons, fonts off), AERO at Rush 2's sizes (fonts, no
+buttons), or Rush 2's own. Only one set is in RDRAM at a time (the art region is full): another is built on the art
+thread when the options change, Rush 2's own fonts showing meanwhile. The high-resolution sheets of the synthesized
+fonts are their outlines drawn in the packed cells (fonts.json style "synth", tools/font_pack/synth.json). Scaling
+glyph rectangles was tried first and rejected: stray neighbor texels, uneven gaps and stroke widths.
+
+Full (`Mode::Layout`) lays the screens out like 2049's, except Select Player:
 
 - Header: the left and right header plates (STARTTITLELEFT/RIGHT, TITLELEFT/RIGHT, PAKSCRTITLEL/R, CRSCRTITLEL/R,
   AUDIOTITLEL/R, matched by the layout entry name hud.cpp records for each widget) are skipped in the widget draw loop
   (`gfx_draw_frame_views_8007D9DC` at 0x8007EAD8: `$t7`, the widget's hidden byte, set), and 2049's title button is
   drawn where the left one was. The screen's title, a font 10 print in the header band (y 0-42) on such a frame, is
   printed in AERO-PLAIN16 at 2049's place: font 10's record points at the title font for that one print.
-- Home screen (Start Game, front_end_screen 0): its panel and HALFBOTBAR (layout entries with the callback
-  0x803C3560) are skipped, the buttons are centered on x 160, and the rows are printed left-aligned 19.7 pixels (at
-  2049's size) in from the buttons' left end, in the list's own font (as with Style).
+- List screens (`list_screens` in src/rush2049/menus2049.cpp): Start Game (front_end_screen 0), SETUP (5), the
+  circuit menu (10) and RECORDS' STATISTICS / BEST AVERAGES / BEST LAPS chooser (3). Rush 2 prints each list centered
+  on a left panel (x 88); its panel (its widget table's first entry) and HALFBOTBAR, both drawn by the screen's panel
+  callback (0x803C3560, 0x803C3244, 0x803BD42C, 0x803C3874; the bar is the entry with param 1, the circuit menu's
+  param 2), are skipped, the buttons are centered on x 160, and the rows are printed left-aligned 19.7 pixels (at
+  2049's size) in from the buttons' left end, in the list's own font (as with Style). The circuit menu's info box
+  under its list (params 1 and 3-6) stays. `tools/menu_widgets.py` prints a screen's widget table.
   They are printed once the frame's widgets are drawn (`rush2_hud_draw_end`), when the list's widest row is known.
 - A row too wide for BUTTON_S8G1 at its list's row spacing gets no button and keeps Rush 2's look.
 - Buttons are drawn at the end of the frame's widgets (or the 2D list's end) from that frame's rows: each row leaves
@@ -779,3 +815,23 @@ whole-texel shift that lays its texels over the accented cell, plus its mark pla
 strokes over the mark's extent; placed, not fitted, since a fit fills the 1-texel gap between small dots). ® and ©
 are a fitted ring round the font's own R and C, ™ its T and M, ¿ and ¡ its ? and ! turned over. Where none of those
 fits within 2 levels rms (AERO-PLAIN7's ° and its © box with the letter cut out) the cell is traced.
+
+### 11.7 Menu sounds
+
+Rush 2049's menus play their sounds through three helpers that call `func_80092360(id, 0, 1, 0)` (the game side of
+sndFXStart: it queues message type 2 on 0x801427A8) [V]:
+
+- `func_800B5F4C(input)`: 0x28 when bit 0x400 is set (down), else 0x27 (up); called on 0xC00. 12 callers [V].
+- `func_800B5F88(input)`: 0x29 when bit 0x1000 is set, else 0x2C; called on 0x3000. 9 callers [V].
+- `func_800B5FC4(input)`: 0x2E on bit 1, 0x26 on bit 2, else 0x25. 16 callers [V].
+
+The input word (0x8015694C, per player 0x80156998) is built by `func_800C95DC`. Its bits are read from the call sites
+[I]: 0x400 / 0x800 down / up (the setup screen at 0x800D98C8 plays 0x28 on 0x400 and 0x27 on 0x800), 0x1000 / 0x2000
+right / left (the same screen steps a value on them), 1 / 2 / 4 A / B / START (the main menu, 0x800D7714, sounds bits
+1 and 4 and on bit 2 restarts the title music, as backing out does). 0x2A is a refusal (0x800D9ED4, after a check for
+clashing choices).
+
+Port (`rush2_menus49_sound`, hooked at `menu_play_sound_80064908`'s entry): while the 2049 look is up (Style or
+Layout, menus up, not paused) and Rush 2049's sound is loaded, Rush 2's menu sounds play as 2049's: 0x3B up -> 0x27,
+0x44 down -> 0x28, 0x31 confirm -> 0x2E, 0x32 back -> 0x26, 0x50 START -> 0x25, 0x49 a value changed -> 0x29, or
+0x2C when left is pressed. Other sounds stay Rush 2's.

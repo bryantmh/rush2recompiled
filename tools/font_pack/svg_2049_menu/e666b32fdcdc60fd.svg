@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 16" width="1024" height="128">
+  <title>AERO lettering at Rush 2 Large: V-~ (e666b32fdcdc60fd)</title>
+  <defs>
+    <clipPath id="c0"><rect x="0" y="1" width="12" height="12"/></clipPath>
+    <clipPath id="c1"><rect x="12" y="1" width="17" height="12"/></clipPath>
+    <clipPath id="c2"><rect x="29" y="1" width="11" height="12"/></clipPath>
+    <clipPath id="c3"><rect x="40" y="1" width="11" height="12"/></clipPath>
+    <clipPath id="c4"><rect x="51" y="1" width="10" height="12"/></clipPath>
+    <clipPath id="c5"><rect x="61" y="1" width="5" height="14"/></clipPath>
+    <clipPath id="c6"><rect x="66" y="1" width="7" height="14"/></clipPath>
+    <clipPath id="c7"><rect x="73" y="1" width="5" height="14"/></clipPath>
+    <clipPath id="c8"><rect x="78" y="1" width="10" height="12"/></clipPath>
+    <clipPath id="c9"><rect x="88" y="1" width="9" height="15"/></clipPath>
+    <clipPath id="c10"><rect x="97" y="1" width="4" height="12"/></clipPath>
+    <clipPath id="c11"><rect x="101" y="1" width="7" height="15"/></clipPath>
+    <clipPath id="c12"><rect x="108" y="1" width="2" height="15"/></clipPath>
+    <clipPath id="c13"><rect x="110" y="1" width="7" height="15"/></clipPath>
+    <clipPath id="c14"><rect x="117" y="1" width="10" height="12"/></clipPath>
+  </defs>
+  <rect width="128" height="16" fill="#000"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c0)" d="M0.000,1.409 L2.422,1.409 L5.671,9.340 L8.929,1.409 L11.208,1.409 L6.953,11.858 L4.502,11.858 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c1)" d="M12.000,1.409 L14.280,1.409 L16.711,9.806 L18.858,1.409 L21.442,1.409 L23.588,9.806 L26.020,1.409 L28.299,1.409 L24.918,11.858 L22.106,11.858 L20.150,4.164 L18.193,11.858 L15.381,11.858 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c2)" d="M29.114,1.409 L31.641,1.409 L38.669,11.858 L36.105,11.858 Z M35.991,1.409 L38.385,1.409 L31.470,11.858 L29.000,11.858 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c3)" d="M39.938,1.409 L42.388,1.409 L44.810,5.437 L47.422,1.409 L49.892,1.409 L45.941,7.336 L45.941,11.858 L43.746,11.858 L43.746,7.365 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c4)" d="M51.000,1.409 L59.986,1.409 L59.986,3.261 L53.907,10.176 L59.986,10.176 L59.986,11.858 L51.000,11.858 L51.000,10.148 L57.212,3.090 L51.000,3.090 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c5)" d="M61.000,1.267 L64.505,1.267 L64.505,2.910 L62.605,2.910 L62.605,12.446 L64.505,12.446 L64.505,13.976 L61.000,13.976 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c6)" d="M67.033,0.554 L72.068,13.662 L70.847,13.662 L65.812,0.554 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c7)" d="M73.000,1.267 L76.505,1.267 L76.505,13.976 L73.000,13.976 L73.000,12.446 L74.824,12.446 L74.824,2.948 L73.000,2.948 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c8)" d="M77.938,5.351 L82.022,1.267 L83.257,1.267 L87.341,5.351 L85.916,5.351 L82.639,2.264 L79.362,5.351 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c9)" d="M88.000,14.052 L95.599,14.052 L95.599,15.438 L88.000,15.438 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c10)" d="M97.769,-0.491 L99.953,3.309 L98.310,3.309 L96.125,-0.491 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c11)" d="M106.509,1.267 L106.509,2.834 L104.657,2.834 L104.657,6.728 L103.280,8.058 L104.657,9.483 L104.657,13.472 L106.509,13.472 L106.509,14.992 L103.850,14.992 L102.976,14.137 L102.976,9.863 L101.000,8.628 L101.000,7.488 L102.976,6.348 L102.976,2.122 L103.850,1.267 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c12)" d="M108.000,0.602 L109.463,0.602 L109.463,15.467 L108.000,15.467 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c13)" d="M110.000,1.267 L112.660,1.267 L113.533,2.122 L113.533,6.348 L115.509,7.488 L115.509,8.628 L113.533,9.863 L113.533,14.137 L112.660,14.992 L110.000,14.992 L110.000,13.472 L111.852,13.472 L111.852,9.483 L113.229,8.058 L111.852,6.728 L111.852,2.834 L110.000,2.834 Z"/>
+  <path fill="rgb(255,255,255)" fill-rule="nonzero" clip-path="url(#c14)" d="M117.000,5.114 L117.452,2.516 L119.498,1.493 L121.740,2.390 L123.033,3.424 L124.014,3.301 L124.958,1.884 L126.442,1.884 L124.728,4.456 L122.669,4.714 L121.112,3.468 L119.555,2.845 L118.561,3.342 L118.253,5.114 Z"/>
+</svg>

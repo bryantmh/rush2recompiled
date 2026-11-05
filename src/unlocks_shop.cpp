@@ -88,8 +88,6 @@ namespace {
     constexpr uint16_t button_b = 0x4000;
     constexpr uint16_t button_z = 0x2000;
     constexpr uint16_t button_start = 0x1000;
-    constexpr uint16_t button_up = 0x0800;
-    constexpr uint16_t button_down = 0x0400;
     constexpr uint16_t button_left = 0x0200;
     constexpr uint16_t button_right = 0x0100;
     constexpr uint16_t button_l = 0x0020;
@@ -549,8 +547,10 @@ namespace {
             return true;
         }
         int step_category = 0;
-        if (pressed & (button_r | button_down | button_z)) step_category = 1;
-        if (pressed & (button_l | button_up)) step_category = -1;
+        // Only the shoulder buttons the screen shows (and Z, R's twin on the N64) change the type: the D-pad's up and
+        // down did too, unlabeled, which confused players.
+        if (pressed & (button_r | button_z)) step_category = 1;
+        if (pressed & button_l) step_category = -1;
         if (step_category != 0) {
             int c = shop.category;
             for (int k = 0; k < category_count; k++) {

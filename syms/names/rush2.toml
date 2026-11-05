@@ -14445,10 +14445,10 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 vram = 0x803B0EE8
 name = "menu_screen_delete_player"
 sig = "void menu_screen_delete_player(s32 a0)"
-desc = "Records > DELETE PLAYER screen (jump table): frees widget G803C89B8, handles confirm with profile_records_clear and profile_delete, sounds 0x31/0x3B/0x44/0x49."
+desc = "Front-end screen 3: RECORDS' chooser (STATISTICS, BEST AVERAGES, BEST LAPS... for the chosen profile), widgets 0x803C88EC; also handles the DELETE PLAYER confirm with profile_records_clear and profile_delete, sounds 0x31/0x3B/0x44/0x49."
 status = "inferred"
 area = "menu"
-ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
+ref = "docs/menus.md#front-end-screens"
 
 [[func]]
 vram = 0x803B12C8
@@ -15687,10 +15687,10 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 vram = 0x803C394C
 name = "menu_text_cb_records_filter"
 sig = "s32 menu_text_cb_records_filter(Widget *w)"
-desc = "Large menu text callback: heading, name comparisons (str_name_record_merge) and sprintf lines for a records/profile list, using records_profile_filter_a selection and menu_get_text_field_pos. (low confidence)"
+desc = "RECORDS chooser's text (front-end screen 3): title RECORDS from 0x800C4B9C, the profile lines, then five rows from 0x800C4D78 + language x 20 at x 88 (printed at 0x803C3FE4), the cursor 0x803C88E8, a row greyed (style 4) when func_803B0E98 returns 0."
 status = "inferred"
 area = "menu"
-ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
+ref = "docs/menus.md#front-end-screens"
 
 [[func]]
 vram = 0x803C4034

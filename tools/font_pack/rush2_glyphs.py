@@ -1,7 +1,8 @@
 """Rush 2's lettering, drawn by hand (tools/build_font_pack.py, style "drawn"; the format is aero_glyphs.py's).
 
 Drawn over the Large font (font 10, the biggest with letters) blown up texel by texel: a bold grotesque with flat
-stems and bars (2.3 texels wide, 2 tall), round C, G, O, Q and S, and digits built from round strokes. Its sheets are
+stems and bars (2.3 texels wide, 2 tall), round O, Q and S (C and G come from the reference font, below), and
+digits built from round strokes. Its sheets are
 plain anti-aliased coverage (no outline): a texel at 4/15 is an edge 4/15 of the way into it. The cells cut off each
 glyph's bottom anti-aliasing row (and often its right column), which the game never draws; the drawings keep the
 full shapes and the cell clips them the same way.
@@ -223,8 +224,10 @@ NATIVE = {'8': {
 # Shapes taken from the reference font (build_font_pack.py reference_outline: Arimo, the metric twin of Helvetica, whose
 # bold Rush 2's lettering is), fitted to each original's texels like the drawings: the lowercase, the digits and the
 # rounder symbols, where Rush 2's own few texels say too little to draw them cleanly by hand.
-for _char in 'abcdefghijklmnopqrstuvwxyz023456789@&$%?W':   # not 1: the reference's has a foot, Rush 2's none
+# C and G too: the hand-drawn ones looked off at the menus' sizes (user, 2026-11-04).
+for _char in 'abcdefghijklmnopqrstuvwxyz023456789@&$%?WCG':   # not 1: the reference's has a foot, Rush 2's none
     GLYPHS[_char] = [('f', _char)]
 GLYPHS.update({chr(25): [('f', '™')], chr(26): [('f', '©')], chr(27): [('f', '®')],
                chr(30): [('f', '¿')]})
-# Ç stays the font's own C with the drawn cedilla: Arimo's cedilla hangs past the cell and was cut off.
+# Ç is the font's C (the reference's) with the drawn cedilla: Arimo's cedilla hangs past the cell and was cut off.
+GLYPHS[chr(29)] = [('f', 'C')] + GLYPHS[chr(29)][1:]   # its cedilla, after the drawn C's one shape

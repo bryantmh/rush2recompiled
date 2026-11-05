@@ -216,7 +216,7 @@ func = "menu_text_cb_start_game_labels_803C364C"
 before_vram = 0x803C3818
 text = "    rush2_menus49_row(rdram, ctx, 0);"
 
-# The option lists (menu_screen_options_list_803B17A8: SETUP and its submenus).
+# SETUP (menu_screen_options_list_803B17A8).
 [[patches.hook]]
 func = "menu_text_cb_start_game_alt_803C3334"
 before_vram = 0x803C34FC
@@ -227,6 +227,12 @@ text = "    rush2_menus49_row(rdram, ctx, 3);"
 func = "menu_text_cb_name_entry_screen_803BD718"
 before_vram = 0x803BDDC4
 text = "    rush2_menus49_row(rdram, ctx, 1);"
+
+# RECORDS' STATISTICS / BEST AVERAGES / BEST LAPS chooser (front-end screen 3), its five rows.
+[[patches.hook]]
+func = "menu_text_cb_records_filter_803C394C"
+before_vram = 0x803C3FE4
+text = "    rush2_menus49_row(rdram, ctx, 4);"
 
 # Select Player's JUST PLAY.
 [[patches.hook]]
@@ -244,6 +250,12 @@ text = "    rush2_menus49_row(rdram, ctx, 2);"
 func = "text_select_font_80088C24"
 before_vram = 0x80088C24
 text = "    rush2_menus49_font(rdram, ctx);"
+
+# Rush 2049 Menus: Rush 2's menu sounds play as Rush 2049's menus' (src/rush2049/menus2049.cpp).
+[[patches.hook]]
+func = "menu_play_sound_80064908"
+before_vram = 0x80064908
+text = "    if (rush2_menus49_sound(rdram, ctx)) return;"
 
 [[patches.hook]]
 func = "gfx_frame_setup_800B45B4"

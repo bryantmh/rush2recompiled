@@ -1295,6 +1295,14 @@ area = "car"
 ref = "src/rush2049/wings_render.cpp"
 
 [[func]]
+vram = 0x80092360
+name = "sfx_play_msg"
+sig = "void sfx_play_msg(s32 id, s32 a1, s32 a2, s32 a3)"
+desc = "Game-side sound effect start: queues audio message type 2 (+4 = a2) on 0x801427A8 for sfx id a0; menus call it as (id, 0, 1, 0)."
+status = "inferred"
+ref = "docs/rush2049_research/menus.md#117-menu-sounds"
+
+[[func]]
 vram = 0x800924F4
 desc = "Wing callback: slides the wings out in 6 steps of 15 ms (0 to 5/6 of the car's slide distance), tilts them with the stick, and starts sound 0x3D when sliding starts; builds wing rotation about X and translation (slide, height, 0)."
 status = "verified"
@@ -2278,6 +2286,30 @@ desc = "Rotation about x: y' = y cos - z sin, z' = y sin + z cos (sin/cos 0x8000
 status = "inferred"
 area = "util"
 ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
+
+[[func]]
+vram = 0x800B5F4C
+name = "menu_sound_move"
+sig = "void menu_sound_move(u32 input)"
+desc = "Menu cursor sound: sfx 0x28 when input bit 0x400 (down) is set, else 0x27 (up), via func_80092360."
+status = "verified"
+ref = "docs/rush2049_research/menus.md#117-menu-sounds"
+
+[[func]]
+vram = 0x800B5F88
+name = "menu_sound_step"
+sig = "void menu_sound_step(u32 input)"
+desc = "Menu value-step sound: sfx 0x29 when input bit 0x1000 is set, else 0x2C (bits 0x1000/0x2000 right/left, inferred)."
+status = "verified"
+ref = "docs/rush2049_research/menus.md#117-menu-sounds"
+
+[[func]]
+vram = 0x800B5FC4
+name = "menu_sound_button"
+sig = "void menu_sound_button(u32 input)"
+desc = "Menu button sound: sfx 0x2E on input bit 1, 0x26 on bit 2, else 0x25 (bits 1/2/4 A/B/START, inferred)."
+status = "verified"
+ref = "docs/rush2049_research/menus.md#117-menu-sounds"
 
 [[func]]
 vram = 0x800B669C

@@ -11,5 +11,12 @@
     "rush2049_menu_8": { "name": "Rush 2049 Menus AERO-PLAIN7", "style": "drawn", "design": "aero_glyphs", "pull": 0.5, "inclusive": true },
     "rush2049_menu_9": { "name": "Rush 2049 Menus AERO-PLAIN10", "style": "drawn", "design": "aero_glyphs", "inclusive": true },
     "rush2049_menu_10": { "name": "Rush 2049 Menus 4BAERO-PLAIN12", "style": "drawn", "design": "aero_glyphs", "inclusive": true },
-    "rush2049_menu_title": { "name": "Rush 2049 Menus AERO-PLAIN16", "style": "drawn", "design": "aero_glyphs", "inclusive": true }
+    "rush2049_menu_title": { "name": "Rush 2049 Menus AERO-PLAIN16", "style": "drawn", "design": "aero_glyphs", "inclusive": true },
+    "rush2_at_aero_8": { "name": "Rush 2 lettering at AERO-PLAIN7", "style": "synth", "synth": "rush2_at_aero_8", "inclusive": true },
+    "rush2_at_aero_9": { "name": "Rush 2 lettering at AERO-PLAIN10", "style": "synth", "synth": "rush2_at_aero_9", "inclusive": true },
+    "rush2_at_aero_10": { "name": "Rush 2 lettering at 4BAERO-PLAIN12", "style": "synth", "synth": "rush2_at_aero_10", "inclusive": true },
+    "rush2_at_aero_title": { "name": "Rush 2 lettering at AERO-PLAIN16", "style": "synth", "synth": "rush2_at_aero_title", "inclusive": true },
+    "aero_at_rush2_8": { "name": "AERO lettering at Rush 2 Small", "style": "synth", "synth": "aero_at_rush2_8", "inclusive": true },
+    "aero_at_rush2_9": { "name": "AERO lettering at Rush 2 Medium", "style": "synth", "synth": "aero_at_rush2_9", "inclusive": true },
+    "aero_at_rush2_10": { "name": "AERO lettering at Rush 2 Large", "style": "synth", "synth": "aero_at_rush2_10", "inclusive": true }
 }

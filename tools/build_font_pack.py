@@ -1072,6 +1072,125 @@ def drawn_elements(font_id, font, sheet_list, only=None):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Synthesized fonts
+#
+# Rush 2049 Menus shows menu text at the size its buttons set and in the lettering its Fonts switch sets
+# (src/rush2049/menus2049.cpp). Two of those combinations have no font of their own, so they're drawn here: one game's
+# lettering (its drawn design) at the other game's font sizes, each glyph's capitals on the target font's cap rows
+# (measured on its H), in uniform scale, its left ink edge on the cell's left texel. `synth` writes each glyph's
+# coverage (assets/menu_fonts_synth.json, which the game packs into its sheets like the 2049 fonts) and outline
+# (tools/font_pack/synth.json, for the high-resolution sheets: style "synth" draws them in the packed cells exactly).
+
+SYNTH_ASSET = os.path.join(ROOT, 'assets', 'menu_fonts_synth.json')
+SYNTH_OUTLINES = os.path.join(PACK_DIR, 'synth.json')
+# (id, design, target (tables, font id), header (line height, space, gap, ascent, descent)). The 2049 headers are its
+# glyph tables' bytes 5, 7, 8, 2 and 3 (fonts 12, 11, 10, 13); Rush 2's space is its font record's byte 5, its gap
+# the record's own spacing (byte 6), which the swap keeps.
+SYNTH_FONTS = [
+    ('rush2_at_aero_8', 'rush2_glyphs', ('menu', 'rush2049_menu_8'), (9, 2, 1, 7, 2)),
+    ('rush2_at_aero_9', 'rush2_glyphs', ('menu', 'rush2049_menu_9'), (12, 3, 1, 10, 2)),
+    ('rush2_at_aero_10', 'rush2_glyphs', ('menu', 'rush2049_menu_10'), (15, 3, 1, 12, 3)),
+    ('rush2_at_aero_title', 'rush2_glyphs', ('menu', 'rush2049_menu_title'), (19, 4, 1, 15, 4)),
+    ('aero_at_rush2_8', 'aero_glyphs', ('rush2', '8'), (8, 6, 1, 8, 0)),
+    ('aero_at_rush2_9', 'aero_glyphs', ('rush2', '9'), (10, 6, 1, 10, 0)),
+    ('aero_at_rush2_10', 'aero_glyphs', ('rush2', '10'), (12, 7, 1, 12, 0)),
+]
+
+
+def target_caps(tables, font_id):
+    """A font's capitals' top and bottom rows (sub-texel, from its line's top), from a font tables dump: its H's
+    rows, as drawn_levels measures them; and its H's cell height, which the menus center rows by (cap_of in
+    src/rush2049/menus2049.cpp)."""
+    fonts = json.load(open(FONT_LIST, encoding='utf-8'))
+    font = fonts[font_id]
+    table = next(t for t in tables if str(t['id']) == font_id)
+    for page in table['pages']:
+        sheet = decode_sheet(page)
+        full = float(sheet.max()) or 1.0
+        for code, x0, y0, x1, y1 in glyph_cells(page, font):
+            if code == ord('H'):
+                return ink_edges((sheet[y0:y1, x0:x1] / full).max(axis=1)), y1 - y0
+    sys.exit(f'{font_id}: no H to measure the caps from')
+
+
+SYNTH_INK_RES = 16  # Samples a texel measuring a synthesized glyph's ink width.
+
+
+def synth_font(design_name, caps, cell):
+    """Each character the design draws (0x16-0x7E; the game shows lower case as capitals), its capitals on rows caps:
+    {code: (width, height, coverage 0-255 row major, SVG path in cell coordinates)}. Cells are at least `cell` tall
+    (the target font's H cell), so a row is centered on the same cell as in the target font."""
+    design = drawn_design(design_name)
+    cap = getattr(design, 'CAP', (-0.15, 11.15))
+    DRAWN_CAP[0] = cap
+    sy = (caps[1] - caps[0]) / (cap[1] - cap[0])
+    oy = caps[0] - cap[0] * sy
+    out = {}
+    for code in range(0x16, 0x7F):
+        char = chr(code)
+        if char.islower() or char == ' ' or char not in design.GLYPHS:
+            continue
+        glyph = DrawnGlyph(design.GLYPHS[char])
+        p = glyph.initial
+        pts = np.concatenate([c for c, _ in glyph.outline(p, (sy, 0.0, sy, oy))])
+        left, right, bottom = float(pts[:, 0].min()), float(pts[:, 0].max()), float(pts[:, 1].max())
+        h = max(cell, int(np.ceil(bottom - 1e-6)))
+        # The cell spans the ink as drawn (columns at least half covered at SYNTH_INK_RES samples a texel), rounded to
+        # whole texels: rounding the outline's box up left letters ending just past a texel line (T, A) almost a
+        # texel of extra space, and R's box reached a column its ink never does. The overhang (under half a texel)
+        # falls in the gap column, which the game draws with the glyph (copy mode includes the cell's x1).
+        n = SYNTH_INK_RES
+        fine = drawn_coverage([c * n for c, _ in glyph.outline(p, (sy, -left, sy, oy))],
+                              int(np.ceil(right - left)) * n + n, h * n)
+        cols = np.nonzero(fine.max(axis=0) >= 0.5)[0]
+        if len(cols):
+            left += cols[0] / n
+            right = left + (cols[-1] + 1 - cols[0]) / n
+        transform = (sy, -left, sy, oy)
+        w = max(1, int(round(right - left)))
+        cov = np.clip(drawn_coverage([c for c, _ in glyph.outline(p, transform)], w, h), 0.0, 1.0)
+        out[code] = (w, h, [int(round(v * 255)) for v in cov.ravel()], glyph.svg(p, transform))
+    return out
+
+
+def synth(r2_tables_path, menu_tables_path):
+    tables = {'rush2': json.load(open(r2_tables_path)), 'menu': json.load(open(menu_tables_path))}
+    asset, outlines = {}, {}
+    for font_id, design, (source, target), (line, space, gap, ascent, descent) in SYNTH_FONTS:
+        caps, cell = target_caps(tables[source], target)
+        glyphs = synth_font(design, caps, cell)
+        asset[font_id] = {'line_height': line, 'space': space, 'gap': gap, 'ascent': ascent, 'descent': descent,
+                          'glyphs': {str(c): {'w': w, 'h': h, 'coverage': bytes(cov).hex()}
+                                     for c, (w, h, cov, _) in glyphs.items()}}
+        outlines[font_id] = {str(c): d for c, (_, _, _, d) in glyphs.items()}
+        print(f'{font_id}: {design} on {target}\'s caps {caps[0]:.2f}-{caps[1]:.2f}, {len(glyphs)} glyphs')
+    with open(SYNTH_ASSET, 'w', newline='\n') as f:
+        json.dump(asset, f, separators=(',', ':'))
+    with open(SYNTH_OUTLINES, 'w', newline='\n') as f:
+        json.dump(outlines, f, indent=1)
+
+
+def synth_elements(font_id, font, sheet_list):
+    """A synthesized font's sheets: each packed cell gets its glyph's own outline (synth.json), clipped to the cell
+    and the free texels past it the game draws (drawn_region)."""
+    outlines = json.load(open(SYNTH_OUTLINES))[font['synth']]
+    full = max(float(sheet.max()) for _, sheet in sheet_list) or 15.0
+    per_sheet = []
+    for page, sheet in sheet_list:
+        elements = []
+        for code, x0, y0, x1, y1 in glyph_cells(page, font):
+            d = outlines.get(str(code))
+            if d is None:
+                continue
+            rx1, ry1 = drawn_region(page, font, (x0, y0, x1, y1))
+            d = re.sub(r'(-?[\d.]+),(-?[\d.]+)', lambda m: fmt((float(m.group(1)) + x0, float(m.group(2)) + y0)), d)
+            elements.append({'d': d, 'rule': 'nonzero', 'fill': full, 'stroke': 0.0, 'halo': 0.0,
+                             'clip': (x0, y0, rx1, ry1)})
+        per_sheet.append(elements)
+    return per_sheet, f'synthesized ({len(outlines)} glyphs)'
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # Rendering
 #
 # An element is one SVG path: {'d', 'rule', 'fill', 'stroke', 'halo', 'clip'} with fill and stroke as intensities
@@ -2374,7 +2493,10 @@ def trace(table_path, tables=None, svg_dir=SVG_DIR):
         if not font_sheets:
             continue
         sheet_list = [(page, decode_sheet(page)) for _, page in font_sheets]
-        if font['style'] == 'drawn':
+        if font['style'] == 'synth':
+            elements, detail = synth_elements(font_id, font, sheet_list)
+            per_sheet = [(h, page, e) for (h, _), (page, _), e in zip(font_sheets, sheet_list, elements)]
+        elif font['style'] == 'drawn':
             # Hand-drawn outlines (Rush 2049's AERO menu lettering), fitted to each font's texels.
             elements, detail = drawn_elements(font_id, font, sheet_list)
             per_sheet = [(h, page, e) for (h, _), (page, _), e in zip(font_sheets, sheet_list, elements)]
@@ -2577,6 +2699,8 @@ if __name__ == '__main__':
         trace(sys.argv[2], None, SVG_2049_MENU_DIR)
     elif len(sys.argv) >= 3 and sys.argv[1] == 'trace-hud':
         trace_hud(sys.argv[2:])
+    elif len(sys.argv) == 4 and sys.argv[1] == 'synth':
+        synth(sys.argv[2], sys.argv[3])
     elif len(sys.argv) == 2 and sys.argv[1] == 'pack':
         pack()
     elif len(sys.argv) == 4 and sys.argv[1] == 'images':

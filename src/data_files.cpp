@@ -347,6 +347,32 @@ namespace {
         // As librecomp writes its configs.
         write_json(path, sound, 4);
     }
+
+    // Rush 2049 Menus (games.json "rush2049_menus": false / true, then "Off", "Style" or "Layout") as its style
+    // (Off, Minimal = "Style", Full = "Layout") plus switches for the fonts, sounds and background
+    // (src/rush2049/wings.cpp), which "Style" and "Layout" both brought.
+    void migrate_menus2049() {
+        fs::path path = app_folder() / "games.json";
+        json games;
+        if (!read_json(path, games)) {
+            return;
+        }
+        auto it = games.find("rush2049_menus");
+        constexpr const char* switches[] = { "rush2049_menu_fonts", "rush2049_menu_sounds", "rush2049_menu_background" };
+        if (it == games.end() || games.contains(switches[0])) {
+            return;
+        }
+        bool on = it->is_boolean() ? it->get<bool>()
+                                   : it->is_string() && (*it == "Style" || *it == "Layout");
+        if (it->is_boolean()) {
+            *it = on ? "Style" : "Off";
+        }
+        for (const char* id : switches) {
+            games[id] = on;
+        }
+        // As librecomp writes its configs.
+        write_json(path, games, 4);
+    }
 }
 
 fs::path rush2::data_files::save_folder() {
@@ -380,4 +406,5 @@ void rush2::data_files::migrate() {
     migrate_games_config();
     migrate_wing_styles();
     migrate_menu_music();
+    migrate_menus2049();
 }
