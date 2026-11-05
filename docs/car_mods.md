@@ -379,6 +379,13 @@ switches off for it and on again after. A livery's brake list loads its textures
 relocator doesn't enter a called load list. `rush2_calspeed_brake_lights` (the func_800599A0 hook) keeps each car's
 braking for a car whose `Paint` or shown livery has lights (`Paint::lights`) and still lets Rush 2 write its palette.
 
+The brake lists dent with the body (issue #52): they are models of their own, which the dent's FRAME1 walk never
+reaches, so damaged cars showed their lit lights where the undamaged body was (behind or beside a crushed rear, a
+third light floating over a crushed cab). `collect_brake_vertices` (after the brake switches are found, in `set_body`
+and `add_livery_body`) gives every vertex of the car's brake lists the body vertex nearest it, and `dent_body` moves
+each by its body vertex's dent (`Paint::followers`). Checked with the arcade Truck (type 59) and the Super GT's
+arcade livery, `RUSH2_TEST_DAMAGE=1`, braking.
+
 A brake list draws blended, unlit and full bright (`brake_render_mode`, src/car_mods.cpp): the arcade's BRAKE textures
 are soft glows, alpha 0 and near black around a red core, which the body's opaque render mode drew as dark boxes. The
 list clears G_LIGHTING, sets the body's fog cycle with G_RM_ZB_XLU_SURF2 after it and G_CC_MODULATEIDECALA (the

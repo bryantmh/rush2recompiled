@@ -284,6 +284,15 @@ namespace {
             uint32_t at, list;
         };
         std::vector<BrakeBlock> brake_blocks;
+        // The brake light lists' vertices (file offsets), each dented as the body vertex nearest it (index into
+        // vertices), with its own pristine position: the lights are a model of their own, so without this they stayed
+        // where the undamaged body was (issue #52).
+        struct Follower {
+            uint32_t at;
+            std::array<int16_t, 3> rest;
+            uint32_t body;
+        };
+        std::vector<Follower> followers;
     };
     Paint paints[car_count];
     // Rush 2 types drawn as one body (car mods, src/car_mods.cpp) and California Speed's (src/calspeed/calspeed_cars.cpp).
@@ -2003,6 +2012,39 @@ static void find_brake_switches(const std::vector<uint8_t>& car, const std::stri
     }
 }
 
+// The vertices of the brake light lists p's switches call (after its body vertices and brake blocks are known), each
+// made to follow the body vertex nearest it when the body dents (Paint::followers).
+static void collect_brake_vertices(const std::vector<uint8_t>& car, Paint& p) {
+    p.followers.clear();
+    if (p.vertices.empty()) return;
+    std::set<uint32_t> lists, seen;
+    for (const Paint::BrakeBlock& b : p.brake_blocks) lists.insert(b.list);
+    for (uint32_t list : lists) {
+        for (uint32_t pc = list; pc + 8 <= car.size(); pc += 8) {
+            uint32_t w0 = be32(car, pc), w1 = be32(car, pc + 4) & 0xFFFFFF;
+            if ((w0 >> 24) == 0xDF) break;
+            if ((w0 >> 24) != 0x01) continue;
+            uint32_t n = (w0 >> 12) & 0xFF;
+            for (uint32_t v = 0; v < n && w1 + v * 16 + 16 <= car.size(); v++) {
+                uint32_t at = w1 + v * 16;
+                if (!seen.insert(at).second) continue;
+                std::array<int16_t, 3> r = vertex_at(car, at);
+                uint32_t best = 0;
+                int64_t best_d = INT64_MAX;
+                for (size_t i = 0; i < p.rest.size(); i++) {
+                    int64_t d = 0;
+                    for (int c = 0; c < 3; c++) d += int64_t(r[c] - p.rest[i][c]) * (r[c] - p.rest[i][c]);
+                    if (d < best_d) {
+                        best_d = d;
+                        best = uint32_t(i);
+                    }
+                }
+                p.followers.push_back({ at, r, best });
+            }
+        }
+    }
+}
+
 // A mod car's color scheme blocks in every model's lists (after add_damage_textures rewrote the body's).
 static void find_scheme_blocks(const std::vector<uint8_t>& car, Paint& p) {
     p.scheme_blocks.clear();
@@ -2058,6 +2100,7 @@ static void set_body(uint8_t* rdram, int type, std::vector<uint8_t> car, const s
     add_damage_textures(car, prefix + "FRAME1", type, p);
     find_scheme_blocks(car, p);
     p.lights = !p.brake_blocks.empty();
+    collect_brake_vertices(car, p);
     if (car.size() > (uint32_t)MEM_W(0, (int32_t)car_slot_size)) {
         MEM_W(0, (int32_t)car_slot_size) = (int32_t)((car.size() + 15) & ~15u);
     }
@@ -2094,6 +2137,7 @@ int rush2::car2049::add_livery_body(int id, std::vector<uint8_t>& car, const std
     add_damage_textures(car, prefix + "FRAME1", 0, p, loads_start, loads_end);
     find_brake_switches(car, prefix + "FRAME1", p);
     p.lights = !p.brake_blocks.empty();
+    collect_brake_vertices(car, p);
     std::lock_guard lock{ livery_mutex };
     if (id >= 0 && id < (int)livery_bodies.size()) {
         livery_bodies[id] = std::move(p);
@@ -3120,6 +3164,14 @@ namespace {
                 if (i < p->mirrors.size()) {
                     for (uint32_t m : p->mirrors[i]) MEM_H(0, (int32_t)(base + m + c * 2)) = (uint16_t)out[c];
                 }
+            }
+        }
+        // The brake lights move as the body under them (read back from the vertex just written).
+        for (const Paint::Follower& f : p->followers) {
+            for (int c = 0; c < 3; c++) {
+                int16_t moved = (int16_t)MEM_H(0, (int32_t)(base + p->vertices[f.body] + c * 2));
+                int v = f.rest[c] + (moved - p->rest[f.body][c]);
+                MEM_H(0, (int32_t)(base + f.at + c * 2)) = (uint16_t)int16_t(std::clamp(v, -32768, 32767));
             }
         }
     }
