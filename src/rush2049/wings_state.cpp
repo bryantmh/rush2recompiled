@@ -24,6 +24,8 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "recomp.h"
@@ -332,6 +334,18 @@ extern "C" void rush2_wings_torque(uint8_t* rdram, recomp_context* ctx) {
         float mirror = MEM_B(0, (int32_t)mirror_flag) == 1 ? -1.0f : 1.0f;
         f32(rdram, car + car_torque_x) -= w.stick_y * gain * speed;
         f32(rdram, car + car_torque_z) += w.stick_x * gain * speed * mirror;
+        // Test aid: RUSH2_WINGS_LOG=1 prints what the wings steer with while they're out (a few times a second, and
+        // whenever the stick moves).
+        static const bool wings_log = std::getenv("RUSH2_WINGS_LOG") != nullptr;
+        static int logged = 0;
+        static float last_x = 0.0f, last_y = 0.0f;
+        if (wings_log && ((logged++ % 15) == 0 || w.stick_x != last_x || w.stick_y != last_y)) {
+            last_x = w.stick_x;
+            last_y = w.stick_y;
+            printf("[Wings] car %d out: stick x %.2f y %.2f, pitch torque %+.1f roll torque %+.1f\n", index, w.stick_x,
+                   w.stick_y, -w.stick_y * gain * speed, w.stick_x * gain * speed * mirror);
+            fflush(stdout);
+        }
     }
 
     update_visuals(rdram, car, w, f32(rdram, car + car_dt));

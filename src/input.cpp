@@ -353,7 +353,7 @@ namespace {
     // Keys that count as the keyboard joining: the menu layout's keys (src/controls.cpp).
     bool keyboard_pressing_anything() {
         int num_keys = 0;
-        const Uint8* keys = SDL_GetKeyboardState(&num_keys);
+        const Uint8* keys = rush2::input::keyboard_state(&num_keys);
         constexpr SDL_Scancode join_keys[] = { SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_BACKSPACE,
             SDL_SCANCODE_RETURN, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT };
         for (SDL_Scancode key : join_keys) {
@@ -577,10 +577,26 @@ int32_t rush2::input::get_port_controller(int port) {
 
 // RUSH2_TEST_VPAD's virtual controller, once attached (start_test_vpad).
 static std::atomic<int32_t> test_vpad_id{ -1 };
+// RUSH2_TEST_KEYS's held keys (start_test_keys), by scancode, and whether it was given.
+static std::array<std::atomic<uint8_t>, SDL_NUM_SCANCODES> test_keys{};
+static std::atomic<bool> test_keys_on = false;
 
 bool rush2::input::is_test_vpad_port(int port) {
+    // The scripted keyboard's port too: a simulation run reads it, as the virtual pad's.
+    if (test_keys_on && port >= 0 && port == keyboard_port.load()) return true;
     int32_t id = get_port_controller(port);
     return id != no_controller && id == test_vpad_id.load();
+}
+
+const uint8_t* rush2::input::keyboard_state(int* num_keys) {
+    const Uint8* keys = SDL_GetKeyboardState(num_keys);
+    if (!test_keys_on) return keys;
+    // Per thread: the controller thread and the UI both read it.
+    thread_local std::array<uint8_t, SDL_NUM_SCANCODES> merged;
+    int n = std::min<int>(*num_keys, SDL_NUM_SCANCODES);
+    for (int k = 0; k < SDL_NUM_SCANCODES; k++) merged[k] = (k < n && keys[k]) || test_keys[k].load() ? 1 : 0;
+    *num_keys = SDL_NUM_SCANCODES;
+    return merged.data();
 }
 
 int rush2::input::get_keyboard_port() {
@@ -737,6 +753,58 @@ namespace {
             }
         }).detach();
     }
+
+    // Test aid: RUSH2_TEST_KEYS="<seconds>:<key>[:<hold seconds>],..." holds keyboard keys (SDL scancode names: Up,
+    // Down, Left, Right, Space, Return, A...) at those times after the first input poll, as RUSH2_TEST_VPAD presses its
+    // pad's (0.15 s unless given). The keys are added to SDL's keyboard state wherever the game reads it
+    // (rush2::input::keyboard_state), so the keyboard joins a port and drives it through its bindings as a real one; a
+    // simulation run reads its port. Like the pad's, it needs Background Input on in a hidden run.
+    void start_test_keys() {
+        const char* spec = std::getenv("RUSH2_TEST_KEYS");
+        if (spec == nullptr) {
+            return;
+        }
+        struct Press {
+            double time, duration;
+            SDL_Scancode key;
+        };
+        std::vector<Press> presses;
+        std::string text = spec;
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t end = text.find(',', pos);
+            std::string entry = text.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+            pos = end == std::string::npos ? text.size() : end + 1;
+            size_t c1 = entry.find(':');
+            if (c1 == std::string::npos) continue;
+            std::string name = entry.substr(c1 + 1);
+            double duration = 0.15;
+            if (size_t c2 = name.find(':'); c2 != std::string::npos) {
+                duration = std::atof(name.c_str() + c2 + 1);
+                name = name.substr(0, c2);
+            }
+            SDL_Scancode key = SDL_GetScancodeFromName(name.c_str());
+            if (key == SDL_SCANCODE_UNKNOWN) {
+                printf("[Input] RUSH2_TEST_KEYS: no key named %s\n", name.c_str());
+                continue;
+            }
+            presses.push_back({ std::atof(entry.c_str()), duration, key });
+        }
+        test_keys_on = true;
+        printf("[Input] RUSH2_TEST_KEYS: %zu key presses\n", presses.size());
+        auto launch = std::chrono::steady_clock::now();
+        std::thread([presses, launch]() {
+            for (;;) {
+                double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - launch).count();
+                std::array<uint8_t, SDL_NUM_SCANCODES> down{};
+                for (const Press& p : presses) {
+                    if (now >= p.time && now < p.time + p.duration) down[p.key] = 1;
+                }
+                for (int k = 0; k < SDL_NUM_SCANCODES; k++) test_keys[k] = down[k];
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }).detach();
+    }
 }
 
 void rush2::input::poll() {
@@ -744,6 +812,7 @@ void rush2::input::poll() {
     if (!vpad_started) {
         vpad_started = true;
         start_test_vpad();
+        start_test_keys();
     }
     recompinput::poll_inputs();
     update_port_assignments();

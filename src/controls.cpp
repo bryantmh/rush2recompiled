@@ -162,7 +162,7 @@ namespace {
             d.controller = recompinput::get_controller_from_joystick_id(id);
         }
         if (rush2::input::get_keyboard_port() == port) {
-            d.keys = SDL_GetKeyboardState(&d.num_keys);
+            d.keys = rush2::input::keyboard_state(&d.num_keys);
         }
         return d;
     }
@@ -760,6 +760,14 @@ void rush2::controls::get_race_input(int port, uint16_t* buttons_out, float* x_o
     if (d.keys != nullptr) {
         const Slots& keys = b[static_cast<int>(Device::Keyboard)][static_cast<int>(Action::Steering)];
         x += input_value(d, keys[1]) - input_value(d, keys[0]);
+        // The keyboard has no stick vertical, so its GAS and BRAKE keys stand in for stick up and down: in the air
+        // with the wings out they pitch the car forward and back (Rush 2049's wings read only the stick, src/rush2049/
+        // wings_state.cpp), and BRAKE aims a weapon behind. Nothing else in a race reads the vertical.
+        auto key_pedal = [&](Action a) {
+            const Slots& s = b[static_cast<int>(Device::Keyboard)][static_cast<int>(a)];
+            return std::max(input_value(d, s[0]), input_value(d, s[1]));
+        };
+        y += key_pedal(Action::Gas) - key_pedal(Action::Brake);
     }
     x += std::copysign(std::pow(std::fabs(touch.x), steering_exponent), touch.x);
     y += touch.y;

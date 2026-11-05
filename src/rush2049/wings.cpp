@@ -391,7 +391,7 @@ void rush2::wings::init_config() {
         "Wings",
         "Adds the wings from San Francisco Rush 2049. Hold the <recomp-color primary>Wings</recomp-color> button "
         "(set it in the game's Controller Setup screen) while airborne to spread them, then steer in the air with "
-        "the stick. Requires a Rush 2049 (USA) ROM.",
+        "the stick (on a keyboard, the steering keys roll and the gas and brake keys flip). Requires a Rush 2049 (USA) ROM.",
         false
     );
     wings_config.add_option_change_callback(wings_option_id,

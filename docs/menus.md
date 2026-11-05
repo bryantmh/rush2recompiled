@@ -190,6 +190,14 @@ more for the pause menu. The scripted presses skip the controller path (port cla
 otherwise ignore controllers, but a stick never claims a port, so press a button first (`2:LS,3:SU:10`). Bindings for
 the run go in with `--config 'players.bindings={"players":[{"controller":{"gas":{"axis":"-lefty"}}}]}'`.
 
+`RUSH2_TEST_KEYS="<seconds>:<key>[:<hold seconds>],..."` does the same for the keyboard (SDL scancode names: Up, Down,
+Left, Right, Space, Return, letters), timed as the pad's: the keys are added to SDL's keyboard state where the game
+reads it (`rush2::input::keyboard_state`), so the keyboard joins a port and drives it through its bindings. Both need
+Background Input on in a hidden run (`--config general.background_input_mode=On`). A key held from before the race
+stays released until let go (gas and brake excepted), so pulse other keys after the start: wings on the keyboard
+were checked with `1:Up:45` and `Space` held 1.8 s every 2 s from 10 s in stunt arena 25, with `RUSH2_WINGS_LOG=1`
+printing the stick and torque the wings steer with while out (src/rush2049/wings_state.cpp; issue #54).
+
 ### Touch controls
 
 The on-screen touch controls (src/touch_controls.cpp, Controls tab > Touch Controls, Auto by default) are tested with
