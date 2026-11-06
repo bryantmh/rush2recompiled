@@ -10073,10 +10073,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C014
-name = "race_sky_clock"
-type = "u16"
-desc = "Halfword time-of-day/clock value set by sky clouds setup, start timer and clock update, read by scene sky draw (low confidence)."
-area = "render"
+name = "race_countdown_digit"
+type = "s16"
+desc = "The race intro countdown digit: trunc(time left of 3.5 s + 0.999) (race_start_timer, 0x800AE94C): 4, 3, 2, 1, then 0 starts the race (game state 9). race_countdown_update plays the announcer as it drops."
+area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
@@ -10199,10 +10199,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C040
-name = "sky_clouds_state"
-type = "u32"
-desc = "Word private to race_sky_clouds_setup."
-area = "render"
+name = "race_countdown_sign"
+type = "u32[2]"
+desc = "Per view: the countdown sign polygon (CNTDWNn texture) made and placed by race_countdown_update; 0 when none."
+area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
@@ -10226,10 +10226,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C050
-name = "sky_clouds_param"
-type = "u16"
-desc = "Halfword read by race_sky_clouds_setup (low confidence)."
-area = "render"
+name = "race_countdown_texture"
+type = "s16"
+desc = "Texture id of the countdown sign (CNTDWN3, then CNTDWNn), from texture_find_by_name in race_countdown_update."
+area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
@@ -10262,10 +10262,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8010C05C
-name = "sky_clouds_out"
-type = "u16"
-desc = "Halfword written by race_sky_clouds_setup, never read (low confidence)."
-area = "render"
+name = "race_countdown_shown"
+type = "s16"
+desc = "The digit the countdown sign shows (race_countdown_update): set to 4 when the sign is made, then to each lower digit as it drops; the announcer plays on a drop."
+area = "race"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 

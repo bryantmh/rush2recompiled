@@ -899,7 +899,7 @@ functions = [
     { name = "loading_screen_wait_frame_80088C64", vram = 0x80088C64, size = 0x134 },
     { name = "carselect_flag_set_c_80088D98", vram = 0x80088D98, size = 0x10 },
     { name = "carselect_flag_set_d_80088DA8", vram = 0x80088DA8, size = 0x48 },
-    { name = "race_sky_clouds_setup_80088DF0", vram = 0x80088DF0, size = 0x39C },
+    { name = "race_countdown_update_80088DF0", vram = 0x80088DF0, size = 0x39C },
     { name = "render_sky_cloud_scroll_8008918C", vram = 0x8008918C, size = 0x3D8 },
     { name = "scene_sky_reset_and_draw_80089564", vram = 0x80089564, size = 0xF8 },
     { name = "scene_matrix_reset_8008965C", vram = 0x8008965C, size = 0x70 },

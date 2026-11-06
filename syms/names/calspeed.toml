@@ -364,6 +364,22 @@ area = "car"
 ref = "docs/calspeed_research.md#stacked-roads-the-subway-tunnel"
 
 [[func]]
+vram = 0x800ADB00
+name = "race_countdown_sound"
+desc = "California Speed's countdown sound: when the digit 0x800FA5A8 changes (last view only) plays 0x5B on 2, 0x5C on 1, 0x5D on 0 (the race start) via func_80056268; the first digit 3 is silent. Called from func_800ADC20, which sets the digit to trunc(time left of 2.5 s + 0.999)."
+status = "verified"
+area = "race"
+ref = "docs/announcer.md#how-each-game-calls-the-start"
+
+[[func]]
+vram = 0x800ADC20
+name = "race_countdown_update"
+desc = "California Speed's race intro countdown each frame: digit 0x800FA5A8 = trunc(time left + 0.999) of the 2.5 s countdown (set at 0x80093158), race_countdown_sound, then game state 9 and the race clock at digit 0."
+status = "verified"
+area = "race"
+ref = "docs/announcer.md#how-each-game-calls-the-start"
+
+[[func]]
 vram = 0x800ADE48
 name = "race_start_engine_sounds"
 sig = "void race_start_engine_sounds(s32 a0, u16 rpm, u16 load, u16 slot)"

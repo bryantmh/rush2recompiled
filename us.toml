@@ -255,7 +255,30 @@ text = "    rush2_menus49_font(rdram, ctx);"
 [[patches.hook]]
 func = "menu_play_sound_80064908"
 before_vram = 0x80064908
-text = "    if (rush2_menus49_sound(rdram, ctx)) return;"
+text = "    if (rush2_announcer_sound(rdram, ctx) || rush2_menus49_sound(rdram, ctx)) return;"
+
+# Race start announcer (src/announcer.cpp, docs/announcer.md): the countdown's sounds
+# (func_80088DF0: 0x71 on 3, 0x72 on 2, 0x69 on 1) and GO's (func_800AE670: 0x6C as the race starts) mark their cue,
+# and menu_play_sound (hook above) plays the chosen game's announcer in their place.
+[[patches.hook]]
+func = "race_countdown_update_80088DF0"
+before_vram = 0x8008907C
+text = "    rush2_announcer_cue(rdram, ctx, 3);"
+
+[[patches.hook]]
+func = "race_countdown_update_80088DF0"
+before_vram = 0x80089098
+text = "    rush2_announcer_cue(rdram, ctx, 2);"
+
+[[patches.hook]]
+func = "race_countdown_update_80088DF0"
+before_vram = 0x800890A8
+text = "    rush2_announcer_cue(rdram, ctx, 1);"
+
+[[patches.hook]]
+func = "race_start_timer_800AE670"
+before_vram = 0x800AEB54
+text = "    rush2_announcer_cue(rdram, ctx, 0);"
 
 [[patches.hook]]
 func = "gfx_frame_setup_800B45B4"
@@ -11802,22 +11825,22 @@ vram = 0x80088B20
 value = 0xA0390380 # sb $t9, 0x7B9C($at) -> 80240380
 
 [[patches.instruction]]
-func = "race_sky_clouds_setup_80088DF0"
+func = "race_countdown_update_80088DF0"
 vram = 0x80088E58
 value = 0x3C148024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_sky_clouds_setup_80088DF0"
+func = "race_countdown_update_80088DF0"
 vram = 0x80088E6C
 value = 0x26940340 # addiu $s4, $s4, -0x3FC0 -> 80240340
 
 [[patches.instruction]]
-func = "race_sky_clouds_setup_80088DF0"
+func = "race_countdown_update_80088DF0"
 vram = 0x80088E9C
 value = 0x3C0F8024 # lui -> 8024
 
 [[patches.instruction]]
-func = "race_sky_clouds_setup_80088DF0"
+func = "race_countdown_update_80088DF0"
 vram = 0x80088EAC
 value = 0x25EF00F0 # addiu $t7, $t7, 0x7A58 -> 802400F0
 

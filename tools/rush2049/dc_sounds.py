@@ -29,6 +29,11 @@ MANUAL = {
     # N64 func_800B5F88 0x29 / 0x2C (bit 0x1000), disc 0x8C0115A4 3 / 6. A / B / START: N64 func_800B5FC4 0x2E / 0x26
     # / 0x25, disc 0x8C011586 7 on bit 1, else 0 on bits 2 or 8, else 1.
     0x27: 0x02, 0x28: 0x08, 0x29: 0x03, 0x2C: 0x06, 0x2E: 0x07, 0x26: 0x00, 0x25: 0x01,
+    # The race start countdown (docs/announcer.md; the port doesn't play these, as they are Rush 2's recordings).
+    # Countdown: N64 func_800B61FC plays 0x4B / 0x4C / 0x4D on digits 3 / 2 / 1, the disc's countdown 0x8C022654 (the CNTDWN%d one) 0x58 / 0x5A / 0x4E. GO: N64 func_800FBF88 plays
+    # 0x4E (through func_800B61A8, args 0, 1, 0) as the race starts, before the music; the disc plays 0x54 with the
+    # same arguments at its race start (0x8C027D9C, after the clock is set).
+    0x4B: 0x58, 0x4C: 0x5A, 0x4D: 0x4E, 0x4E: 0x54,
 }
 # The N64's per-track songs (main 0x8010FFD4, s32 per 2049 track id 0-18) and the disc's (0x8C0BA76C).
 N64_TRACK_SONGS = 0x8010FFD4

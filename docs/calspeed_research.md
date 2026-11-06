@@ -759,7 +759,11 @@ LZ-compressed MIDI as SF Rush's) and the sound effect bank at 0xD73AE0. The bloc
 past SF Rush's in the ROM image and filled from the ROM, the .ctl copy lives at 0x80E16000 (below 16 MB: the audio
 microcode reads its ADPCM codebooks with 24-bit addresses), and the songs are Rush 2 songs 29-37. California Speed
 has no per-track songs: its options' Audio Track picks one (strings at 0x800D4658), so a California Speed track
-plays a random one of its songs by default (`src/music.cpp`). Its menu song isn't identified. [V layout]
+plays a random one of its songs by default (`src/music.cpp`). Its menu song is sequence 0 (Rush 2 song 29, "Song 1"):
+the front end plays it through 0x800569BC (sequence << 16 | 0xFFFF, queued by 0x80056930) at 0x8006EFC0, 0x8006EFFC,
+0x8006F368, 0x8006FA14 and 0x8007562C, all in game state 0; races play the Audio Track table 0x800D8C64 (sequences
+0-8) from 0x800AE300. The Sound tab lists it as California Speed's Main Menu song (`menu_song_cs`, off by default).
+[V layout, V code]
 
 ### Engine sounds
 

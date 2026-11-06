@@ -92,6 +92,10 @@ void rush2_menus49_row(uint8_t* rdram, recomp_context* ctx, int list);
 void rush2_menus49_font(uint8_t* rdram, recomp_context* ctx);
 bool rush2_menus49_sound(uint8_t* rdram, recomp_context* ctx);
 
+// The race start announcer (src/announcer.cpp).
+void rush2_announcer_cue(uint8_t* rdram, recomp_context* ctx, int cue);
+bool rush2_announcer_sound(uint8_t* rdram, recomp_context* ctx);
+
 // Three and four player races (src/players4.cpp).
 void rush2_players4_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_frame_buffers(uint8_t* rdram, recomp_context* ctx);

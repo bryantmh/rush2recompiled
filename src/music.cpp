@@ -73,6 +73,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "car_engines.h"
+#include "announcer.h"
 #include "audio2049.h"
 #include "wings.h"
 #include "calspeed.h"
@@ -103,6 +104,11 @@ namespace {
         "it over.";
     constexpr const char* other_engines_description =
         "Hear the computer cars' engines around you, as Rush 2049 does (Rush 2 plays only your own).";
+    // The race start announcer (src/announcer.cpp).
+    constexpr const char* announcer_id = "race_announcer";
+    constexpr const char* announcer_description =
+        "Which game's announcer calls the countdown and GO at the start of a race. SF Rush and Rush 2049 use Rush 2's. "
+        "California Speed needs its ROM; without it Rush 2's plays.";
     constexpr uint32_t track_songs = 0x800CC37C;    // s16[12]: index into the song table per track.
     constexpr uint32_t song_table = 0x800CC394;     // s16[8]: sequence per Rush 2 race song.
     constexpr uint32_t requested_song = 0x800F9550; // Sequence func_80061E68 last queued for the loader.
@@ -175,7 +181,7 @@ namespace {
         { Game::Rush2049, disc + 9, "r49dc_9", "Speed", "No Rush 2049 track", Only::Disc },
         { Game::Rush2049, disc + 19, "r49dc_19", "Select", "Rush 2049 menus", Only::Disc },
         { Game::Rush2049, disc + 18, "r49dc_18", "High Score", "Rush 2049 high score entry", Only::Disc },
-        { Game::CalSpeed, 0, "cs_0", "Song 1", "Any California Speed track" },
+        { Game::CalSpeed, 0, "cs_0", "Song 1", "Any California Speed track, and its menus" },
         { Game::CalSpeed, 1, "cs_1", "Song 2", "Any California Speed track" },
         { Game::CalSpeed, 2, "cs_2", "Song 3", "Any California Speed track" },
         { Game::CalSpeed, 3, "cs_3", "Song 4", "Any California Speed track" },
@@ -250,11 +256,14 @@ namespace {
     // [V]. SF Rush's front end (screen 0, func_800B9508) plays its sequence 11 and Rush 2049's menu loop
     // (func_800D71D0) its song 6 [inferred from the callers in docs/rush1_research.md section 9 and
     // docs/rush2049_research/audio.md section 3: neither is a race song]; a Dreamcast disc plays song 6 as its
-    // Select.rom. California Speed's menu song isn't identified, so it has none.
+    // Select.rom. California Speed's front end (game state 0: 0x8006EFC0, 0x8006EFFC, 0x8006F368, 0x8006FA14,
+    // 0x8007562C) plays its sequence 0 through 0x800569BC, the song its races also list first (Audio Track table
+    // 0x800D8C64 = sequences 0-8) [V].
     constexpr uint32_t menu_command = 0x0009FFFF;
     constexpr int rush1_menu_song = 11;
     constexpr int rush2049_menu_song = 6;
     constexpr int disc_menu_song = disc + 19;   // Select.rom, the disc's menu song.
+    constexpr int calspeed_menu_song = 0;
 
     // The main menu songs, each with its switch (sound.json "menu_song_<key>"). Rush 2's is on by default. Rush 2049
     // has two: the N64's song 6 and the disc's Select.rom, each listed while its soundtrack is in use.
@@ -263,11 +272,12 @@ namespace {
         const char* key;
         Only only = Only::Any;   // Rush 2049's are listed under its N64 or Dreamcast heading.
     };
-    constexpr std::array<MenuSong, 4> menu_songs = {{
+    constexpr std::array<MenuSong, 5> menu_songs = {{
         { Game::Rush2, "r2" },
         { Game::Rush1, "r1" },
         { Game::Rush2049, "r49", Only::N64 },
         { Game::Rush2049, "r49dc", Only::Disc },
+        { Game::CalSpeed, "cs" },
     }};
     constexpr int menu_count = (int)menu_songs.size();
     std::array<std::atomic_bool, menu_count> menu_enabled{};
@@ -560,6 +570,9 @@ namespace {
         switch (menu_songs[m].game) {
             case Game::Rush1:
                 c.sequence = rush2::track1::song_sequence(rdram, ctx, rush1_menu_song);
+                return c.sequence >= 0;
+            case Game::CalSpeed:
+                c.sequence = rush2::calspeed::song_sequence(rdram, ctx, calspeed_menu_song);
                 return c.sequence >= 0;
             case Game::Rush2049:
                 c.sequence = -1;
@@ -1127,6 +1140,13 @@ namespace {
 
             add_switch(add_setting(general, "Other Cars' Engines", other_engines_description), other_engines_id);
             add_switch(add_setting(general, "Music While Paused", pause_music_description), pause_music_id);
+            Select* announcer = add_select(add_setting(general, "Announcer", announcer_description), {
+                    { "Rush 2", std::to_string((uint32_t)rush2::announcer::Choice::Rush2) },
+                    { "Cal. Speed", std::to_string((uint32_t)rush2::announcer::Choice::CalSpeed) },
+                }, std::to_string(std::get<uint32_t>(config.get_option_value(announcer_id))));
+            announcer->add_change_callback([](SelectOption& choice, int) {
+                recompui::config::get_sound_config().set_option_value(announcer_id, (uint32_t)std::stoul(choice.value));
+            });
 
             for (Game g : games) {
                 // The game's column: its title with the game's switch, its Race Music, In Shuffle All and menu song,
@@ -1218,6 +1238,16 @@ void rush2::music::create_sound_tab() {
             rush2::car_engines::set_enabled(std::get<bool>(cur_value));
         });
     config.add_bool_option(pause_music_id, "Keep Music Playing When Paused", pause_music_description, false, true);
+    config.add_enum_option(announcer_id, "Announcer", announcer_description,
+        std::vector<recomp::config::ConfigOptionEnumOption>{
+            { rush2::announcer::Choice::Rush2, "Rush2", "Rush 2" },
+            { rush2::announcer::Choice::CalSpeed, "CalSpeed", "Cal. Speed" },
+        },
+        rush2::announcer::Choice::Rush2, true);
+    config.add_option_change_callback(announcer_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::announcer::set((rush2::announcer::Choice)std::get<uint32_t>(cur_value));
+        });
     config.add_option_change_callback(pause_music_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             pause_keeps_music = std::get<bool>(cur_value);
@@ -1314,6 +1344,7 @@ void rush2::music::load_config() {
     recomp::config::Config& config = recompui::config::get_sound_config();
     rush2::car_engines::set_enabled(std::get<bool>(config.get_option_value(other_engines_id)));
     pause_keeps_music = std::get<bool>(config.get_option_value(pause_music_id));
+    rush2::announcer::set((rush2::announcer::Choice)std::get<uint32_t>(config.get_option_value(announcer_id)));
     for (int m = 0; m < menu_count; m++) {
         menu_enabled[m] = std::get<bool>(config.get_option_value(menu_option_id(m)));
     }

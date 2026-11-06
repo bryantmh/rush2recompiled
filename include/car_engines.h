@@ -17,6 +17,10 @@ namespace rush2::car_engines {
     // in place of Rush 2's engines, local players' included; -1 for other cars, and without California Speed's ROM.
     // `car` is a physics car (0x800F5470 + index * 0x81C).
     int calspeed_engine(uint8_t* rdram, uint32_t car);
+    // Plays sound `id` of California Speed's sound effect bank once, centered, as its sound player starts an effect
+    // (pitch from its table, volume from the effects volume 0x800D5774 / 40): the race announcer (src/announcer.cpp)
+    // uses it. Replaces the one playing. False without California Speed's ROM or the sound.
+    bool play_calspeed_sound(uint8_t* rdram, int id, float pitch);
     // Adds the Rush 2 cars' engines to the game's output (audio thread): interleaved stereo at the game's rate, N64
     // sample units times `scale`.
     void mix(float* samples, size_t sample_count, uint32_t sample_rate, float scale);

@@ -2312,6 +2312,25 @@ status = "verified"
 ref = "docs/rush2049_research/menus.md#117-menu-sounds"
 
 [[func]]
+vram = 0x800B61A8
+name = "sfx_play_if_on"
+desc = "Plays sound a0 via sfx_play_msg_80092360 (a1-a3 passed on, a3 as a byte) unless the sound flag 0x8010FFC0 is 0 or a0 is -1; returns -1 then. The race start's GO (0x4E) goes through it."
+status = "verified"
+area = "audio"
+ref = "docs/announcer.md#how-each-game-calls-the-start"
+
+[[func]]
+vram = 0x800B61FC
+name = "race_countdown_update"
+desc = "Rush 2049's race countdown (Rush 2's race_countdown_update): CNTDWNn sign per view; digit 0x80152032; plays 0x4B on 3, 0x4C on 2, 0x4D on 1 via sfx_play_msg(id, 0, 1, 0) when the sound flag 0x8010FFC0 is set."
+status = "verified"
+rush2 = 0x80088DF0
+link = "role"
+rush1 = [0x80097618]
+area = "race"
+ref = "docs/announcer.md#how-each-game-calls-the-start"
+
+[[func]]
 vram = 0x800B669C
 name = "text_set_align"
 sig = "void text_set_align(s32 h, s32 v)"

@@ -3785,6 +3785,16 @@ area = "save"
 ref = "docs/functions/rush1_save.md#sf-rush-save-functions"
 
 [[func]]
+vram = 0x80097618
+desc = "SF Rush's race countdown (Rush 2's race_countdown_update): digit 0x800EB910; plays 0x41 on 3, 0x42 on 2, 0x39 on 1 (func_8006CABC), the same samples and pitches as Rush 2's 0x71/0x72/0x69."
+status = "inferred"
+rush2 = 0x80088DF0
+link = "role"
+rush2049 = [0x800B61FC]
+area = "race"
+ref = "docs/announcer.md#how-each-game-calls-the-start"
+
+[[func]]
 vram = 0x80097FE0
 desc = "Mirror walker over a model container, with the branch, mirror and CHKPOINT -> FINISH banner logic. Ancestor of Rush 2's func_80077518."
 status = "verified"
