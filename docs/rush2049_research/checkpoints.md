@@ -69,6 +69,35 @@ as `AIPATH_main` and `lane4`. `lane2`/`lane3` lap in 106 s only because they hol
 Civics' real lanes average about 137-139 mph (Rush 2 mph), at the fast end of Rush 2's tracks (125-148), on a
 city layout whose lanes were tuned for 2049 cars.
 
+### 0.2 Measured: drone pace against the granted time (2026-11-05, report: "out of checkpoint time in 2nd or 3rd")
+
+`func_800924E4` in full: pass 1 writes each checkpoint's +0x1E from the arm checkpoint round to the finish, pass 2
+each +0x20 from the finish round to the finish, both as lane 0's time (point speed x 1.4666667 ft/s, truncated).
+The start time is the first checkpoint's +0x1E + 10 + (the sum of every +0x20) / 30, and that lap/30 share is also
+added to the arm checkpoint's +0x20. The difficulty factor f = 1 + (5 - d) x 0.075 is applied when time is added.
+
+Sim races (`tools/test_race.py T --drones 5 --laps 2 --turbo --config cheats.cheat_no_game_timer=true --config
+general.drone_catch_up=false`; drones' gate times from the samples' `next_cp`; granted times read with `--peek` on the
+header copy 0x8010BCE8, without which the watcher takes no samples). Difficulty 2 (JUST PLAY's default, f 1.225):
+
+| track | start (x f) | granted per lap | drone pace / granted | slack at drone pace (d 2) |
+|---|---|---|---|---|
+| Las Vegas (0) | 32 (39.2) | 116 | 1.04 slower | +18% |
+| Rush 2049 Marina (12) | 20 (24.5) | 68 (after §0.1) | 0.88 (faster) | +39% |
+| Marina Arcade (custom) | 23 (28.2) | 59 | 1.06 slower | +16% |
+| Cal Speed 64 (point to point) | 64 (78.4) | first stretch 45 | about 1.05 slower | about +17% |
+
+So the arcade lanes, after the converter's / 1.2, fit Rush 2 cars about as well as Rush 2's own lanes. At drone pace
+the slack is f / 1.06 - 1 on Marina Arcade: d 3 +8%, d 4 +1%, d 5 -6% (and -4% on Las Vegas). Cal Speed's large
+start is its long first stretch, not looser timing. With Drone Cheating on, drones ahead ease off toward the player,
+so being 2nd or 3rd doesn't mean the player is at the drones' pace.
+
+Presidio Arcade forward: all four arcade AI tables ran down from about 45 mph to 1-2 mph over lane points 330-430,
+then climbed back like a car accelerating from a stop. That was the arcade's grid: its lap is a run-in the converter
+had closed with a 6,000 ft straight (granted 183 s for the first stretch, and the drones turned about and wrecked at
+the junction). Fixed by converting it as a run-in circuit, and Civic Arcade's standing-start lane speeds (12-37 mph at
+points 1-3) lifted; see docs/arcade2049.md#dpathrom-the-drones-paths.
+
 ## 1. Summary (superseded by §0: the 90 / 45 values below are overwritten from the AI lanes; they are NOT the race times)
 
 - **Rush 2 has no per-track checkpoint time.** Every race on every track, a 2049 track in the host slot included,

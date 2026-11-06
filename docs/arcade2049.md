@@ -339,6 +339,28 @@ stale data about 2,900 ft off the course; on the other tracks all seven are lane
 0.4 ft) except over the jumps, where it is the cars' arc, hence `keep_height`. Speeds become Rush 2 mph as
 ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_research/cars.md).
 
+- **Presidio's lap is a run-in (2026-11-05).** Every Presidio (TRACK7) table starts from a standstill on the arcade's
+  grid (record 0 at 1 mph, then 35, 50, ...), runs along a stretch of its own onto the loop at record 285 and ends
+  where it first came onto it, 6,253 ft from its start; the other tracks' laps close within 17 ft. Closed into a loop,
+  that 6,000 ft straight back to the grid (lane points with no road under them, speeds blended down to 1-2 mph) turned
+  the drones about at the junction under checkpoint 1, where they wrecked (every drone, with DEATHS on), and timed the
+  first stretch at 183 s (247 s on the clock at difficulty 2). The converter now writes a lap whose ends are more than
+  300 ft apart as a run-in circuit (`run_in = true`, docs/custom_tracks.md#run-in-circuits): open AIPATH ribbons, the
+  start line 100 ft along it, the checkpoint banner at the junction as CHECKPOINT_1 (the loop start), gates numbered in
+  race order. Clock: 28 s to the loop start + 10 + lap / 30, about 42 s (51 s at difficulty 2); a lap of the loop 123 s.
+- **Drones still wreck after Presidio's big jump (both Presidios, open).** Sims with DEATHS on, catch-up off, 5
+  drones: N64 Presidio (track 17) lost 3, Presidio Arcade 2 and 0 in two runs, all between the jump and the 90 degree
+  bend after it ((-1150, 175, -2600) to (-1520, 179, -2960)). The samples show cars leaving the downhill crest
+  airborne at 100-113 mph (falling 50-60 ft/s) already rolling, landing on the roof or rolling over within 0.5 s of
+  landing; others run wide into the bend's outside wall at 94 mph or roll on its bank at 80. Capping the drones' lane
+  speeds to a Rush 2 car's cornering (rush2::calspeed::capped_lane_speeds at 2.5 g, as California Speed's are) did
+  not help: with the 4 g crest cap the drones left other crests slow and flipped, corners only lost 3 and 4 of 5, and
+  either way they were 25% slower from CP1 to CP2. Not changed; what keeps Rush 2049's own drones upright off these
+  crests is not worked out (no drone air control found in the registry; wings are the player's).
+- **Civic Center's tables 3-7 open with a standing start** (1, 25, 39, 48, 56 mph) on a closed lap: drones in those
+  lanes braked to a crawl at the line every lap. On a closed lap the converter gives that rising ramp the speed the
+  lap arrives at the line with.
+
 ## What the converter makes
 
 - Scenery: every `worlds` instance and `dobs` object at LOD 0, one material per arcade texture at full size (PNG),

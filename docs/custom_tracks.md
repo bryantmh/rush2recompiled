@@ -814,7 +814,10 @@ merges and renames as needed.
   track cache key 1000 + a hash of the folder), with track select ids 38-63 (`src/rush2049/track2049_menu.cpp`, the
   tables moved to 0x80310000; the circuit review screen's diorama instances at 0x80311600). Circuits choose custom
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
-  with). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
+  with, and the races it generated, custom tracks by folder, so they stay put while the enabled mods change:
+  docs/rush2049_research/menus.md#circuit-races-kept-with-the-circuit). Without an authored diorama, the circuit
+  review's window shows the route turning, without the preview picture
+  (docs/rush2049_research/menus.md#circuit-review-screen-the-diorama-window). Records: `src/rush2049/track2049_records.cpp` (`{"mod": folder}` courses). Ghosts:
   `src/ghost.cpp` (`mod-<folder>` keys).
 - **Arenas:** track.toml `type` (`rush2::track_mod::RaceType`, `race_type()`) puts a custom stunt or battle arena in
   the STUNT1 slot (`stunt_host_slot`) and on the STUNT or BATTLE track select (`mod_type`, `is_arena` in

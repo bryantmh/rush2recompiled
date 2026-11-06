@@ -233,7 +233,7 @@ def cs_ratio(scale, use_cap, drone, dtop, pg, tracks=None):
                       if tracks is None or k[1] in tracks), []))
 
 
-print('  CS, Partial, uncapped (Full CS's lanes):      %.3f' % cs_ratio(1.0, False, cs_car, TC, PARTIAL_G))
+print("  CS, Partial, uncapped (Full CS's lanes):      %.3f" % cs_ratio(1.0, False, cs_car, TC, PARTIAL_G))
 print('  CS, Full Rush 2 (Rush 2 drones, capped):     %.3f' % cs_ratio(1.0, True, r2_car, T2, R2G))
 for t in range(16):
     print('    %-9s Partial uncapped %.3f  Full Rush 2 %.3f' % (cs.PREFIXES[t], cs_ratio(1.0, False, cs_car, TC, PARTIAL_G, [t]),

@@ -1,10 +1,9 @@
 San Francisco Rush:
-1) Show accurate track stats like length
+1) Show accurate track stats like length somewhere 
 
 San Francisco Rush 2049:
-1) HANDLING: revisit 2049's HANDLING
-2) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centerline over the top surfaces), with their own color ramp in spare palette entries; textures reused on several parts need their own copies.
-3) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
+1) Stripes: draw Rush 2's STRIPE patterns (SINGLE, DOUBLE, FAT, FADE, TRIPLE) in STRIPE COLOR on the 2049 cars. Rush 2 stamps stripe tiles onto its own cars' panel textures, which 2049 bodies don't have, so paint them onto each 2049 body's textures by model position (centerline over the top surfaces), with their own color ramp in spare palette entries; textures reused on several parts need their own copies.
+2) Sky fog blend: the sky (SKYO1) is drawn without fog and ends ~12 degrees above the horizon (track 1), with the
     fog-colored clear below it, so fogged hills show as lavender (fog 150,150,190) against an orange sunset sky. Plan:
     when a track is applied (src/rush2049/track2049.cpp), patch a copy of the geometry's SKYO1 list: slice the opaque sky
     triangles (E200001C 0F0A4000) by horizontal planes across a ~10 degree band above max(dome bottom, 0), set vertex
@@ -12,28 +11,20 @@ San Francisco Rush 2049:
     before its triangles (after the list clears G_FOG), as a new chained vertex block appended to the file. Leave
     other render modes' triangles alone (track 3's translucent piece uses shade alpha), and skip skies already fogged
     (stunt arena 1, C8112230) or with D7 in their load lists (arena 4). Add a "Sky Fog Blend" option.
-6) Option for 2049 floor friction (cars roll more than slide).
-7) 2049 main menu
 
 General:
 1) Better lighting? Bloom for emmissives?
 2) 3-4 players skip Select Player: they race with their controller's record or the profile already chosen
       on that port; no profile pick or Create Player for them, and the post-race records and name entry (game state 6,
       func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
-4) Weak brakes: no braking in mid-air, and gas + brake held together still accelerates (feels like SF Rush, seen with the
-    2049 speed setting). Find whether it's our digital pedal mapping (src/controls.cpp) or the physics; toggle if design.
-5) Save indicator: show when the game saves.
-6) Texture filtering option ("uglymode"): point sampling through an RT64 patch (tools/lib_patch.py).
-8) Higher drone difficulty levels
-10) Add an option to disable hood bob in hood view.
-11) The ability to save/load vehicle tuning setups by name
+3) Texture filtering option to replicate n64
+4) Higher drone difficulty levels
+5) Separate drone difficulty from checkpoint difficulty as an option
+6) The ability to save/load vehicle tuning setups by name
+7) "No Damage" feature, be applied to all cars, not just the player, can be toggled
 
 California Speed:
 1) Post-race records on point-to-point tracks: average lap and best lap are the same one-lap time (the whole run);
     consolidate them into one race-time page there (post-race screen and the menu's RECORDS screen), keeping or
     migrating times already saved.
-
-
-California speed had a custom RGB paint system, could that be ported over to here on rush?
-"No Damage" feature, be applied to all cars, not just the player, can be toggled.
-Circuit review not properly showing modded cars
+2) Optionally convert California speed custom RGB paint system

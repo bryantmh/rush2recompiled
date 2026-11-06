@@ -1804,8 +1804,17 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     }
     std::vector<V3> lap;
     for (size_t i = 0; i < n; i++) lap.push_back(t0.records[i].pos);
+    // A run-in circuit (Presidio, TRACK7): table 0 (and every racing line) starts from a standstill on the arcade's
+    // grid, runs along a stretch of its own onto the loop, goes once round and ends where it first came onto it (6,253 ft
+    // from its start); the laps after the first go round the loop. Closed into a loop, the 6,000 ft straight back to the
+    // grid sent the drones into a turn about at the junction, past checkpoint 1 (they wrecked there) and timed the
+    // first stretch at the standing start's speeds (183 s). The other tracks' laps close within 17 ft.
+    // docs/arcade2049.md#dpathrom-the-drones-paths
+    const bool run_in = norm(lap.front() - lap.back()) > 300.0;
+    if (run_in) report.push_back("dpath table 0: a run-in lap (its ends are " + std::to_string(int(norm(lap.front() - lap.back()))) +
+                                 " ft apart): a run-in circuit");
     auto tangent = [&](size_t i) {
-        V3 d = lap[(i + 1) % n] - lap[(i + n - 1) % n];
+        V3 d = run_in ? lap[std::min(i + 1, n - 1)] - lap[i > 0 ? i - 1 : 0] : lap[(i + 1) % n] - lap[(i + n - 1) % n];
         double l = std::hypot(d[0], d[2]);
         if (l == 0) l = 1.0;
         return V2{ d[0] / l, d[2] / l };
@@ -1840,12 +1849,19 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             half[i] = road_half_width(tris, { lap[i][0], lap[i][2] }, tangent(i), lap[i][1], 90.0);
         }
     }
+    // On a run-in lap the road where the run-in meets the loop is on the lap twice (where the loop starts and at the
+    // lap's end): the first pass, the one the race meets first.
     auto nearest = [&](const V3& p) {
         size_t best = 0;
         double bd = 1e300;
         for (size_t i = 0; i < n; i++) {
             double d = norm(lap[i] - p);
             if (d < bd) bd = d, best = i;
+        }
+        if (run_in) {
+            for (size_t i = 0; i < best; i++) {
+                if (norm(lap[i] - p) <= bd + 20.0) return i;
+            }
         }
         return best;
     };
@@ -1887,17 +1903,22 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         size_t i = nearest(c);
         if (std::hypot(lap[i][0] - c[0], lap[i][2] - c[2]) <= gate_reach) banners.push_back(i);
     }
-    size_t f0 = gates[0].second;
+    // A run-in lap is measured from its start (the race meets the gates in index order, the finish among them; the
+    // converter numbers them so, START first), a loop from the finish.
+    size_t f0 = run_in ? 0 : gates[0].second;
     std::sort(banners.begin(), banners.end());
     banners.erase(std::unique(banners.begin(), banners.end()), banners.end());
     std::stable_sort(banners.begin(), banners.end(), [&](size_t a, size_t b) { return (a + n - f0) % n < (b + n - f0) % n; });
-    std::vector<double> run(n + 1, 0.0);   // along the lap from the finish
-    for (size_t k = 0; k < n; k++) run[k + 1] = run[k] + norm(lap[(f0 + k + 1) % n] - lap[(f0 + k) % n]);
-    double last = -1e300;
+    std::vector<double> run(n + 1, 0.0);   // along the lap from f0
+    for (size_t k = 0; k < n; k++) {
+        run[k + 1] = run[k] + (run_in && k + 1 == n ? 0.0 : norm(lap[(f0 + k + 1) % n] - lap[(f0 + k) % n]));
+    }
+    double last = -1e300, finish_at = run[(gates[0].second + n - f0) % n];
     size_t kept = 0;
     for (size_t i : banners) {
         double at = run[(i + n - f0) % n];
         if (at < gate_merge || run[n] - at < gate_merge || at - last < gate_merge) continue;
+        if (run_in && std::fabs(at - finish_at) < gate_merge) continue;
         last = at;
         gates.push_back({ "CHECKPOINT_" + std::to_string(++kept), i });
     }
@@ -1910,9 +1931,16 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     // converter spreads unpainted lanes over 0.6 of its half width, but every lane is painted here); the racing lines
     // (tables 1-7 that run on this course) are AIPATH_lane1-4 left to right, each with the arcade's speed and steering
     // behaviour per point (_SPEED in Rush 2 mph = ft/s x 60/88 / lane_map, the 2049 lane map; _AI_MODE).
-    auto ai_attrs = [](const std::vector<PathRecord>& recs) {
+    // Some closed laps begin with the standing start the line was recorded from (Civic Center's tables 3-7: 1, 25, 39,
+    // 48, 56 mph...): on a loop the cars pass there at speed every lap, so that ramp takes the speed the lap comes back
+    // to the line with. A run-in lap keeps its start (it is the grid).
+    auto ai_attrs = [&](const std::vector<PathRecord>& recs) {
         std::vector<double> speed, mode;
         for (const PathRecord& r : recs) speed.push_back(r.speed * 60.0 / 88.0 / lane_map), mode.push_back(r.kind);
+        if (!run_in && speed.size() > 40) {
+            double arrive = speed.back();
+            for (size_t i = 0; i < 30 && speed[i] < arrive * 0.9 && speed[i] < speed[i + 1]; i++) speed[i] = arrive;
+        }
         return std::vector<std::pair<std::string, std::vector<double>>>{ { "_SPEED", speed }, { "_AI_MODE", mode } };
     };
     auto ribbon = [&](const std::string& rname, const std::vector<V3>& pts, const std::vector<double>& widths,
@@ -1922,8 +1950,9 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         size_t m = pts.size();
         std::vector<std::pair<std::string, std::vector<double>>> at;
         for (const auto& [k, v] : attrs) at.push_back({ k, {} });
+        // A run-in circuit's lines are open strips (the converter reads them from their start round to their end).
         for (size_t i = 0; i < m; i++) {
-            V3 d = pts[(i + 1) % m] - pts[(i + m - 1) % m];
+            V3 d = run_in ? pts[std::min(i + 1, m - 1)] - pts[i > 0 ? i - 1 : 0] : pts[(i + 1) % m] - pts[(i + m - 1) % m];
             double l = std::hypot(d[0], d[2]);
             if (l == 0) l = 1.0;
             V3 lat{ -d[2] / l, 0.0, d[0] / l };
@@ -1933,7 +1962,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             nrms.push_back({ 0, 1, 0 });
             for (size_t a = 0; a < attrs.size(); a++) at[a].second.push_back(attrs[a].second[i]), at[a].second.push_back(attrs[a].second[i]);
         }
-        for (size_t i = 0; i < m; i++) {
+        for (size_t i = 0; i + (run_in ? 1 : 0) < m; i++) {
             uint32_t j = uint32_t((i + 1) % m), ii = uint32_t(i);
             tris.push_back({ 2 * ii, 2 * ii + 1, 2 * j });
             tris.push_back({ 2 * ii + 1, 2 * j + 1, 2 * j });
@@ -2011,7 +2040,8 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     out[dir + "track.glb"] = g.bytes();
     out[dir + "track.toml"] = text_bytes(
         "[track]\nname = \"" + name + "\"\nauthor = \"Rush 2049 arcade (converted)\"\ndescription = \"" + name +
-        " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n"
+        " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n" +
+        std::string(run_in ? "run_in = true\n" : "") +
         // The arcade's road is built for its own flat-faced collision: no smoothing (docs/custom_tracks.md#smooth-collision).
         "smooth_collision = false\n\n" +
         // Alcatraz is at night; the others keep the custom tracks' default fog.

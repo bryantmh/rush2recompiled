@@ -1169,6 +1169,10 @@ namespace {
         int buffers = 0;                            // 1: no spare ones, turned in place
         int turn = 0;                               // the buffer last drawn
         std::vector<std::array<float, 3>> local;
+        // A spare buffer's list ends with a branch at +commands x 8 to the rest of the model's list (rest): the
+        // screenshot, then the state the stock dioramas leave and the end (finish, 0 when not found).
+        uint32_t commands = 0, rest = 0, finish = 0;
+        bool still = false;                         // spare buffer 1 holds the route unturned, its plain color
     };
     PreviewModel preview_models[menu_tracks];
 
@@ -1267,6 +1271,19 @@ namespace {
             }
             MEM_W(12, (int32_t)tag) = (int32_t)own;
             out.buffers = preview_buffers;
+            out.commands = commands;
+            out.rest = own + commands * 8;
+            // The rest ends with the state the stock dioramas leave (track2049_art.cpp preview_finish: a pipe sync,
+            // the render mode and the combine) before its end.
+            for (uint32_t at = out.rest, i = 0; i < 4096 && (at >> 24) == 0x80; i++, at += 8) {
+                if ((uint32_t)MEM_W(0, (int32_t)at) != 0xDF000000u) continue;
+                uint32_t sync = at - 24;
+                if (sync >= out.rest && (uint32_t)MEM_W(0, (int32_t)sync) == 0xE7000000u &&
+                    (uint32_t)MEM_W(8, (int32_t)sync) == 0xE200001Cu) {
+                    out.finish = sync;
+                }
+                break;
+            }
         }
         // The own-space positions: read while the vertices are as loaded, and kept across lookups from then on (the
         // model's own vertices are a buffer too, left turned).
@@ -1293,91 +1310,214 @@ extern "C" void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx) 
     }
 }
 
+namespace {
+    // The node matrix that shows Rush 2049's track select camera space in front of the camera at `camera_base` (view
+    // `view_base`'s projection) `depth` ahead, with 2049's screen layout scaled by `size` about its point (anchor_x,
+    // anchor_y) and that point at (target_x, target_y) on the view's screen: rows m (a model point v lands at
+    // position + sum v_i / 16 x m[i], model units being 1/16 of 2049's) and the position, the camera's.
+    bool preview_matrix(uint8_t* rdram, uint32_t camera_base, uint32_t view_base, float depth, float anchor_x,
+                        float anchor_y, float target_x, float target_y, float size, float m[3][3], float position[3]) {
+        float rows[3][3];
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) rows[r][c] = rdram_float(rdram, camera_base + uint32_t(r * 3 + c) * 4);
+            position[r] = rdram_float(rdram, camera_base + 0x24 + uint32_t(r) * 4);
+        }
+        const float right[3] = { -rows[0][0], -rows[0][1], -rows[0][2] };
+        const float* up = rows[1];
+        const float* forward = rows[2];
+        float tan_h = rdram_float(rdram, view_base + 0x14), width = rdram_float(rdram, view_base + 0x24);
+        float cx = rdram_float(rdram, view_base + 0x2C), cy = rdram_float(rdram, view_base + 0x30);
+        if (!(tan_h > 0.01f) || !(width > 0.0f) || depth <= 1.0f) return false;
+        const float focal = width * 0.5f / tan_h;
+
+        // 2049 camera space (X, Y, Z) to Rush 2's (right, up, forward): Z' = a Z, X' = s a f1 / f2 X + b Z, Y' =
+        // s a f1 / f2 Y + c Z, so Rush 2's projection shows each point at 2049's screen point, scaled by s about the
+        // anchor, plus a constant offset that puts the anchor at the target.
+        using namespace rush2::track2049;
+        const float a = depth / preview_depth;
+        const float scale = size * a * preview_focal / focal;
+        const float b = a * (target_x - cx + size * (preview_center_x - anchor_x)) / focal;
+        const float c = a * (cy - target_y - size * (preview_center_y - anchor_y)) / focal;
+        for (int i = 0; i < 3; i++) {
+            m[0][i] = scale * right[i];
+            m[1][i] = scale * up[i];
+            m[2][i] = b * right[i] + c * up[i] + a * forward[i];
+        }
+        return true;
+    }
+
+    void write_pose(uint8_t* rdram, int16_t node, const float m[3][3], const float position[3]) {
+        uint32_t pose = (uint32_t)MEM_W(0, (int32_t)(node_poses + node * 56));
+        for (int r = 0; r < 3; r++) {
+            for (int i = 0; i < 3; i++) write_float(rdram, pose + uint32_t(r * 3 + i) * 4, m[r][i]);
+        }
+        for (int i = 0; i < 3; i++) write_float(rdram, pose + 0x24 + uint32_t(i) * 4, position[i]);
+    }
+
+    // Writes entry t's route turned by `angle` into `vertices`, its tube colored with the highlight at `phase` (no
+    // highlight below 0).
+    void write_route(uint8_t* rdram, int t, const PreviewModel& model, uint32_t vertices, float angle, float phase) {
+        using namespace rush2::track2049;
+        for (size_t v = 0; v < model.local.size(); v++) {
+            float placed[3];
+            preview_place(model.local[v].data(), angle, placed);
+            uint32_t at = vertices + uint32_t(v) * 16;
+            for (int i = 0; i < 3; i++) {
+                MEM_H(i * 2, (int32_t)at) = (int16_t)std::clamp(std::lround(placed[i]), -32767L, 32767L);
+            }
+        }
+        // The tube's color: race track k's, or race track 4's red for a custom track's route (src/track_mod/track_mod_menu.cpp).
+        int k = t - first_menu_id + 1;
+        if (is_mod_track(t)) k = 4;
+        else if (k < 1 || k > track_count) return;
+        if (model.local.size() < size_t(preview_tube_rings) * 4) return;
+        for (int ring = 0; ring < preview_tube_rings; ring++) {
+            uint8_t rgb[3];
+            preview_tube_color(k, ring, phase, rgb);
+            for (int v = 0; v < 2; v++) {
+                uint32_t at = vertices + uint32_t(ring * 4 + v) * 16 + 12;
+                MEM_B(0, (int32_t)at) = rgb[0];
+                MEM_B(1, (int32_t)at) = rgb[1];
+                MEM_B(2, (int32_t)at) = rgb[2];
+            }
+        }
+    }
+
+    // Poses entry t's preview model (node `node`) for the track select: the screenshot's middle (240, 96 on 2049's
+    // screen) at (target_x, target_y), `slide` along world x (the carousel's entries). Then turns the model and runs
+    // the tube's highlight (`advance`: this frame's step), each frame in the next buffer.
+    void pose_preview(uint8_t* rdram, recomp_context* ctx, int t, int16_t node, uint32_t camera_base, uint32_t view_base,
+                      float depth, float target_x, float target_y, float slide, bool advance) {
+        float m[3][3], position[3];
+        if (!preview_matrix(rdram, camera_base, view_base, depth, 240.0f, 96.0f, target_x, target_y, 1.0f, m, position)) {
+            return;
+        }
+        position[0] += slide;
+        write_pose(rdram, node, m, position);
+
+        // The highlight runs once along the route every 5 seconds (0x803B7CE0 += dt / 5) and the model turns once
+        // every 10 (0x803B8350 += dt x 2 pi / 10).
+        if (advance) {
+            float dt = rdram_float(rdram, frame_seconds);
+            preview_phase += dt / 5.0f;
+            preview_phase -= std::floor(preview_phase);
+            preview_angle = std::fmod(preview_angle + dt * 6.2831853f / 10.0f, 6.2831853f);
+        }
+        PreviewModel& model = preview_models[t];
+        if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
+        if (model.buffers == 0) return;
+        model.turn = (model.turn + 1) % model.buffers;
+        if (model.buffers > 1) {
+            MEM_W(0xC, (int32_t)model.record) = (int32_t)model.lists[model.turn];
+            // Its branch on to the screenshot (the circuit screen may have pointed it past, rush2_track49_circuit_pose).
+            if (model.turn > 0) MEM_W(4, (int32_t)(model.lists[model.turn] + model.commands * 8)) = (int32_t)model.rest;
+            if (model.turn == 1) model.still = false;
+        }
+        write_route(rdram, t, model, model.vertices[model.turn], preview_angle, preview_phase);
+    }
+
+    // Depth along a camera's forward axis (row 2) from the camera (+0x24) to `point`.
+    float camera_depth(uint8_t* rdram, uint32_t camera_base, const float point[3]) {
+        float depth = 0;
+        for (int i = 0; i < 3; i++) {
+            depth += rdram_float(rdram, camera_base + uint32_t(6 + i) * 4) *
+                     (point[i] - rdram_float(rdram, camera_base + 0x24 + uint32_t(i) * 4));
+        }
+        return depth;
+    }
+}
+
 // func_803AB294 at 0x803ABCA0, each frame: carousel entry $s0's node was just given its place and spun matrix.
 extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
     uint32_t entry = (uint32_t)ctx->r16;
     int t = (int8_t)MEM_B(0, (int32_t)entry);
     if (t < 0 || t >= menu_tracks || preview_names[t] == 0) return;
 
-    float rows[3][3], cam[3];
-    for (int r = 0; r < 3; r++) {
-        for (int c = 0; c < 3; c++) rows[r][c] = rdram_float(rdram, camera + uint32_t(r * 3 + c) * 4);
-        cam[r] = rdram_float(rdram, camera + 0x24 + uint32_t(r) * 4);
-    }
-    const float right[3] = { -rows[0][0], -rows[0][1], -rows[0][2] };
-    const float* up = rows[1];
-    const float* forward = rows[2];
-    float tan_h = rdram_float(rdram, view + 0x14), width = rdram_float(rdram, view + 0x24);
-    float cx = rdram_float(rdram, view + 0x2C), cy = rdram_float(rdram, view + 0x30);
-    if (!(tan_h > 0.01f) || !(width > 0.0f)) return;
-    const float focal = width * 0.5f / tan_h;
-
-    // The carousel's centre entry sits at (0, y, z) and the others slide along x.
+    // The carousel's centre entry sits at (0, y, z) and the others slide along x; the centre one advances the
+    // highlight and the turn.
     float place[3] = { rdram_float(rdram, entry + 4), rdram_float(rdram, entry + 8), rdram_float(rdram, entry + 12) };
-    float depth = 0;
-    for (int i = 0; i < 3; i++) depth += forward[i] * ((i == 0 ? 0.0f : place[i]) - cam[i]);
-    if (depth <= 1.0f) return;
-
-    // 2049 camera space (X, Y, Z) to Rush 2's (right, up, forward): Z' = a Z, X' = a f1 / f2 X + b Z, Y' = a f1 / f2 Y
-    // + c Z, so Rush 2's projection shows each point at 2049's screen point plus a constant offset.
-    using namespace rush2::track2049;
-    const float a = depth / preview_depth;
-    const float scale = a * preview_focal / focal;
-    const float dx = preview_disc_center_x - 240.0f, dy = preview_disc_center_y - 96.0f;
-    const float b = a * (preview_center_x + dx - cx) / focal;
-    const float c = a * (cy - preview_center_y - dy) / focal;
-    float m[3][3];
-    for (int i = 0; i < 3; i++) {
-        m[0][i] = scale * right[i];
-        m[1][i] = scale * up[i];
-        m[2][i] = b * right[i] + c * up[i] + a * forward[i];
-    }
+    const float centre[3] = { 0.0f, place[1], place[2] };
     int16_t node = (int16_t)MEM_H(0, (int32_t)(entry + 0x1A));
-    uint32_t pose = (uint32_t)MEM_W(0, (int32_t)(node_poses + node * 56));
-    for (int r = 0; r < 3; r++) {
-        for (int i = 0; i < 3; i++) write_float(rdram, pose + uint32_t(r * 3 + i) * 4, m[r][i]);
-    }
-    write_float(rdram, pose + 0x24, cam[0] + place[0]);
-    write_float(rdram, pose + 0x28, cam[1]);
-    write_float(rdram, pose + 0x2C, cam[2]);
+    bool shown = (int8_t)MEM_B(0, (int32_t)(entry + 0x14)) == 0;
+    pose_preview(rdram, ctx, t, node, camera, view, camera_depth(rdram, camera, centre), preview_disc_center_x,
+                 preview_disc_center_y, place[0], shown);
+}
 
-    // The highlight runs once along the route every 5 seconds (0x803B7CE0 += dt / 5) and the model turns once
-    // every 10 (0x803B8350 += dt x 2 pi / 10).
-    if ((int8_t)MEM_B(0, (int32_t)(entry + 0x14)) == 0) {
-        float dt = rdram_float(rdram, frame_seconds);
-        preview_phase += dt / 5.0f;
-        preview_phase -= std::floor(preview_phase);
-        preview_angle = std::fmod(preview_angle + dt * 6.2831853f / 10.0f, 6.2831853f);
+// The circuit screen (func_803B6260) shows the race's diorama in view 1, a window at the bottom right with its own
+// camera (0x800E7A10) and projection (func_80054A50(1, ...): 113 wide, straight ahead at (239, 195); the scissor shows
+// (183, 185)-(296, 229)), turned on its turntable by 0x803C7A68. A custom track without an authored diorama has Rush
+// 2049's route preview as its model (diorama_model_name), drawn in 2049's track select camera space. Its route is shown
+// there as a diorama: in the middle of the window, turned by the turntable's angle through the node's matrix (a still
+// copy of the route in spare buffer 1, so nothing is rewritten while the renderer may read it), and without the
+// screenshot, which drew black in this view (its quads ran, with the track select's state and data, and still came out
+// dark). Buffer 1's branch on to the rest of the list is pointed past the screenshot to the state the stock dioramas
+// leave; the track select points it back each time it draws that buffer.
+namespace {
+    constexpr uint32_t circuit_camera = 0x800E7A10;          // view 1's camera (0x40 a view)
+    constexpr uint32_t circuit_view = view + 0x54;           // view 1's projection (0x54 a view)
+    constexpr uint32_t circuit_shown = 0x803CB414;           // s32: the track whose diorama is shown
+    constexpr uint32_t circuit_place = 0x803CB440;           // float[3]: the diorama's position
+    constexpr uint32_t circuit_turn = 0x803C7A68;            // f32: the turntable's angle (radians)
+    constexpr uint32_t circuit_set_up = 0x803C7A70;          // u8: the screen's setup has run
+    constexpr float circuit_window_drop = 12.0f;             // the window's middle (207) below straight ahead (195)
+    // The route's turning centre on 2049's screen: preview_pos (50, -15 raised by 10 pixels, 100) projected.
+    constexpr float route_centre_x = rush2::track2049::preview_center_x + rush2::track2049::preview_focal * 0.5f;
+    constexpr float route_centre_y = rush2::track2049::preview_center_y + 15.0f * rush2::track2049::preview_focal / 100.0f - 10.0f;
+    constexpr float circuit_route_size = 0.45f;              // the turning route (up to about 80 of 2049's pixels) in the window
+}
+
+// func_803B6260 at 0x803B6AFC, each frame: the shown diorama's node (0x80311600 + track * 4, +2) was just placed.
+extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) {
+    int t = (int32_t)MEM_W(0, (int32_t)circuit_shown);
+    if (!is_mod_track(t) || preview_names[t] == 0 ||
+        (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4)) != preview_names[t]) {
+        return;
     }
+    int16_t node = (int16_t)MEM_H(2, (int32_t)(new_circuit_instances + t * 4));
+    if (node < 0) return;
     PreviewModel& model = preview_models[t];
     if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
-    if (model.buffers == 0) return;
-    model.turn = (model.turn + 1) % model.buffers;
-    const uint32_t vertices = model.vertices[model.turn];
-    if (model.buffers > 1) MEM_W(0xC, (int32_t)model.record) = (int32_t)model.lists[model.turn];
-    for (size_t v = 0; v < model.local.size(); v++) {
-        float placed[3];
-        preview_place(model.local[v].data(), preview_angle, placed);
-        uint32_t at = vertices + uint32_t(v) * 16;
-        for (int i = 0; i < 3; i++) {
-            MEM_H(i * 2, (int32_t)at) = (int16_t)std::clamp(std::lround(placed[i]), -32767L, 32767L);
-        }
+    if (model.buffers < 2 || model.finish == 0) return;
+
+    float place[3];
+    for (int i = 0; i < 3; i++) place[i] = rdram_float(rdram, circuit_place + uint32_t(i) * 4);
+    float cx = rdram_float(rdram, circuit_view + 0x2C), cy = rdram_float(rdram, circuit_view + 0x30);
+    float m[3][3], position[3];
+    if (!preview_matrix(rdram, circuit_camera, circuit_view, camera_depth(rdram, circuit_camera, place), route_centre_x,
+                        route_centre_y, cx, cy + circuit_window_drop, circuit_route_size, m, position)) {
+        return;
     }
-    // The tube's color: race track k's, or race track 4's red for a custom track's route (src/track_mod/track_mod_menu.cpp).
-    int k = t - first_menu_id + 1;
-    if (is_mod_track(t)) k = 4;
-    else if (k < 1 || k > track_count) return;
-    if (model.local.size() < size_t(preview_tube_rings) * 4) return;
-    for (int ring = 0; ring < preview_tube_rings; ring++) {
-        uint8_t rgb[3];
-        preview_tube_color(k, ring, preview_phase, rgb);
-        for (int v = 0; v < 2; v++) {
-            uint32_t at = vertices + uint32_t(ring * 4 + v) * 16 + 12;
-            MEM_B(0, (int32_t)at) = rgb[0];
-            MEM_B(1, (int32_t)at) = rgb[1];
-            MEM_B(2, (int32_t)at) = rgb[2];
-        }
+    // The turn as an affine map of the still route's model points: p -> R p + o (preview_place of preview_unplace),
+    // folded into the matrix (rows m'[j] = sum R[i][j] m[i]) and the position (+ sum o_i / 16 m[i]).
+    float angle = rdram_float(rdram, circuit_turn);
+    auto turned = [&](const float p[3], float out[3]) {
+        float local[3];
+        rush2::track2049::preview_unplace(p, local);
+        rush2::track2049::preview_place(local, angle, out);
+    };
+    const float zero[3] = { 0.0f, 0.0f, 0.0f };
+    float o[3];
+    turned(zero, o);
+    float r[3][3];   // r[j]: the turned unit vector j, less o
+    for (int j = 0; j < 3; j++) {
+        float e[3] = { 0.0f, 0.0f, 0.0f }, out[3];
+        e[j] = 1000.0f;
+        turned(e, out);
+        for (int i = 0; i < 3; i++) r[j][i] = (out[i] - o[i]) / 1000.0f;
     }
+    float turned_m[3][3];
+    for (int j = 0; j < 3; j++) {
+        for (int k = 0; k < 3; k++) turned_m[j][k] = r[j][0] * m[0][k] + r[j][1] * m[1][k] + r[j][2] * m[2][k];
+    }
+    for (int k = 0; k < 3; k++) position[k] += (o[0] * m[0][k] + o[1] * m[1][k] + o[2] * m[2][k]) / 16.0f;
+    write_pose(rdram, node, turned_m, position);
+
+    if (!model.still) {
+        write_route(rdram, t, model, model.vertices[1], 0.0f, -1.0f);
+        model.still = true;
+    }
+    MEM_W(4, (int32_t)(model.lists[1] + model.commands * 8)) = (int32_t)model.finish;
+    MEM_W(0xC, (int32_t)model.record) = (int32_t)model.lists[1];
 }
 
 // Start of func_803AB01C: whether track $a0 can be chosen. Replaces the function.
@@ -1589,12 +1729,23 @@ extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx
     refresh_mods();
     serve_menu_container(rdram);
     write_tables(rdram);
+    // The setup (a nonzero $a0 and the screen not set up yet) instances the dioramas from the container just served,
+    // so the route previews' models are looked up again (rush2_track49_circuit_pose).
+    if ((ctx->r4 & 0xFF) != 0 && MEM_BU(0, (int32_t)circuit_set_up) == 0) {
+        for (PreviewModel& model : preview_models) model.looked_up = false;
+    }
 }
 
 // func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, or only some courses
 // chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7, CRASH and
 // PIPE (8 and 9, once unlocked; Rush 2's circuits never have them) and the added tracks, custom tracks included (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
-// and no track in the same direction twice.
+// and no track in the same direction twice. The game generates races only up to the one to come, so the picks are
+// seeded from its random state before its race loop (which moves on with every race run; seeding from the state after
+// it re-picked the races already run, so a circuit's review showed other tracks than the ones raced). The generator
+// runs on every visit to the circuit screens, and the custom
+// tracks it can pick follow the enabled mods (missing for a moment while an arcade mod is rebuilt at launch), so the
+// races are kept with the circuit's record (rush2::circuit::record_races, custom tracks by folder) and taken from it
+// when they were generated before: a circuit's races stay the ones it raced, as with Rush 2's own tracks.
 extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     {
         std::lock_guard lock{ menu_mutex };
@@ -1613,17 +1764,32 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     if (pool.empty()) {
         pool = all;
     }
-    if (pool.size() == circuit_stock_tracks && pool.back() == circuit_stock_tracks - 1) {
+    int kept_track, kept_direction;
+    if (pool.size() == circuit_stock_tracks && pool.back() == circuit_stock_tracks - 1 &&
+        !rush2::circuit::recorded_race(rdram, 0, kept_track, kept_direction)) {
         return; // Rush 2's own tracks: the game's picks stand.
     }
     int last = (int8_t)MEM_B(0, (int32_t)circuit_last);
-    // Seeded from the game's random state ($s0 points at it), so the same circuit seed gives the same races.
-    std::mt19937 rng{ (uint32_t)MEM_W(0, (int32_t)ctx->r16) };
+    // Seeded from the game's random state ($s0 points at it) as it was before the race loop, so the same circuit seed
+    // gives the same races. The loop (0x800A8374-0x800A857C) draws 4 numbers a race (track, direction, fog, wind) for
+    // races 0 to `last`, the race to come: the state at this hook moves on with every race run, so it is wound back.
+    constexpr uint32_t lcg_mul = 0x41C64E6D, lcg_add = 0x3039, draws_per_race = 4;
+    constexpr uint32_t lcg_inverse = [] {
+        uint32_t x = lcg_mul;                           // Newton's iteration for the inverse mod 2^32
+        for (int k = 0; k < 5; k++) x *= 2 - lcg_mul * x;
+        return x;
+    }();
+    static_assert(lcg_mul * lcg_inverse == 1);
+    uint32_t state = (uint32_t)MEM_W(0, (int32_t)ctx->r16);
+    for (int n = 0; n < (last + 1) * int(draws_per_race); n++) state = (state - lcg_add) * lcg_inverse;
+    std::mt19937 rng{ state };
     std::map<int, int> uses;
     std::set<std::pair<int, int>> seen; // (track, direction bits)
     int previous = -1;
+    std::vector<std::pair<int, int>> generated;
     for (int i = 0; i <= last; i++) {
         uint32_t race = circuit_races + i * 4;
+        // The pick is made even for a kept race, so the races after it draw the same numbers as they did.
         std::vector<int> choices;
         for (int t : pool) {
             if (t != previous && uses[t] < circuit_max_uses) choices.push_back(t);
@@ -1633,15 +1799,25 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
         }
         int t = choices[std::uniform_int_distribution<size_t>(0, choices.size() - 1)(rng)];
         int dir = MEM_B(0, (int32_t)(race + 1)) & 3;
-        for (int k = 0; k < 4 && seen.contains({ t, dir }); k++) {
-            dir = (dir + 1) & 3;
+        // A race run (before `last`, the race to come) keeps its track; the race to come only one it can be raced on.
+        if (rush2::circuit::recorded_race(rdram, i, kept_track, kept_direction) &&
+            (i < last || std::find(all.begin(), all.end(), kept_track) != all.end())) {
+            t = kept_track;
+            dir = kept_direction;
         }
+        else {
+            for (int k = 0; k < 4 && seen.contains({ t, dir }); k++) {
+                dir = (dir + 1) & 3;
+            }
+        }
+        generated.push_back({ t, dir });
         seen.insert({ t, dir });
         uses[t]++;
         previous = t;
         MEM_B(0, (int32_t)race) = uint8_t(t);
         MEM_B(0, (int32_t)(race + 1)) = uint8_t(dir);
     }
+    rush2::circuit::record_races(rdram, generated);
     // The races, once per circuit (the generator runs on every visit to the circuit screen).
     static std::string logged;
     std::string races;

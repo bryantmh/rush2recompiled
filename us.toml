@@ -1946,6 +1946,13 @@ func = "menu_screen_circuit_803B6260"
 before_vram = 0x803B6260
 text = "    rush2_track49_circuit_screen(rdram, ctx);"
 
+# A custom track's route preview (no authored diorama) posed in the circuit screen's diorama window, after the screen
+# placed the shown diorama's node (src/rush2049/track2049_menu.cpp).
+[[patches.hook]]
+func = "menu_screen_circuit_803B6260"
+before_vram = 0x803B6AFC
+text = "    rush2_track49_circuit_pose(rdram, ctx);"
+
 # Circuit length (src/circuit.cpp): a circuit keeps the length and courses it started with (end of func_800B2A58), and
 # the six tests of Rush 2's 28 races compare with that length instead.
 [[patches.hook]]

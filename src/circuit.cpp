@@ -138,6 +138,14 @@ namespace {
         return b;
     }
 
+    // A circuit race's track as generated: a track select id, or a custom track by folder (its id follows the enabled
+    // mods), and its direction bits (0x800D3A60 +1).
+    struct RaceTrack {
+        int track = -1;
+        std::string mod;
+        int direction = 0;
+    };
+
     struct Setup {
         uint32_t seed = 0;
         int length = stock_length;
@@ -145,6 +153,7 @@ namespace {
         std::set<std::string> mods;    // custom tracks by folder
         std::map<int, Car> cars;
         int battle = -1;    // the race select's BATTLE row for this circuit, -1 not set yet (rush2::circuit::race_battle)
+        std::map<int, RaceTrack> tracks;   // by race index (rush2::circuit::recorded_race)
     };
 
     constexpr const char* saves_section = "circuits";
@@ -188,6 +197,18 @@ namespace {
                 }
             }
             if (e.contains("battle") && e["battle"].is_number_integer()) s.battle = e["battle"].get<int>() != 0 ? 1 : 0;
+            // tracks: [race, track id or custom track folder, direction bits] each.
+            if (e.contains("tracks") && e["tracks"].is_array()) {
+                for (const auto& r : e["tracks"]) {
+                    if (!r.is_array() || r.size() != 3 || !r[0].is_number_integer() || !r[2].is_number_integer()) continue;
+                    RaceTrack rt;
+                    if (r[1].is_string()) rt.mod = r[1].get<std::string>();
+                    else if (r[1].is_number_integer()) rt.track = r[1].get<int>();
+                    else continue;
+                    rt.direction = r[2].get<int>() & 3;
+                    s.tracks[r[0].get<int>()] = rt;
+                }
+            }
             setups.push_back(s);
         }
     }
@@ -208,6 +229,14 @@ namespace {
                                  { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) },
                                  { "cars", cars } };
             if (s.battle >= 0) e["battle"] = s.battle;   // older records have none: set at the next track select
+            if (!s.tracks.empty()) {
+                nlohmann::json tracks = nlohmann::json::array();
+                for (const auto& [race, rt] : s.tracks) {
+                    if (rt.mod.empty()) tracks.push_back({ race, rt.track, rt.direction });
+                    else tracks.push_back({ race, rt.mod, rt.direction });
+                }
+                e["tracks"] = tracks;
+            }
             list.push_back(e);
         }
         rush2::data_files::write(rush2::data_files::File::Saves, saves_section,
@@ -296,6 +325,55 @@ bool rush2::circuit::course_chosen(uint8_t* rdram, int t) {
         return m < (int)folders.size() && current_setup(rdram).mods.contains(folders[m]);
     }
     return t >= 0 && t < course_ids && current_setup(rdram).courses.test(size_t(t));
+}
+
+bool rush2::circuit::recorded_race(uint8_t* rdram, int race, int& track, int& direction) {
+    if ((uint32_t)MEM_W(0, (int32_t)circuit_block) == 0 || rush2::online::game::circuit_length() > 0) return false;
+    const Setup s = current_setup(rdram);
+    auto found = s.tracks.find(race);
+    if (found == s.tracks.end()) return false;
+    const RaceTrack& rt = found->second;
+    direction = rt.direction;
+    if (rt.mod.empty()) {
+        track = rt.track;
+        return track >= 0 && track < course_ids;
+    }
+    std::vector<std::string> folders = mod_folders();
+    auto it = std::find(folders.begin(), folders.end(), rt.mod);
+    if (it == folders.end()) return false;
+    track = rush2::track2049::mod_menu_id + int(it - folders.begin());
+    return true;
+}
+
+void rush2::circuit::record_races(uint8_t* rdram, const std::vector<std::pair<int, int>>& races) {
+    if ((uint32_t)MEM_W(0, (int32_t)circuit_block) == 0 || rush2::online::game::circuit_length() > 0) return;
+    std::vector<std::string> folders = mod_folders();
+    int raced = finished(rdram);
+    std::lock_guard lock{ setups_mutex };
+    Setup& s = setup_of(rdram);
+    bool changed = false;
+    for (int race = 0; race < (int)races.size(); race++) {
+        auto [track, direction] = races[race];
+        RaceTrack rt;
+        int m = track - rush2::track2049::mod_menu_id;
+        if (m >= 0 && m < rush2::track2049::mod_capacity) {
+            if (m >= (int)folders.size()) continue;
+            rt.mod = folders[m];
+        }
+        else {
+            rt.track = track;
+        }
+        rt.direction = direction & 3;
+        auto it = s.tracks.find(race);
+        // A race run keeps its track, even one whose custom track isn't loaded now.
+        if (it != s.tracks.end() && (race < raced || (it->second.track == rt.track && it->second.mod == rt.mod &&
+                                                        it->second.direction == rt.direction))) {
+            continue;
+        }
+        s.tracks[race] = rt;
+        changed = true;
+    }
+    if (changed) save_setups();
 }
 
 void rush2::circuit::init_config() {

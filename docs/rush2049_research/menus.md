@@ -569,6 +569,54 @@ after 2 and went to the victory screen after race 4.
 Rush 2049's own circuits are BEGINNER / INTERMEDIATE / ADVANCED / EXTREME (strings 572-575 of its text file 0); how
 many races each has was not found in its code, so the select offers race counts instead.
 
+### Circuit races kept with the circuit [V]
+
+`func_800A7DCC` generates the races 0..current again on every visit to the circuit menus, and the generator hook
+redraws them from the courses available at that moment.
+
+The hook's picks are seeded from the game's LCG (`rand_lcg_seed_800D4030`, x = x * 0x41C64E6D + 0x3039). The game
+seeds it from the circuit seed, then its race loop (0x800A8374-0x800A857C) draws 4 numbers a race (track `% 7`,
+direction `& 3`, fog `% 10`, wind `% 3`) for races 0 to `circuit_track_select_byte_800D3DF0`, the race to come. So
+the state at the hook (0x800A8588) moves on by 4 draws with every race run. The hook used to seed from it as found,
+which re-picked every earlier race once a race was run: in any circuit with more than Rush 2's 7 courses, the
+review's (and the next track select's) earlier races were other tracks than the ones raced, from the first race on.
+The hook now winds the state back 4 x (current + 1) draws (multiplier inverse mod 2^32) to the state before the
+loop, which depends only on the circuit, and every machine of an online circuit computes the same one.
+
+Custom tracks (ids 38-63) also follow the enabled mods, which can
+be missing for a while (the arcade mod is rebuilt at launch after a new build) or in another order, so a circuit's
+earlier races could come out as other tracks. The hook also keeps each race's track and direction bits with the circuit's record (saves "circuits", key
+`tracks`: `[race, track id or custom track folder, direction]`, `rush2::circuit::record_races`) and takes them from
+there on later visits (`recorded_race`, the folder mapped to its current id). A race already run keeps its record even
+when its custom track isn't loaded; a race not run yet whose custom track is gone is drawn again. The generator still
+draws a number for a kept race, so the races after it come out as before. A circuit followed online is the host's and
+keeps no record.
+
+### Circuit review screen: the diorama window [V]
+
+The CIRCUIT REVIEW screen (`menu_screen_circuit_803B6260`, screen 0xB) shows the race picked with the arrows
+(`menu_circuit_alpha_803C7A64`: -1 the totals, else a race index) and that race's track
+(`menu_circuit_logo_state_803CB414` = 0x800D3A60[race].track, 0 for the totals): the logo widget
+(`func_803BE528`) reads the logo name table, and the diorama is the track's instance (0x80311600 + track x 4, +2 its
+node), placed every frame at 0x803B6AF4 from `menu_circuit_float_d_803CB440` (position) and turned by
+0x803C7A68. It is drawn in view 1, the window at the bottom right: camera 0x800E7A10 (view 0's at 0x800E79D0, 0x40 a
+view), projection `func_80054A50(1, 60, 0, 113, 127, 239, 195)` (view 0x802401F0 + 0x54: 60 degrees, 113 wide, the
+point straight ahead at (239, 195)), scissor (183, 185)-(296, 229), with z-buffer, fog and back-face culling on.
+`menu_circuit_byte_803C7A70` is set once the screen's setup has run (it instances every entry's diorama then).
+
+A custom track without an authored diorama has Rush 2049's route preview as its model, which is drawn in 2049's
+track select camera space, so it showed nothing there. The hook at 0x803B6AFC (`rush2_track49_circuit_pose`) shows
+its route as a diorama: the node's matrix maps 2049's camera space into the window (`preview_matrix`, as the track
+select's pose), the route's turning centre (`preview_pos` projected, about (245, 131) on 2049's screen) on the
+window's middle (12 below straight ahead), scaled 0.45, and turned by the turntable's angle 0x803C7A68 folded into
+the matrix (the turn is an affine map of the still route's points, `preview_place` of `preview_unplace`). The drawn
+list is spare buffer 1, holding the route unturned in its plain color, with its branch on to the rest of the model's
+list pointed past the screenshot to the closing state (`PreviewModel::finish`); the track select points the branch
+back to the screenshot each time it draws that buffer. The screenshot is left out because it drew black in this
+window: with the same render state, geometry mode (z-buffer, fog, back-face culling), TLUT, texels, palette and
+vertices as in the track select, its quads ran (without the z-compare they darkened the tube) and came out dark; both
+windings, nearer depths and full size changed nothing (2026-11-05).
+
 - Its "RUSH2" background (0x800AC0E4-0x800AC130) is a 3 x 7 grid of 128 x 32 HUD elements from (12, 10), clipped to
   the 4:3 screen. Widescreen continues it with shifted copies of tiles that are fully on screen
   (`rush2_title_background_tiles`, src/widescreen.cpp; `rush2::hud::set_widget_shift`).

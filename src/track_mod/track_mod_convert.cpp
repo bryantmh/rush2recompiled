@@ -2448,7 +2448,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                                  "the checkpoint where the loop starts.");
                 }
                 gates[size_t(best_g)].loop = true;
-                for (auto& cg : found) cg.erase(std::remove_if(cg.begin(), cg.end(), [&](const Crossing& k) { return k.s > lap + 1.0f; }), cg.end());
+                // A path cut at the loop start's second crossing ends on it: that crossing goes too (it is the loop
+                // start met again, not another pass).
+                const bool cut = lap < at[steps];
+                for (auto& cg : found) cg.erase(std::remove_if(cg.begin(), cg.end(), [&](const Crossing& k) { return cut ? k.s > lap - 1.0f : k.s > lap + 1.0f; }), cg.end());
                 report.info("Run-in circuit: the loop starts at " + gates[size_t(best_g)].name + "; the laps go round from there.");
             }
         }

@@ -3,7 +3,7 @@
 //
 //   RUSH2_RAM_WATCH=ADDR:SIZE[,ADDR:SIZE...]   prints "[ram] frame N ADDR: old -> new" whenever a value changes (SIZE 1, 2
 //                                              or 4; hex addresses, e.g. 8010C0D0:4)
-//   RUSH2_RAM_DUMP=DIR                         writes RDRAM 0x80000000-0x80800000 to DIR/ram_<frame>_<ADDR>_<value>.bin
+//   RUSH2_RAM_DUMP=DIR                         writes RDRAM 0x80000000-0x81000000 to DIR/ram_<frame>_<ADDR>_<value>.bin
 //                                              each time a watched value changes
 //
 // Snapshots taken around a change (a menu starting a race, say) can then be diffed outside the game.
@@ -72,7 +72,7 @@ namespace {
         std::snprintf(name, sizeof(name), "ram_%06u_%08X_%X.bin", frame_number, w.address, value);
         std::ofstream out{ std::filesystem::path(dump_dir) / name, std::ios::binary };
         // RDRAM is byte-swapped within words in the recomp; write it in N64 (big-endian) byte order.
-        std::vector<uint8_t> bytes(0x800000);
+        std::vector<uint8_t> bytes(0x1000000);   // the 16 MB our own lists and art use too
         for (uint32_t i = 0; i < bytes.size(); i++) {
             bytes[i] = (uint8_t)MEM_BU(0, (int32_t)(0x80000000u + i));
         }

@@ -5,6 +5,8 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace recompui {
     class Element;
@@ -36,6 +38,12 @@ namespace rush2::circuit {
     // Game thread. The current circuit's (0x800D3E40's) length in races, and whether it may pick track t.
     int length(uint8_t* rdram);
     bool course_chosen(uint8_t* rdram, int t);
+    // Game thread. The races a circuit generated, kept with its record (custom tracks by folder) so they stay the same
+    // while the enabled mods change, or before they are loaded (an arcade mod rebuilt at launch): recorded_race gives
+    // race `race`'s track select id and direction bits (false when none is kept, its custom track isn't loaded, or the
+    // circuit is another machine's), record_races keeps races 0.. as (track, direction bits).
+    bool recorded_race(uint8_t* rdram, int race, int& track, int& direction);
+    void record_races(uint8_t* rdram, const std::vector<std::pair<int, int>>& races);
 
     // Accurate Circuit Review (General tab): the victory screen after a circuit shows its races, in order, each with
     // the car player 1 raced in it, racing or wrecked by the place there. Read when that screen starts.
