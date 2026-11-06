@@ -21,8 +21,8 @@ namespace rush2::ui {
 namespace rush2::circuit {
     constexpr int stock_length = 28;    // Rush 2's circuit: 28 races.
     // Track select ids a circuit can pick from: Rush 2 0-6, CRASH 8 and PIPE 9 (off by default), 2049 12-17, SF Rush
-    // 18-24, California Speed 64-79.
-    constexpr int course_ids = 80;
+    // 18-24, California Speed 64-79, the 2049 race tracks' Dreamcast versions 249-254 (custom tracks go by folder).
+    constexpr int course_ids = 255;
 
     // Registers the hidden choices (circuit.json). Call before recompui::config::finalize().
     void init_config();
@@ -34,6 +34,10 @@ namespace rush2::circuit {
     // Circuits). With a panel, the course list opens in the panel's area instead of under its button.
     void add_section(recompui::Element* parent, const TextShower& text_shower,
                      std::shared_ptr<rush2::ui::ExpandPanel> panel = nullptr);
+
+    // The full name of race track t of Rush 2 (0-9), Rush 2049 (12-17), SF Rush (18-24) or California Speed (64-79),
+    // or "" for any other id (a Dreamcast version 249-254 too: it is its 2049 course's version).
+    std::string track_name(int t);
 
     // Game thread. The current circuit's (0x800D3E40's) length in races, and whether it may pick track t.
     int length(uint8_t* rdram);

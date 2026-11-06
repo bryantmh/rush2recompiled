@@ -16,10 +16,9 @@ in the renderer: rush2::upscale::add_exact_image), so the quantizing only shows 
 
 --arcade writes the pictures the game's Rush 2049 arcade track mod ships (assets/arcade2049/, src/arcade2049,
 docs/arcade2049.md):
-  - <id>_logo.png for the arcade versions of the six race tracks: each the N64 track's own banner with " A" after it.
-    A name drawn with the font is drawn again as "<NAME> A"; a picture banner (tools/rush2049/banners/trackN_*.png) is
-    kept, narrowed by the columns the "A" of "<NAME> A" takes (as many columns dropped evenly), with that "A" put
-    after it.
+  - <id>_logo.png for the arcade versions of the six race tracks: each the N64 track's own banner (a picture banner,
+    tools/rush2049/banners/trackN_*.png, or the name drawn with the font as the N64 one is). They share its track select
+    entry as its ARCADE version (the version button names it), so they carry no mark of their own.
   - alcatraz_logo.png: the plain name in Rush 2049's lettering (banner_font.render_fit: a wider canvas, not smaller
     letters).
   - <id>_preview.png: each tools/arcade2049/previews/<id>.png (in-game screenshots) cut round (round_preview).
@@ -139,28 +138,12 @@ def arcade_logos():
     src_dir = os.path.join(ROOT, "tools", "rush2049", "banners")
     names = track_names("include/track2049.h")
     for t, track_id in enumerate(ARCADE_IDS, 1):
-        name = names[t - 1]
-        text = banner_font.render(name + " A", "2049", (W, H))
+        # As build() makes the N64 track's banner.
         art = [n for n in os.listdir(src_dir) if re.fullmatch(rf"track{t}_\w+\.png", n)]
         if art:
-            # The "A": the columns of "<NAME> A" after the last fully clear column before its right end.
-            px = text.load()
-            right = text.getbbox()[2]
-            a0 = right - 1
-            while a0 > 0 and any(px[a0 - 1, y][3] for y in range(H)):
-                a0 -= 1
-            a_w = right - a0
-            gap = 2
-            pic = Image.open(os.path.join(src_dir, art[0])).convert("RGBA")
-            keep_w = W - a_w - gap - 1
-            # Drop columns evenly (no resampling: the picture is pixel art).
-            cols = [round(i * (W - 1) / (keep_w - 1)) for i in range(keep_w)]
-            im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            for x, c in enumerate(cols):
-                im.paste(pic.crop((c, 0, c + 1, H)), (x, 0))
-            im.alpha_composite(text.crop((a0, 0, right, H)), (keep_w + gap, 0))
+            im = Image.open(os.path.join(src_dir, art[0])).convert("RGBA")
         else:
-            im = text
+            im = banner_font.render(names[t - 1], "rush2049", (W, H)).convert("RGBA")
         out = os.path.join(ROOT, "assets", "arcade2049", track_id + "_logo.png")
         im.save(out)
         print("Wrote", os.path.relpath(out, ROOT))

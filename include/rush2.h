@@ -352,9 +352,9 @@ namespace rush2 {
         // Glyphs of the menu layout's buttons, as port's controller or keyboard shows them (src/controls_menu.cpp),
         // drawn from a widget's text callback: begin, add any number (x, y: top left; w x h pixels, 16x14 the
         // Controller Setup screen's size), end.
-        // Y is the menus' C-up (Y or Triangle, I on the keyboard). add_menu_rect fills a rectangle (rgba with alpha)
-        // in the same list, under what is added after it.
-        enum class MenuButton : uint8_t { A, B, L, R, Y };
+        // Y is the menus' C-up (Y or Triangle, I on the keyboard), X their C-left (X or Square, J on the keyboard).
+        // add_menu_rect fills a rectangle (rgba with alpha) in the same list, under what is added after it.
+        enum class MenuButton : uint8_t { A, B, L, R, Y, X };
         void begin_menu_glyphs(uint8_t* rdram);
         void add_menu_glyph(uint8_t* rdram, int port, MenuButton button, int x, int y, int w, int h);
         void add_menu_rect(uint8_t* rdram, int x, int y, int w, int h, uint32_t rgba);

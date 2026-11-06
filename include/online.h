@@ -55,7 +55,7 @@ namespace rush2::online {
         uint8_t battle_minutes = 0;
         uint8_t race_battle = 0;     // The race track select's BATTLE row (rush2::battle::race_battle): weapons.
         // A custom track (src/track_mod/) is known by what it is, not its id: each machine numbers its custom tracks
-        // (ids 38-63 and 80-254) in its own mod order. mod_track is rush2::track2049::online_track_key ("" for the other
+        // (ids 38-63 and 80-248) in its own mod order. mod_track is rush2::track2049::online_track_key ("" for the other
         // tracks), mod_track_name its name for the lobby's messages.
         std::string mod_track;
         std::string mod_track_name;

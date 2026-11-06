@@ -405,7 +405,7 @@ namespace {
             }
         }
         else {
-            auto rom = rush2::wings::get_rom();
+            auto rom = rush2::track2049::race_source();
             auto main_2049 = rom != nullptr ? rom->segment(rush2::rom2049::Segment::Main) : nullptr;
             if (main_2049 == nullptr) {
                 fprintf(stderr, "[2049] Moving objects: can't read Rush 2049's main code\n");

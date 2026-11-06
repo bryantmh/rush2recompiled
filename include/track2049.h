@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,13 +31,19 @@ namespace rush2::track2049 {
     constexpr int obstacle_menu_id = 29; // Track select id of the obstacle course.
     constexpr int battle_menu_id = 30;   // Track select id of battle arena DM1 (30-37).
     // Custom tracks (src/track_mod/) take two ranges of track select ids: 38-63 between the battle arenas and California
-    // Speed (64-79), then 80-254 after it. The game keeps the id in one byte (0x8010C3F0, read unsigned: us.toml turns
+    // Speed (64-79), then 80-248 after it. The game keeps the id in one byte (0x8010C3F0, read unsigned: us.toml turns
     // the game's lb of it into lbu), so 254 is the last; 255 stays free, as the -1 a signed read would make of it.
+    // 249-254 are the Dreamcast versions of the six race tracks (disc_menu_id).
     constexpr int mod_menu_id = 38;      // Track select id of the first custom track.
     constexpr int mod_low_count = 26;    // Custom tracks in the first range (38-63).
     constexpr int mod_high_menu_id = 80; // Track select id of custom track 26, the first of the second range.
     constexpr int menu_id_limit = 255;   // Track select ids are 0-254.
-    constexpr int mod_capacity = mod_low_count + (menu_id_limit - mod_high_menu_id);   // 201
+    // The race tracks' Dreamcast versions (249-254, race track k at disc_menu_id + k - 1), offered beside the N64 ones
+    // (12-17) when both the N64 ROM and the Dreamcast disc are stored: one track select entry per course, whose
+    // version button picks which is raced (src/rush2049/track2049_menu.cpp, "Track versions"). With the disc alone,
+    // 12-17 are the disc's and these aren't offered.
+    constexpr int disc_menu_id = menu_id_limit - track_count;    // 249
+    constexpr int mod_capacity = mod_low_count + (disc_menu_id - mod_high_menu_id);   // 195
     // Custom track `index`'s track select id (index < mod_capacity).
     constexpr int mod_id(int index) {
         return index < mod_low_count ? mod_menu_id + index : mod_high_menu_id + (index - mod_low_count);
@@ -44,11 +51,20 @@ namespace rush2::track2049 {
     // The custom track index of track select id t, or -1 when t isn't a custom track's id.
     constexpr int mod_index(int t) {
         if (t >= mod_menu_id && t < mod_menu_id + mod_low_count) return t - mod_menu_id;
-        if (t >= mod_high_menu_id && t < menu_id_limit) return mod_low_count + (t - mod_high_menu_id);
+        if (t >= mod_high_menu_id && t < disc_menu_id) return mod_low_count + (t - mod_high_menu_id);
         return -1;
     }
     constexpr bool is_mod_id(int t) {
         return mod_index(t) >= 0;
+    }
+    // Whether t is a race track's Dreamcast version (249-254).
+    constexpr bool is_disc_course(int t) {
+        return t >= disc_menu_id && t < disc_menu_id + track_count;
+    }
+    // The track select id of the course t is a version of: a Dreamcast version's N64 entry (12-17), else t. What the
+    // unlocks, keys and logos of a course go by.
+    constexpr int course_id(int t) {
+        return is_disc_course(t) ? first_menu_id + (t - disc_menu_id) : t;
     }
     constexpr float obstacle_time = 300.0f; // The obstacle course's clock in seconds, no checkpoint extensions.
 
@@ -136,17 +152,28 @@ namespace rush2::track2049 {
     bool coin_icon(const rush2::rom2049::Source& rom2049, bool gold, std::vector<uint8_t>& texels,
                    std::vector<uint8_t>& palette);
 
-    // Converts every Rush 2049 track and arena of the source in use, and every California Speed track (as its scenery
-    // options are set), into the disk cache (those not there yet), when their options are on. Any thread
-    // (src/prewarm.cpp, at launch).
+    // Converts every Rush 2049 track and arena (the race tracks' Dreamcast versions too, when they are offered), and
+    // every California Speed track (as its scenery options are set), into the disk cache (those not there yet), when
+    // their options are on. Any thread (src/prewarm.cpp, at launch).
     void prepare();
     // Reads the cache entry of the 2049 or California Speed track that track select id t races into memory now, for
     // the race about to load it (src/prewarm.cpp, from the car select). Any thread.
     void preload(int t);
 
-    // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/rush2049/track2049.cpp).
+    // The 2049 track (1-6, or obstacle) raced in the host slot, or 0 (src/rush2049/track2049.cpp). disc: a race track's
+    // Dreamcast version (track select 249-254), read from the disc whichever source the Games tab uses.
     int race_track();
-    void set_race_track(int k);
+    void set_race_track(int k, bool disc = false);
+    // Where the race tracks' versions come from. The N64 versions (12-17) are the N64 ROM's when it is stored and
+    // enabled (the Games tab's Enabled Source), else the disc's; the stunt arenas, obstacle course and battle arenas
+    // are the source the game uses (rush2::wings::get_rom: Primary Source).
+    bool courses_from_disc();
+    // Whether the Dreamcast versions (249-254) can be offered: the Rush 2049 tracks are on and both the N64 ROM and
+    // the disc are stored and enabled (Enabled Source: Both).
+    bool disc_courses_available();
+    // The Rush 2049 data the raced (or last raced) 2049 track was converted from, else the source in use. For the
+    // race's objects (props, moving objects), which read the game's own tables of that copy.
+    std::shared_ptr<const rush2::rom2049::Source> race_source();
     // The 2049 stunt arena (1-4) being played, or 0.
     int stunt_arena();
     void set_stunt_arena(int n);

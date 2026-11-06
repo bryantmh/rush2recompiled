@@ -47,6 +47,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <tuple>
 #include <unordered_map>
 
 #include "recomp.h"
@@ -97,10 +98,14 @@ namespace {
     std::mutex track_mutex;
     std::atomic_bool option_enabled = true;
     std::atomic_int raced_track = 0;  // 1-6 or obstacle, or 0 for none.
+    std::atomic_bool raced_disc = false; // raced_track is a race track's Dreamcast version (track select 249-254).
     std::atomic_int raced_stunt = 0;  // Stunt arena 1-4, or 0 for none.
     std::atomic_int raced_battle = 0; // Battle arena 1-8, or 0 for none (hosted in the stunt slot like the stunt arenas).
     int loaded_track = 0;              // The 2049 track in `track`, as convert_track's k.
     std::shared_ptr<const rush2::rom2049::Source> loaded_source; // The Rush 2049 source it was converted from.
+    // loaded_source for rush2::track2049::race_source, which the race's objects ask for while track_mutex is held.
+    std::mutex race_source_mutex;
+    std::shared_ptr<const rush2::rom2049::Source> race_source_kept;
     int slot = host_slot;              // The slot `track` is applied to.
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     std::atomic_bool applied_road_hold = false; // A custom track whose track.toml asks for road_hold is applied.
@@ -182,6 +187,22 @@ namespace {
         return rush2::track_cache::hash(collision.data(), collision.size(), source);
     }
 
+    // The cache entry number of 2049 track k converted from the N64 ROM (k) or the disc (k + disc_cache_k), so
+    // both copies of a track stay cached while the track select offers both versions.
+    constexpr int disc_cache_k = 100;
+    int cache_k(int k, bool disc) {
+        return disc ? k + disc_cache_k : k;
+    }
+
+    // The race tracks (1-6): a Dreamcast version from the disc, the N64 one from the N64 ROM when it is stored, else
+    // the disc. Everything else from the source the Games tab uses.
+    std::shared_ptr<const rush2::rom2049::Source> source_for(int k, bool disc_version) {
+        if (k >= 1 && k <= rush2::track2049::track_count) {
+            return rush2::wings::track_source(disc_version || rush2::track2049::courses_from_disc());
+        }
+        return rush2::wings::get_rom();
+    }
+
     // 2049 track k (convert_track's k) for the slot whose prefix is `prefix`, with its geometry and collision files
     // (the movers read them): from the disk cache (src/track_cache.cpp) when this build converted it from the same
     // source before, else converted and stored. Any thread: the background builds (rush2::track2049::prepare) do every
@@ -194,11 +215,12 @@ namespace {
             return false;
         }
         uint64_t source = source_key(rom, geometry, collision);
-        auto claim = rush2::track_cache::claim(rush2::track_cache::entry_2049(k));
-        if (rush2::track_cache::load_2049(k, prefix, source, out)) return true;
+        int entry = cache_k(k, rom.is_dreamcast());
+        auto claim = rush2::track_cache::claim(rush2::track_cache::entry_2049(entry));
+        if (rush2::track_cache::load_2049(entry, prefix, source, out)) return true;
         if (!rush2::track2049::convert_track(rom, k, prefix, shared_model_names(), true, out, error)) return false;
         rush2::race_time::fill(out);
-        rush2::track_cache::save_2049(k, prefix, source, out);
+        rush2::track_cache::save_2049(entry, prefix, source, out);
         return true;
     }
 
@@ -258,7 +280,7 @@ namespace {
             }
             return true;
         }
-        auto rom = rush2::wings::get_rom();
+        auto rom = loaded_source;
         if (rom == nullptr) {
             return false;
         }
@@ -456,8 +478,25 @@ int rush2::track2049::race_track() {
     return raced_track;
 }
 
-void rush2::track2049::set_race_track(int k) {
+void rush2::track2049::set_race_track(int k, bool disc) {
     raced_track = k;
+    raced_disc = disc && k >= 1 && k <= track_count;
+}
+
+bool rush2::track2049::courses_from_disc() {
+    return !rush2::wings::source_enabled(false);
+}
+
+bool rush2::track2049::disc_courses_available() {
+    return available() && rush2::wings::source_enabled(false) && rush2::wings::source_enabled(true);
+}
+
+std::shared_ptr<const rush2::rom2049::Source> rush2::track2049::race_source() {
+    {
+        std::lock_guard lock{ race_source_mutex };
+        if (race_source_kept != nullptr) return race_source_kept;
+    }
+    return rush2::wings::get_rom();
 }
 
 int rush2::track2049::stunt_arena() {
@@ -599,8 +638,10 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         slot = want_slot;
         loaded_track = 0;   // The conversion depends on the slot's track prefix.
     }
-    // The Games tab can switch the Rush 2049 source between races: a track converted from the other one is redone.
-    if (k < mod_k && loaded_source != rush2::wings::get_rom()) {
+    // The Games tab can switch the Rush 2049 source between races, and a race track's version picks its own: a track
+    // converted from the other one is redone.
+    std::shared_ptr<const rush2::rom2049::Source> want_source = k < mod_k ? source_for(k, raced_disc) : nullptr;
+    if (k < mod_k && loaded_source != want_source) {
         loaded_track = 0;
     }
     // A Cal Speed ROM selected again in the Games tab is another copy: its tracks are converted (or read) again.
@@ -614,7 +655,11 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
     }
     if (loaded_track != k) {
         loaded_track = 0;
-        loaded_source = rush2::wings::get_rom();
+        loaded_source = want_source;
+        {
+            std::lock_guard lock{ race_source_mutex };
+            race_source_kept = loaded_source;
+        }
         if (!convert(rdram, k)) {
             printf("[2049] Track %d isn't available; racing the host track\n", k);
             // Everything (records included) then treats the race as the host track's.
@@ -626,7 +671,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         }
         race_logo.clear();
         std::vector<uint8_t> logo;
-        auto rom = rush2::wings::get_rom();
+        auto rom = loaded_source;
         if (is_cs_k(k)) {
             auto cs = rush2::calspeed::get_rom();
             if (cs == nullptr || !rush2::assets::read_original(rdram, 4 + slot, logo) ||
@@ -660,15 +705,28 @@ static std::vector<std::pair<int, int>> tracks_and_slots() {
 }
 
 void rush2::track2049::prepare() {
-    if (auto rom = rush2::wings::get_rom(); rom != nullptr && available()) {
-        for (auto [k, s] : tracks_and_slots()) {
+    if (available()) {
+        // Each track from the copy it races from (source_for), and the race tracks' Dreamcast versions when the track
+        // select offers them.
+        std::vector<std::tuple<int, int, bool>> todo;   // k, slot, Dreamcast version
+        for (auto [k, s] : tracks_and_slots()) todo.push_back({ k, s, false });
+        if (disc_courses_available()) {
+            for (int k = 1; k <= track_count; k++) todo.push_back({ k, host_slot, true });
+        }
+        for (auto [k, s, disc] : todo) {
+            auto rom = source_for(k, disc);
+            if (rom == nullptr) continue;
             // An N64 ROM's entries are keyed on the ROM, so what is on disk is known without reading the track's files.
-            if (rom->n64_rom() != nullptr && rush2::track_cache::has_2049(k, prefix_of(s), source_key(*rom, {}, {}))) continue;
+            if (rom->n64_rom() != nullptr &&
+                rush2::track_cache::has_2049(cache_k(k, false), prefix_of(s), source_key(*rom, {}, {}))) {
+                continue;
+            }
             rush2::track2049::ConvertedTrack converted;
             std::vector<uint8_t> geometry, collision;
             std::string error;
             if (!cached_or_converted(*rom, k, prefix_of(s), converted, geometry, collision, error)) {
-                printf("[2049] Couldn't convert track %d: %s\n", k, error.c_str());
+                printf("[2049] Couldn't convert track %d%s: %s\n", k, rom->is_dreamcast() ? " (Dreamcast)" : "",
+                       error.c_str());
             }
         }
     }
@@ -680,17 +738,22 @@ void rush2::track2049::prepare() {
 }
 
 void rush2::track2049::preload(int t) {
+    auto rom = rush2::wings::get_rom();
+    bool arena_disc = rom != nullptr && rom->is_dreamcast();
     if (t >= first_menu_id && t < first_menu_id + track_count) {
-        rush2::track_cache::preload_2049(t - first_menu_id + 1);
+        rush2::track_cache::preload_2049(cache_k(t - first_menu_id + 1, courses_from_disc()));
+    }
+    else if (is_disc_course(t)) {
+        rush2::track_cache::preload_2049(cache_k(t - disc_menu_id + 1, true));
     }
     else if (t == obstacle_menu_id) {
-        rush2::track_cache::preload_2049(obstacle);
+        rush2::track_cache::preload_2049(cache_k(obstacle, arena_disc));
     }
     else if (t >= stunt_menu_id && t < stunt_menu_id + stunt_count) {
-        rush2::track_cache::preload_2049(stunt_first + t - stunt_menu_id);
+        rush2::track_cache::preload_2049(cache_k(stunt_first + t - stunt_menu_id, arena_disc));
     }
     else if (t >= battle_menu_id && t < battle_menu_id + battle_count) {
-        rush2::track_cache::preload_2049(battle_first + t - battle_menu_id);
+        rush2::track_cache::preload_2049(cache_k(battle_first + t - battle_menu_id, arena_disc));
     }
     else if (t >= rush2::calspeed::first_menu_id && t < rush2::calspeed::first_menu_id + rush2::calspeed::track_count) {
         rush2::calspeed::preload_track(t - rush2::calspeed::first_menu_id);

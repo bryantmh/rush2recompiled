@@ -347,14 +347,14 @@ namespace {
     }
 
     // Rush 2049 Soundtrack (shown while both the N64 ROM and the disc are installed): whose Rush 2049 songs play.
-    // Source follows the Games tab's Rush 2049 Source, as before the option existed.
+    // Source follows the Games tab's Primary Source (Rush 2049 Source until 2026-11-05), as before the option existed.
     enum class Soundtrack : uint32_t { Source, N64, Dreamcast, Both };
     constexpr const char* soundtrack_option_id = "soundtrack_r49";
     std::atomic<uint32_t> soundtrack = (uint32_t)Soundtrack::Source;
     const std::string soundtrack_description =
         "Which Rush 2049 songs play. <recomp-color primary>Both</recomp-color> mixes the N64's and the Dreamcast's: "
         "Original plays the track's N64 or Dreamcast song and Shuffle any song of either; each main menu song "
-        "has its own switch. <recomp-color primary>Same as Source</recomp-color> follows Rush 2049 Source in the Games tab. "
+        "has its own switch. <recomp-color primary>Same as Source</recomp-color> follows Primary Source in the Games tab. "
         "Applies from the next song.";
 
     // Whether the N64's and the disc's Rush 2049 songs may play.

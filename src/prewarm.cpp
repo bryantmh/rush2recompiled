@@ -84,7 +84,9 @@ namespace {
         auto cs = rush2::calspeed::get_rom();
         auto r1 = rush2::track1::get_rom();
         char s[160];
-        snprintf(s, sizeof(s), "%p%d %p%d%d%d %p%d ", (const void*)r49.get(), (int)rush2::track2049::available(),
+        // The race tracks' versions too (Games tab Enabled Source: both copies, or which copy the N64 ones come from).
+        snprintf(s, sizeof(s), "%p%d%d%d %p%d%d%d %p%d ", (const void*)r49.get(), (int)rush2::track2049::available(),
+                 (int)rush2::track2049::disc_courses_available(), (int)rush2::track2049::courses_from_disc(),
                  (const void*)cs.get(), (int)rush2::calspeed::available(), (int)rush2::calspeed::scenery_enabled(),
                  (int)rush2::calspeed::billboards_enabled(), (const void*)r1.get(), (int)rush2::track1::available());
         return s + rush2::track_mod::signature();

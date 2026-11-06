@@ -331,6 +331,8 @@ logo    = "logo.png"
 preview = "preview.png"
 diorama = "diorama.glb"
 after   = "rush2049"      # where the track select lists it: see Track select art
+# variant_of = "rush2049:marina"   # instead: a version of another track, sharing its entry: see Versions
+# variant    = "NIGHT"             # what the version button shows for it
 ```
 
 - `checkpoint_time` has one entry per checkpoint. Rush 2 keeps one time for the first lap and one for every lap
@@ -614,9 +616,43 @@ Custom tracks come after the stock and added tracks, in the mod order. `after` i
 Several tracks after the same one keep the mod order. A name that matches nothing leaves the track at the end (the log
 says so). Only the order changes: records, ghosts and saved choices are kept under the track's folder name as before.
 
-For developers: the ids stay 38-63 and 80-254 (`mod_id`); `build_order` in src/rush2049/track2049_menu.cpp makes the display order, the
+For developers: the ids stay 38-63 and 80-248 (`mod_id`); `build_order` in src/rush2049/track2049_menu.cpp makes the display order, the
 carousel is put in that order once built (0x803AB878) and TRACK left / right takes the track at the new carousel
 position (0x803AC12C).
+
+### Versions
+
+A track can be another version of a course: a night edition, a reworked layout, a remake of a stock track. Its
+versions share one track select entry, and the version button switches between them: X (Square, or J on the
+keyboard), shown under the FILTER prompt with the version's name. The version shown is the one raced, and the last one
+picked is remembered per course.
+
+```toml
+[menu]
+variant_of = "rush2049:marina"   # the course this is a version of
+variant    = "NIGHT"             # what the version button shows for it (up to 6 characters)
+```
+
+| `variant_of =` | A version of |
+|---|---|
+| `"rush2:<name>"`, `"sfrush:<name>"`, `"rush2049:<name>"`, `"calspeed:<name>"` | that game's race track. The name is the track's full name in lower case, with each space or dot as `_`: `"rush2:las_vegas"`, `"rush2:lower_manhattan"`, `"sfrush:golden_gate"`, `"rush2049:presidio"`, `"calspeed:mt_shasta"` |
+| a custom track's folder name | that track (which can itself be a version of something: the chain ends at the course) |
+
+- The stock track's own version shows as STOCK, Rush 2049's as N64 (and its Dreamcast version as DC, when
+  both the N64 ROM and the disc are installed and Settings > Games > Enabled Source is Both). A custom version without
+  `variant` shows its name, cut to 6 characters (what fits beside the button).
+- A version must be the same kind of track as its course: a race track's versions are race tracks, an arena's are
+  arenas.
+- `after` is ignored for a version: it is listed where its course is.
+- Each version is its own track everywhere else: its own records, ghosts and circuit course entry, kept under its
+  folder name. A version a player can't race (its mod off, the course locked, its game filtered out) leaves the button
+  to the others; the course shows on its own when nothing else is left, still naming its version (a locked Rush 2049
+  course shows ARCADE until it unlocks).
+- A `variant_of` that names nothing, or two tracks naming each other, leaves the track as a track of its own (the log
+  says so).
+
+The Rush 2049 Arcade Tracks mod (Settings > Games > Rush 2049 Arcade) uses this: its versions of the six Rush 2049
+race tracks are each `variant_of = "rush2049:<course>"`, `variant = "ARCADE"`.
 
 ## Textures
 
@@ -770,7 +806,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
 | `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |
 | `[audio]` | `music` | [track.toml](#tracktoml) |
-| `[menu]` | `logo`, `preview`, `diorama`, `after` | [Track select art](#track-select-art) |
+| `[menu]` | `logo`, `preview`, `diorama`, `after`, `variant_of`, `variant` | [Track select art](#track-select-art), [Versions](#versions) |
 
 ## Size limits
 
@@ -782,8 +818,8 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
 | Custom surfaces | 12 | The collision format's surface slots. |
-| Custom tracks | 201 across all enabled mods (in mod order; the rest are left out, the log says how many) | The game keeps the track select id in one byte: ids 0-254, and the stock and other games' tracks take 54 of them. |
-| Track select art | about 3.3 MB for all custom tracks' logos and dioramas | The art is loaded into the game's memory with the track select. A logo takes 4.5 KB and a route preview about 10 KB, so 201 tracks fit; authored dioramas can be much larger. Past the room, the later tracks (in mod order) show their logo with no diorama, and the log says how many. |
+| Custom tracks | 195 across all enabled mods (in mod order; the rest are left out, the log says how many) | The game keeps the track select id in one byte: ids 0-254, and the stock and other games' tracks take 60 of them. |
+| Track select art | about 3.3 MB for all custom tracks' logos and dioramas | The art is loaded into the game's memory with the track select. A logo takes 4.5 KB and a route preview about 10 KB, so 195 tracks fit; authored dioramas can be much larger. Past the room, the later tracks (in mod order) show their logo with no diorama, and the log says how many. |
 
 Vertex counts per object, the number of objects or materials, and name lengths don't matter: the converter splits,
 merges and renames as needed.
@@ -812,7 +848,7 @@ merges and renames as needed.
   `track_mod.cpp` (finding the tracks, the disk cache, full-size textures). `include/track_mod.h` and
   `include/track_mod_runtime.h` hold the interfaces.
 - **Hosting:** a custom track is raced in the HAWAII slot like a Rush 2049 track (`src/rush2049/track2049.cpp`,
-  track cache key 1000 + a hash of the folder), with track select ids 38-63 and 80-254 (`include/track2049.h`
+  track cache key 1000 + a hash of the folder), with track select ids 38-63 and 80-248 (`include/track2049.h`
   `mod_id`/`mod_index`; `src/rush2049/track2049_menu.cpp`, the tables moved to 0x80310000 with room for 256; the
   circuit review screen's diorama instances at 0x80312C00). The game reads the id byte 0x8010C3F0 unsigned (us.toml
   turns its lb into lbu, listed by `tools/byte_reads.py 8010C3F0`), so ids past 127 work in its menu code. The carousel's entries keep their place relative to the shown track
@@ -820,7 +856,7 @@ merges and renames as needed.
   and 0x803ABB38 are lbu as well, and `rush2_track49_carousel_place` wraps the place the setup stores before reading it
   (it relied on a signed read going negative). The route
   previews' spare animation buffers aren't kept in the track select's art (asset 3): the previews on screen borrow them
-  from a pool at 0x80320000 (`lend_buffers`), so 201 previews fit the game heap (`mod_art_room`). Circuits choose custom
+  from a pool at 0x80320000 (`lend_buffers`), so 195 previews fit the game heap (`mod_art_room`). Circuits choose custom
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
   with, and the races it generated, custom tracks by folder, so they stay put while the enabled mods change:
   docs/rush2049_research/menus.md#circuit-races-kept-with-the-circuit). Without an authored diorama, the circuit

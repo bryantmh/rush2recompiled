@@ -12,6 +12,7 @@ General:
 3) Higher drone difficulty levels
 4) Separate drone difficulty from checkpoint difficulty as an option
 5) The ability to save/load vehicle tuning setups by name
+6) Mod-added music including Arcade
 
 California Speed:
 1) Post-race records on point-to-point tracks: average lap and best lap are the same one-lap time (the whole run);

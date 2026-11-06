@@ -100,6 +100,12 @@ namespace rush2::track_mod {
         // [menu] after: where the track select lists the track: behind a game's tracks ("rush2", "sfrush", "rush2049",
         // "calspeed") or behind another custom track (its folder name). Empty: after the stock and added tracks.
         std::string menu_after;
+        // [menu] variant_of: the track this one is a version of, sharing its track select entry, whose version button
+        // switches between them (docs/custom_tracks.md#versions): a race track of another game ("rush2049:marina",
+        // "rush2:las_vegas", "sfrush:golden_gate", "calspeed:monterey": the game and the track's name in lower case,
+        // spaces and dots as _) or another custom track's folder. [menu] variant: what the button shows for this
+        // version ("ARCADE"; default the track's name).
+        std::string variant_of, variant;
         // [track] smooth_collision (default true): the road's tilt blends smoothly across polygon edges
         // (src/smooth_collision.cpp); smooth_fold (degrees, default 20): an edge folding more than this stays sharp.
         bool smooth_collision = true;

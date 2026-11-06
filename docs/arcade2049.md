@@ -37,20 +37,19 @@ track select read the new files without a restart; `mods_changed` also has the c
 (`rush2::track_mod::rescan`): it was kept by the enabled mods and their file names, which a rebuild keeps, so until
 2026-10-19 tracks added by a rebuild (Alcatraz Only turned off) showed only after a restart.
 
-- **Alcatraz Only** (Games tab, under the section, default on; `arcade_alcatraz_only` in games.json): on, the track
-  mod holds just Alcatraz (TRACK4). Off, it also holds the arcade's own versions of the six Rush 2049 tracks as tracks
-  of their own after the Rush 2049 ones (`a49::arcade_tracks`: TRACK1 `marina_arcade`, TRACK2 `haight_arcade`, TRACK3
-  `civic_arcade`, TRACK5 `metro_arcade`, TRACK6 `mission_arcade`, TRACK7 `presidio_arcade`, each "<Name> Arcade").
-  The track select shows them in the N64's order with Alcatraz last: each track.toml's `[menu] after` names the track
-  before it in `arcade_tracks` (the first `rush2049`); until 2026-10-19 they all followed `rush2049` and showed in
-  folder name order.
-  The option is part of the mod's key, so changing it rebuilds an installed mod in the background (and once more if
-  it changes during a build); without the arcade data a copied mod keeps the tracks it was built with. Their logos
-  are the N64 tracks' own banners with " A" after them (`tools/build_banners.py --arcade`: the font-drawn names drawn
-  again as "MARINA A", Metro's and Presidio's picture banners kept, narrowed, with the "A" beside them), and their
-  round previews are the user's in-game screenshots (`tools/arcade2049/previews/<id>.png`, cut by
-  `tools/build_banners.py --arcade` into `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a
-  fog color (its night). `ARCADE_ALL=1` makes cpp_test build them all. Offline
+- **The arcade's versions of the six race tracks.** The track mod holds Alcatraz (TRACK4, `[menu] after =
+  "rush2049"`) and the arcade's own versions of the six Rush 2049 race tracks (`a49::arcade_tracks`: TRACK1
+  `marina_arcade`, TRACK2 `haight_arcade`, TRACK3 `civic_arcade`, TRACK5 `metro_arcade`, TRACK6 `mission_arcade`,
+  TRACK7 `presidio_arcade`, each "<Name> Arcade"). Each of the six is a version of its course (`[menu] variant_of =
+  "rush2049:<course>"`, `variant = "ARCADE"`): it shares the course's track select entry with the N64 and Dreamcast
+  versions, and the version button switches to it (docs/custom_tracks.md#versions). Until 2026-11-05 the Games tab's
+  **Alcatraz Only** option (`arcade_alcatraz_only`, default on) left them out, and with it off they were entries of
+  their own after the Rush 2049 tracks; the option is gone (a games.json still holding it is ignored) and the mod
+  always holds all seven, rebuilt once at the next launch as its key changed. Their logos are the N64 tracks' own
+  banners (`tools/build_banners.py --arcade`; until 2026-11-05 with an " A" after the name, which the version button's
+  ARCADE replaces), and their round previews are the user's in-game screenshots
+  (`tools/arcade2049/previews/<id>.png`, cut by `tools/build_banners.py --arcade` into
+  `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a fog color (its night). Offline
   (`tools/track_mod_test.bat` + `tools/track_mod_check.py` on the C++ output) all seven pass. Haight and Presidio
   needed the collision steps under "roaddat.rom" below (a cone tip on Haight; copies and a tunnel seam on Presidio)
   and Presidio, at 13,047 polygons, the converter's wide leaves (docs/custom_tracks.md: until 2026-10-19 the game took
@@ -86,6 +85,19 @@ ProjectR (a native port of the arcade games) unpacks the arcade disk (`sf2049se.
 | TRACK1, 2, 3, 5, 6, 7 | the N64's Marina, Haight, Civic, Metro, Mission, Presidio (matched by their paths) |
 | TRACK4 | **Alcatraz** (arcade only) |
 | TRACK8 | SF Rush's Embarcadero (The Rock's TRACK2), named STUNT_TRACK2 in `roaddat.rom` +0x1C, its `dobs` empty |
+
+## Music
+
+`AUDIO` holds the arcade's music as `.str` streams: `track1`..`track7` (one per TRACKn, 185-278 s), `therock`
+(TRACK8), `select`, `finish`/`finish1-3`/`gameover` (91 s), `freegame`, `atari`, `movie1` and twelve 14 s `peelout`
+stings. Format: `STRM`, u32 data bytes, u32 0x36, u32 0x52, zeros to 512 bytes; the file is 5.1 PCM16 frames
+(FL FR C LFE BL BR, LFE always 0) counted from byte 0, 22050 Hz [I].
+
+None of them is a Dreamcast disc song (and so none is an N64 song, which arrange the disc's): `tools/rush2049/song_match.py`
+slides a 40 s chroma clip of each over all 18 disc `.STR` songs, and no arcade stream picks out one disc song
+(best 0.22-0.64, each with a runner-up within 0.01-0.08), and the same-named `therock` against the disc's `THEROCK.STR` stays
+at 0.25 or less at every rate from 11 to 50 kHz with any key shift; real arrangements score 0.54-0.87, see
+docs/rush2049_research/audio.md). So the arcade's soundtrack is its own [I]; confirm by ear with `song_match.py ... --wav OUT`.
 
 ## Axes
 

@@ -563,7 +563,7 @@ namespace {
                                                       : TextureMode::Off;
             from = want == TextureMode::Disc ? active : nullptr;
             pack = disc_pack;
-            if (want != TextureMode::Disc) set_renderer_pack(false);
+            if (want == TextureMode::Off) set_renderer_pack(false);
             mode = want;
             generation++;
         }
@@ -612,7 +612,9 @@ namespace {
                 write_database();
                 upscale_generation = 1;
             }
-            set_renderer_pack(want == TextureMode::Disc);
+            // Both modes load the pack: the track select offers the race tracks' Dreamcast versions with either source
+            // (rush2::track2049::disc_courses_available), whose textures it replaces.
+            set_renderer_pack(true);
             generation++;
         }).detach();
     }
@@ -648,7 +650,7 @@ uint64_t rush2::rom2049::dc::texture_generation() {
 
 bool rush2::rom2049::dc::in_texture_pack(uint64_t hash) {
     std::lock_guard lock{ mutex };
-    return mode == TextureMode::Disc && pack_set && pack_hashes.count(hash) != 0;
+    return mode != TextureMode::Off && pack_set && pack_hashes.count(hash) != 0;
 }
 
 Match rush2::rom2049::dc::match(const upscale::Image& n64, uint64_t n64_key, bool intensity, bool car, uint64_t& image_key) {
@@ -661,7 +663,7 @@ Match rush2::rom2049::dc::match(const upscale::Image& n64, uint64_t n64_key, boo
     std::vector<Candidate> candidates;
     {
         std::lock_guard lock{ mutex };
-        if (mode != TextureMode::N64) return Match::None;
+        if (mode == TextureMode::Off) return Match::None;
         if (!index_ready) return Match::NotReady;
         auto it = matches.find(n64_key);
         if (it == matches.end()) {
@@ -706,7 +708,7 @@ Match rush2::rom2049::dc::match(const upscale::Image& n64, uint64_t n64_key, boo
         fflush(stdout);
     }
     std::lock_guard lock{ mutex };
-    if (mode != TextureMode::N64 || !index_ready) return Match::NotReady;
+    if (mode == TextureMode::Off || !index_ready) return Match::NotReady;
     matches[n64_key] = best;
     uint64_t pair[2] = { n64_key, best };
     std::ofstream(pack_dir() / matches_file, std::ios::binary | std::ios::app).write((const char*)pair, sizeof(pair));
@@ -836,7 +838,7 @@ void rush2::rom2049::dc::end_upscales() {
     upscale_generation++;
     if (index_ready) {
         write_database();
-        if (mode == TextureMode::Disc) set_renderer_pack(true); // reloads it
+        if (mode != TextureMode::Off) set_renderer_pack(true); // reloads it
     }
     generation++;
 }

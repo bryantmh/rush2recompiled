@@ -394,7 +394,7 @@ namespace {
             if (world && !seen.derived) {
                 seen.derived = true;
                 job.derived = width <= 1024 && height <= 1024 &&
-                    !(dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash));
+                    !(dc_mode != TextureMode::Off && rush2::rom2049::dc::in_texture_pack(hash));
             }
             if ((seen.ui && !ui_upscaling) || seen.kept || frame == seen.last_frame) {
                 queue_drawn(job, hash, tmem, tile, width, height, tlut, world, address);
@@ -410,7 +410,7 @@ namespace {
             if (width > 1024 || height > 1024) {
                 // A tile sized past what TMEM holds; nothing real to upscale.
             }
-            else if (dc_mode == TextureMode::Disc && rush2::rom2049::dc::in_texture_pack(hash)) {
+            else if (dc_mode != TextureMode::Off && rush2::rom2049::dc::in_texture_pack(hash)) {
                 seen.dc_packed = true;
                 source_packed++; // Drawn with the disc's image from its texture pack.
             }
@@ -536,7 +536,7 @@ namespace {
             if (!world && !entry.ui) {
                 mark_ui(key);
             }
-            if (!entry.ui && dc_mode == TextureMode::N64 && dc_candidate(entry)) {
+            if (!entry.ui && dc_mode != TextureMode::Off && dc_candidate(entry)) {
                 if (entry.dc == DcState::Unknown) {
                     entry.dc = DcState::Pending;
                     dc_pending.push_back(key);
@@ -1415,7 +1415,7 @@ namespace {
                 if (entry.ui) {
                     continue;
                 }
-                if (dc_mode == TextureMode::N64 && dc_candidate(entry)) {
+                if (dc_mode != TextureMode::Off && dc_candidate(entry)) {
                     entry.dc = DcState::Pending;
                     dc_pending.push_back(key);
                     dc_new = true;
@@ -2033,11 +2033,11 @@ void add_options(recomp::config::Config& config) {
         "Dreamcast Textures",
         "With the N64 ROM as the Rush 2049 source and a Rush 2049 Dreamcast disc installed too (Games tab), draws each "
         "N64 texture that is the same picture as a disc texture with the disc's image, up to four times the size and in "
-        "full color; the rest stay as they are. Texture packs you install take priority, and upscaling handles "
-        "everything the disc doesn't replace. Upscales of the disc's images (Your Own Upscales, rush2049dc) are drawn "
-        "in their place.<br/><br/>Unavailable without a disc, and with the disc as the source, which always draws its "
-        "own textures at full size. The first time, the disc's images take a minute or so to prepare in the "
-        "background.",
+        "full color, and the race tracks' Dreamcast versions with the disc's own textures at full size; the rest stay "
+        "as they are. Texture packs you install take priority, and upscaling handles everything the disc doesn't "
+        "replace. Upscales of the disc's images (Your Own Upscales, rush2049dc) are drawn in their place.<br/><br/>"
+        "Unavailable without a disc, and with the disc as the source, which always does this. The first time, the "
+        "disc's images take a minute or so to prepare in the background.",
         true
     );
     config.add_option_change_callback(dreamcast_option_id,

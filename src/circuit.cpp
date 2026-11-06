@@ -22,7 +22,7 @@
 // existed, or entered as a code) is 28 races over every course but California Speed's, CRASH and PIPE (added later: a
 // circuit in progress keeps its races).
 //
-// Custom tracks (src/track_mod/, track select ids 38-63 and 80-254) are chosen by their folder, since their ids follow the enabled
+// Custom tracks (src/track_mod/, track select ids 38-63 and 80-248) are chosen by their folder, since their ids follow the enabled
 // mods: the choices keep the folders turned off (so a newly installed track is in), and a circuit records the folders it
 // started with. A circuit recorded before custom tracks could be chosen has none.
 
@@ -85,6 +85,8 @@ namespace {
     constexpr Game games[] = {
         { "Rush 2", 0, 10 },
         { "Rush 2049", rush2::track2049::first_menu_id, rush2::track2049::track_count },
+        // The race tracks' Dreamcast versions, offered beside the N64 ones (Games tab Enabled Source: Both).
+        { "Rush 2049 Dreamcast", rush2::track2049::disc_menu_id, rush2::track2049::track_count },
         { "SF Rush", rush2::track1::first_menu_id, rush2::track1::track_count },
         { "California Speed", rush2::calspeed::first_menu_id, rush2::calspeed::track_count },
     };
@@ -107,6 +109,7 @@ namespace {
 
     std::string course_name(int t) {
         if (t < 10) return rush2_names[t];
+        if (rush2::track2049::is_disc_course(t)) return rush2::track2049::track_names[t - rush2::track2049::disc_menu_id];
         if (t < rush2::track1::first_menu_id) return rush2::track2049::track_names[t - rush2::track2049::first_menu_id];
         if (t >= rush2::calspeed::first_menu_id) return rush2::calspeed::track_names[t - rush2::calspeed::first_menu_id];
         return rush2::track1::track_names[t - rush2::track1::first_menu_id];
@@ -807,6 +810,7 @@ namespace {
 
     bool game_shown(const Game& g) {
         if (g.first == rush2::track2049::first_menu_id) return rush2::track2049::available();
+        if (g.first == rush2::track2049::disc_menu_id) return rush2::track2049::disc_courses_available();
         if (g.first == rush2::track1::first_menu_id) return rush2::track1::available();
         if (g.first == rush2::calspeed::first_menu_id) return rush2::calspeed::available();
         return true;
@@ -1060,3 +1064,12 @@ void rush2::circuit::add_section(recompui::Element* parent, const TextShower& te
     recompui::get_current_context().create_element<Section>(parent, text_shower, std::move(panel));
 }
 
+
+std::string rush2::circuit::track_name(int t) {
+    if (t < 0 || t >= rush2::calspeed::first_menu_id + rush2::calspeed::track_count ||
+        (t >= 10 && t < rush2::track2049::first_menu_id) ||
+        (t >= rush2::track2049::stunt_menu_id && t < rush2::calspeed::first_menu_id)) {
+        return {};
+    }
+    return course_name(t);
+}

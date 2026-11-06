@@ -4,10 +4,12 @@
 // through 0-11 and shows a carousel of dioramas built from 12-entry tables. With Rush 2049 tracks available it
 // offers ids 12-17 after them, Rush 2049's stunt arenas as ids 25-28, its obstacle course as id 29 and its battle
 // arenas DM1-DM8 as ids 30-37, with SF Rush (Rush 1) tracks available ids 18-24, then the custom tracks as 38-63,
-// California Speed's tracks as 64-79 (src/calspeed/) and the custom tracks past the 26th as 80-254 (include/track2049.h,
-// mod_id). The game keeps the id in a signed byte; us.toml turns every load of it (and of the carousel's copy) into an
-// unsigned one, so ids past 127 read as themselves (tools/byte_reads.py lists them). The carousel lists them in display
-// order (build_order: custom tracks can be listed after another game's with track.toml [menu] after):
+// California Speed's tracks as 64-79 (src/calspeed/), the custom tracks past the 26th as 80-248 (include/track2049.h,
+// mod_id) and the race tracks' Dreamcast versions as 249-254 (disc_menu_id). A course with more than one version
+// shows as one entry with a version button (see "Track versions" below). The game keeps the id in a signed byte;
+// us.toml turns every load of it (and of the carousel's copy) into an unsigned one, so ids past 127 read as themselves
+// (tools/byte_reads.py lists them). The carousel lists them in display order (build_order: custom tracks can be
+// listed after another game's with track.toml [menu] after, a course's versions follow it):
 // - The per-track tables the screen reads (diorama names 0x803C91E0, scales 0x803C9180, cloud heights 0x803C91B0,
 //   logo names 0x803C9668) and its carousel array (0x803D0698, 0x1C bytes per entry) only have room for 12. Copies
 //   with room for 256 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml
@@ -37,6 +39,7 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -51,6 +54,7 @@
 #include <utility>
 #include <vector>
 
+#include "json/json.hpp"
 #include "recomp.h"
 #include "util/file.h"
 
@@ -71,6 +75,8 @@
 #include "scene_nodes.h"
 
 using namespace rush2::track2049;
+
+extern "C" void menu_play_sound_80064908(uint8_t* rdram, recomp_context* ctx);   // Plays a menu sound ($a0).
 
 namespace {
     constexpr uint32_t track_id = 0x8010C3F0;
@@ -220,6 +226,7 @@ namespace {
 
     // Whether added track select entry t (12-254) can be chosen.
     bool entry_available(int t) {
+        if (is_disc_course(t)) return disc_courses_available();
         if (is_mod_track(t)) {
             // A custom battle arena needs the Rush 2049 ROM as the battle does (its weapons, pickups and HUD).
             bool ok = size_t(mod_index(t)) < mod_ok.size() && mod_ok[size_t(mod_index(t))];
@@ -324,7 +331,7 @@ namespace {
         else if (t == 9) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)pipe_unlocked) != 0);
         else if (t == 10) unlocked = rush2::unlocks::track_open(rdram, t, MEM_BU(0, (int32_t)atari_unlocked) != 0);
         else if (t == stunt_host_slot) unlocked = true;
-        else unlocked = entry_available(t) && rush2::unlocks::track_open(rdram, t);
+        else unlocked = entry_available(t) && rush2::unlocks::track_open(rdram, course_id(t));
         if (all_tracks_open && online_offered_on && offered_kinds[select_kind.load()] && !online_offered[t]) {
             unlocked = false;
         }
@@ -339,13 +346,218 @@ namespace {
     bool filter_leaves_none = false;
     int filter_keep_track = -1;     // The track shown when a changed filter rebuilt the screen.
 
-    // Whether the track select offers track t (0-254): base_selectable and the game filter.
-    bool track_selectable(uint8_t* rdram, int t) {
+    // Whether the track select would offer track t (0-254) without track versions: base_selectable and the game
+    // filter.
+    bool member_ok(uint8_t* rdram, int t) {
         using namespace rush2::game_filter;
         return base_selectable(rdram, t) &&
                (filter_present == 0 || !filter_on || filter_leaves_none || MEM_W(0, (int32_t)game_state) != 1 ||
                 !hidden(Screen::Tracks, track_game(t)));
     }
+
+    // Track versions (docs/custom_tracks.md#versions). A course with more than one version (the Rush 2049 race
+    // tracks' N64 version, 12-17, and Dreamcast version, 249-254; any race track and the custom tracks that name it
+    // with track.toml [menu] variant_of, as the arcade mod's versions of the six do) is one carousel entry showing one
+    // of them, the one picked last with the version button: the menus' C-left (X, Square; J on the keyboard), with
+    // its prompt under the game filter's (rush2::game_filter::draw). That version is what is raced. The others are left
+    // out of the list the carousel is built from (track_selectable), as the game filter leaves out a game's tracks; a
+    // version the select can't offer (locked, filtered out, not loaded) leaves the others to it. On a circuit's select
+    // (the circuit picked the track) and outside the track select every version is offered. The picks are kept per
+    // course in the saves ("track_select" "versions", by the course's key and the version's label), so a version
+    // that comes back (a mod turned on again) is picked again.
+    struct VersionGroup {
+        std::string key;            // a race track's "game:name" ("rush2049:marina"), or a custom track's folder
+        std::vector<int> members;   // track select ids, the course first
+    };
+    std::vector<VersionGroup> version_groups;
+    std::array<int, menu_tracks> group_of = [] {
+        std::array<int, menu_tracks> a;
+        a.fill(-1);
+        return a;
+    }();
+    std::vector<std::string> mod_version_labels;    // by custom track index: [menu] variant, else its name (upper case)
+    std::map<std::string, std::string> version_picks;   // course key -> the picked version's label
+    // Characters: what fits right of the prompt's X before the text drawer's clip, with FILTER where it always was
+    // (rush2::game_filter::draw). The Dreamcast versions show as DC for it.
+    constexpr size_t version_label_max = 6;
+
+    std::string upper_label(const std::string& text) {
+        std::string out;
+        for (char c : text) out.push_back((char)std::toupper((unsigned char)c));
+        return out.size() > version_label_max ? out.substr(0, version_label_max) : out;
+    }
+
+    // A name as a key: lower case, each run of other characters than letters and digits one _ ("Mt. Shasta" ->
+    // "mt_shasta").
+    std::string key_name(const std::string& name) {
+        std::string out;
+        for (char c : name) {
+            if (std::isalnum((unsigned char)c)) out.push_back((char)std::tolower((unsigned char)c));
+            else if (!out.empty() && out.back() != '_') out.push_back('_');
+        }
+        while (!out.empty() && out.back() == '_') out.pop_back();
+        return out;
+    }
+
+    // Race track t's key ("rush2049:marina"), "" for an id that isn't another game's race track.
+    std::string stock_key(int t) {
+        using rush2::game_filter::Game;
+        std::string name = rush2::circuit::track_name(t);
+        if (name.empty()) return {};
+        switch (rush2::game_filter::track_game(t)) {
+            case Game::Rush2: return "rush2:" + key_name(name);
+            case Game::SFRush: return "sfrush:" + key_name(name);
+            case Game::Rush2049: return "rush2049:" + key_name(name);
+            case Game::CalSpeed: return "calspeed:" + key_name(name);
+            default: return {};
+        }
+    }
+
+    // What the version button shows for version t.
+    std::string version_label(int t) {
+        if (t >= first_menu_id && t < first_menu_id + track_count) return courses_from_disc() ? "DC" : "N64";
+        if (is_disc_course(t)) return "DC";
+        int i = mod_index(t);
+        if (i >= 0 && size_t(i) < mod_version_labels.size()) return mod_version_labels[size_t(i)];
+        return "STOCK";
+    }
+
+    // Groups the courses' versions: the 2049 race tracks' two, then the custom tracks that name a course (through
+    // another custom track that names one too, if they chain), each in mod order after the course's own.
+    void build_versions(const std::vector<rush2::track_mod::Entry>& entries) {
+        version_groups.clear();
+        group_of.fill(-1);
+        mod_version_labels.clear();
+        size_t n = std::min(entries.size(), size_t(mod_capacity));
+        for (size_t i = 0; i < n; i++) {
+            const rush2::track_mod::Settings& st = entries[i].settings;
+            mod_version_labels.push_back(upper_label(st.variant.empty() ? (st.name.empty() ? entries[i].folder : st.name)
+                                                                        : st.variant));
+        }
+        auto add = [&](int course, const std::string& key, int member) {
+            int g = group_of[size_t(course)];
+            if (g < 0) {
+                g = int(version_groups.size());
+                version_groups.push_back({ key, { course } });
+                group_of[size_t(course)] = g;
+            }
+            version_groups[size_t(g)].members.push_back(member);
+            group_of[size_t(member)] = g;
+        };
+        for (int k = 1; k <= track_count; k++) {
+            int course = first_menu_id + k - 1;
+            add(course, stock_key(course), disc_menu_id + k - 1);
+        }
+        // The track a [menu] variant_of names: a race track's key or a custom track's folder (-1: none).
+        auto named = [&](const std::string& name) {
+            if (name.find(':') != std::string::npos) {
+                for (int t = 0; t < menu_tracks; t++) {
+                    if (!is_mod_track(t) && !is_disc_course(t) && stock_key(t) == name) return t;
+                }
+                return -1;
+            }
+            for (size_t j = 0; j < n; j++) {
+                if (entries[j].folder == name) return mod_id(int(j));
+            }
+            return -1;
+        };
+        for (size_t i = 0; i < n; i++) {
+            const std::string& of = entries[i].settings.variant_of;
+            if (of.empty()) continue;
+            int self = mod_id(int(i));
+            // The course at the end of the chain of variant_of.
+            int course = named(of);
+            for (size_t step = 0; course >= 0 && step <= n; step++) {
+                int j = mod_index(course);
+                if (j < 0 || entries[size_t(j)].settings.variant_of.empty()) break;
+                course = named(entries[size_t(j)].settings.variant_of);
+            }
+            if (course < 0 || course == self || (mod_index(course) >= 0 &&
+                                                 !entries[size_t(mod_index(course))].settings.variant_of.empty())) {
+                printf("[trackmod] %s: [menu] variant_of = \"%s\" names no race track (\"rush2049:marina\", ...) or "
+                       "custom track, or they name each other; it is a track of its own\n", entries[i].folder.c_str(),
+                       of.c_str());
+                continue;
+            }
+            if (kind_of(course) != kind_of(self)) {
+                printf("[trackmod] %s: [menu] variant_of = \"%s\" is another kind of track (race, stunt or battle); it "
+                       "is a track of its own\n", entries[i].folder.c_str(), of.c_str());
+                continue;
+            }
+            int g = group_of[size_t(course)];
+            std::string key = g >= 0 ? version_groups[size_t(g)].key
+                              : is_mod_track(course) ? entries[size_t(mod_index(course))].folder : stock_key(course);
+            add(course, key, self);
+        }
+    }
+
+    // Whether the select shows one version per course: the track select, not a circuit's.
+    bool versions_apply(uint8_t* rdram) {
+        return MEM_W(0, (int32_t)game_state) == 1 && MEM_W(0, (int32_t)game_mode) != 1;
+    }
+
+    // An online joiner's select, which offers the host's (set_online_offered).
+    bool online_joiner() {
+        return all_tracks_open && online_offered_on && offered_kinds[size_t(select_kind.load())];
+    }
+
+    // The version of group g the select shows: the one picked last, else the first it can offer; on an online
+    // joiner's the host's (the one it offers that isn't a custom track, which each machine numbers its own). -1: none.
+    int shown_version(uint8_t* rdram, int g) {
+        const VersionGroup& group = version_groups[size_t(g)];
+        auto pick = version_picks.find(group.key);
+        int first = -1, picked = -1, first_stock = -1;
+        for (int t : group.members) {
+            if (!member_ok(rdram, t)) continue;
+            if (first < 0) first = t;
+            if (first_stock < 0 && !is_mod_track(t)) first_stock = t;
+            if (picked < 0 && pick != version_picks.end() && version_label(t) == pick->second) picked = t;
+        }
+        if (online_joiner()) return first_stock >= 0 ? first_stock : first;
+        return picked >= 0 ? picked : first;
+    }
+
+    // Whether the track select offers track t (0-254): member_ok, and the version shown of a course with several.
+    bool track_selectable(uint8_t* rdram, int t) {
+        if (!member_ok(rdram, t)) return false;
+        int g = t >= 0 && t < menu_tracks ? group_of[size_t(t)] : -1;
+        return g < 0 || !versions_apply(rdram) || shown_version(rdram, g) == t;
+    }
+
+    // The version of t's course the select shows (t when it has no other or none can be offered).
+    int shown_of(uint8_t* rdram, int t) {
+        int g = t >= 0 && t < menu_tracks ? group_of[size_t(t)] : -1;
+        if (g < 0 || !versions_apply(rdram)) return t;
+        int shown = shown_version(rdram, g);
+        return shown >= 0 ? shown : t;
+    }
+
+    // Whether t's course has another version installed, which the prompt names t's version for: even one the
+    // select can't offer now (locked), so a course showing its arcade version until the others unlock says so.
+    bool other_version(uint8_t* rdram, int t) {
+        int g = t >= 0 && t < menu_tracks ? group_of[size_t(t)] : -1;
+        if (g < 0 || !versions_apply(rdram) || online_joiner()) return false;
+        for (int other : version_groups[size_t(g)].members) {
+            if (other != t && entry_available(other)) return true;
+        }
+        return false;
+    }
+
+    // The version the button switches t's course to: the next the select can offer after t, or -1 (no other).
+    int next_version(uint8_t* rdram, int t) {
+        int g = t >= 0 && t < menu_tracks ? group_of[size_t(t)] : -1;
+        if (g < 0 || !versions_apply(rdram) || online_joiner()) return -1;
+        const std::vector<int>& members = version_groups[size_t(g)].members;
+        auto at = std::find(members.begin(), members.end(), t);
+        if (at == members.end()) return -1;
+        size_t i = size_t(at - members.begin());
+        for (size_t step = 1; step < members.size(); step++) {
+            int other = members[(i + step) % members.size()];
+            if (member_ok(rdram, other)) return other;
+        }
+        return -1;
+    }
+
 
     // Notes which games' tracks the select offers and whether the filter applies to it: not to a circuit's (its TRACK
     // row is greyed) or an online joiner's (it offers the host's select's tracks, filtered by the host's filter).
@@ -452,7 +664,7 @@ namespace {
     int menu_reloads = 0;
 
     // The save file's section (include/data_files.h): { "selected": n, "stunt": n, "battle": n, "points": n,
-    // "minutes": n, "race_battle": 0/1 }. "race_battle" is the race select's BATTLE row (rush2::battle::race_battle), off without it.
+    // "minutes": n, "race_battle": 0/1, "versions": { course key: version label } }. "race_battle" is the race select's BATTLE row (rush2::battle::race_battle), off without it.
     // "points" and "minutes" are the BATTLE select's POINTS and TIME LIMIT (rush2::battle::points_to_win,
     // time_limit_minutes, 0 off); a save without "minutes" takes the old Games tab time limit (src/rush2049/wings.cpp,
     // hidden now) if it was changed from its default, 3 minutes.
@@ -493,6 +705,21 @@ namespace {
         rush2::battle::set_time_limit_minutes(minutes);
         race_battle_selection = read("\"race_battle\"") == 1;
         rush2::battle::set_race_battle(race_battle_selection);
+        // Saves from before track versions have none: each course shows its first version (the N64 one), except the
+        // course of the saved choice, which shows that version (an arcade track was an entry of its own then).
+        nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+        if (j.is_object() && j.contains("versions") && j["versions"].is_object()) {
+            for (const auto& [key, label] : j["versions"].items()) {
+                // A build of 2026-11-05 named the Dreamcast versions DREAMCAST and allowed 12 characters.
+                std::string l = label.is_string() ? label.get<std::string>() : std::string();
+                if (l == "DREAMCAST") l = "DC";
+                if (!l.empty()) version_picks[key] = upper_label(l);
+            }
+        }
+        else if (selection >= 0 && first_menu_id + selection < menu_tracks) {
+            int g = group_of[size_t(first_menu_id + selection)];
+            if (g >= 0) version_picks[version_groups[size_t(g)].key] = version_label(first_menu_id + selection);
+        }
     }
 
     // The BATTLE row's value as the track select opens: a circuit's own, which it takes from the row out of a circuit
@@ -506,12 +733,15 @@ namespace {
     }
 
     void write_selection() {
+        nlohmann::json versions = nlohmann::json::object();
+        for (const auto& [key, label] : version_picks) versions[key] = label;
         rush2::data_files::write(rush2::data_files::File::Saves, selection_section,
             "{ \"selected\": " + std::to_string(selection) + ", \"stunt\": " + std::to_string(stunt_selection) +
             ", \"battle\": " + std::to_string(battle_selection) +
             ", \"points\": " + std::to_string(rush2::battle::points_to_win()) +
             ", \"minutes\": " + std::to_string(rush2::battle::time_limit_minutes()) +
-            ", \"race_battle\": " + std::to_string(race_battle_selection ? 1 : 0) + " }");
+            ", \"race_battle\": " + std::to_string(race_battle_selection ? 1 : 0) +
+            ", \"versions\": " + versions.dump() + " }");
     }
 
     void save_selection(int value) {
@@ -552,7 +782,9 @@ namespace {
     // obstacle course's, the battle arenas', the custom tracks' and the Cal Speed tracks'.
     void write_tables(uint8_t* rdram) {
         size_t mods = std::min(mod_ok.size(), size_t(mod_capacity));
-        table_entries = mods > size_t(mod_low_count) ? mod_id(int(mods) - 1) + 1 : cs_end;
+        // A circuit can pick the Dreamcast versions (249-254), the last ids.
+        table_entries = disc_courses_available() ? menu_tracks
+                        : mods > size_t(mod_low_count) ? mod_id(int(mods) - 1) + 1 : cs_end;
         for (int t = 0; t < rush2_tracks; t++) {
             MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = MEM_W(0, (int32_t)(diorama_names + t * 4));
             MEM_W(0, (int32_t)(new_diorama_scales + t * 4)) = MEM_W(0, (int32_t)(diorama_scales + t * 4));
@@ -643,13 +875,21 @@ namespace {
             MEM_W(0, (int32_t)(new_diorama_scales + t * 4)) = 0x3F0CCCCD; // 0.55: the miniatures are larger than the stock models
             MEM_W(0, (int32_t)(new_cloud_heights + t * 4)) = 0x41700000;  // 15.0, as most stock dioramas
         }
+        // The Dreamcast versions show the course's art (only one version of a course is on the carousel).
+        for (int k = 1; k <= track_count; k++) {
+            int from = first_menu_id + k - 1, t = disc_menu_id + k - 1;
+            for (uint32_t table : { new_diorama_names, new_logo_names, new_diorama_scales, new_cloud_heights }) {
+                MEM_W(0, (int32_t)(table + t * 4)) = MEM_W(0, (int32_t)(table + from * 4));
+            }
+            preview_names[t] = preview_names[from];
+        }
     }
 
     // The order the track select lists its entries in: every id 0-254 once. Ids stay what saves and races use; only the
     // carousel follows this order (rush2_track49_select_count, _carousel_order, _step). Custom tracks with a track.toml
     // [menu] after are moved behind the last entry of that game on their own select (race, stunt or battle), or behind
     // the custom track of that folder; several behind one anchor keep the mod order. The others stay in id order
-    // (38-63 before the Cal Speed tracks, 80-254 after them).
+    // (38-63 before the Cal Speed tracks, 80-248 after them).
     std::vector<int> display_order;
 
     bool anchor_game(const std::string& name, rush2::game_filter::Game& out) {
@@ -705,6 +945,16 @@ namespace {
                 place(self, anchor);
             }
         }
+        // A course's other versions right after it, so the one shown takes the course's place.
+        for (const VersionGroup& group : version_groups) {
+            int previous = group.members[0];
+            for (size_t m = 1; m < group.members.size(); m++) {
+                int t = group.members[m];
+                display_order.erase(std::find(display_order.begin(), display_order.end(), t));
+                display_order.insert(std::find(display_order.begin(), display_order.end(), previous) + 1, t);
+                previous = t;
+            }
+        }
     }
 
     // The tracks the carousel shows, in display order.
@@ -721,7 +971,10 @@ namespace {
     void refresh_mods() {
         std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
         std::string signature;
-        for (const auto& e : entries) signature += e.mod_id + "/" + e.folder + ">" + e.settings.menu_after + ";";
+        for (const auto& e : entries) {
+            signature += e.mod_id + "/" + e.folder + ">" + e.settings.menu_after + "~" + e.settings.variant_of + "=" +
+                         e.settings.variant + ";";
+        }
         bool reload = mods_reload.exchange(false);
         if (signature == mod_signature && !display_order.empty() && !reload) return;
         if (reload) {
@@ -737,6 +990,7 @@ namespace {
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));
         }
+        build_versions(entries);
         build_order(entries);
         if (entries.size() > size_t(mod_capacity)) {
             printf("[trackmod] The track select has room for %d custom tracks; %zu are left out\n", mod_capacity,
@@ -892,7 +1146,7 @@ namespace {
     // Turns an added track's menu id into its host slot for the race.
     void enter_race(uint8_t* rdram) {
         int t = MEM_BU(0, (int32_t)track_id);
-        if (t >= first_menu_id && t < mod_menu_id) {
+        if ((t >= first_menu_id && t < mod_menu_id) || is_disc_course(t)) {
             rush2::track_mod::set_race_track(-1);
         }
         if (t >= first_menu_id && t < menu_tracks && (t < cs_first || t >= cs_end)) {
@@ -915,6 +1169,13 @@ namespace {
             rush2::track_mod::set_race_track(mod_index(t));
             // A custom arena races in STUNT1's slot (stunt mode), as Rush 2049's arenas.
             MEM_B(0, (int32_t)track_id) = is_arena(t) ? stunt_host_slot : host_slot;
+        }
+        else if (is_disc_course(t)) {
+            set_race_track(t - disc_menu_id + 1, true);
+            rush2::track1::set_race_track(0);
+            set_stunt_arena(0);
+            set_battle_arena(0);
+            MEM_B(0, (int32_t)track_id) = host_slot;
         }
         else if (t >= first_menu_id && t < r1_first) {
             set_race_track(t - first_menu_id + 1);
@@ -1070,24 +1331,32 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     update_filter(rdram);
     offered_rebuild = false;
     int t = -1;
+    // A saved choice that is a course's other version stands for the course: the version shown now.
     if (select_kind == select_stunt) {
         // The game's choice (from the save record's nibble) is a race track, which this select doesn't offer.
-        t = stunt_selection >= 0 && track_selectable(rdram, stunt_selection) ? stunt_selection : stunt_host_slot;
+        int c = stunt_selection >= 0 ? shown_of(rdram, stunt_selection) : -1;
+        t = c >= 0 && track_selectable(rdram, c) ? c : stunt_host_slot;
     }
     else if (select_kind == select_battle) {
-        t = battle_selection >= 0 && track_selectable(rdram, battle_selection) ? battle_selection : battle_menu_id;
+        int c = battle_selection >= 0 ? shown_of(rdram, battle_selection) : -1;
+        t = c >= 0 && track_selectable(rdram, c) ? c : battle_menu_id;
     }
-    else if (selection >= 0 && track_selectable(rdram, first_menu_id + selection) && MEM_W(0, (int32_t)game_mode) != 1) {
-        t = first_menu_id + selection;
+    else if (selection >= 0 && MEM_W(0, (int32_t)game_mode) != 1) {
+        int c = shown_of(rdram, first_menu_id + selection);
+        if (track_selectable(rdram, c)) t = c;
     }
-    // Test aid: RUSH2_TEST_TRACK=<track select id> opens the screen on that track, whatever the save chose.
+    // Test aid: RUSH2_TEST_TRACK=<track select id> opens the screen on that track, whatever the save chose (a course's
+    // other version is picked for this visit). Not on a rebuild (filter_keep_track), which keeps the track shown.
     static const char* test_track = std::getenv("RUSH2_TEST_TRACK");
-    if (test_track != nullptr && track_selectable(rdram, std::atoi(test_track))) {
-        t = std::atoi(test_track);
+    if (test_track != nullptr && filter_keep_track < 0) {
+        int want = std::atoi(test_track);
+        int g = want >= 0 && want < menu_tracks ? group_of[size_t(want)] : -1;
+        if (g >= 0 && member_ok(rdram, want)) version_picks[version_groups[size_t(g)].key] = version_label(want);
+        if (track_selectable(rdram, want)) t = want;
     }
     // RUSH2_TEST_MOD_FOLDER=<folder> does the same for the custom track of that folder (tools/trackview's AI runs).
     static const char* test_folder = std::getenv("RUSH2_TEST_MOD_FOLDER");
-    if (test_folder != nullptr) {
+    if (test_folder != nullptr && filter_keep_track < 0) {
         std::vector<rush2::track_mod::Entry> mods = rush2::track_mod::tracks();
         for (size_t i = 0; i < mods.size(); i++) {
             if (i < size_t(mod_capacity) && mods[i].folder == test_folder && track_selectable(rdram, mod_id(int(i)))) {
@@ -1095,12 +1364,15 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
             }
         }
     }
-    // The game filter: after it changed, the track that was shown; a choice it hides gives the first track it offers.
-    if (filter_present != 0 && filter_on) {
-        int chosen = t >= 0 ? t : MEM_BU(0, (int32_t)track_id);
+    // The game's own choice of a course's other version: the version shown. After the game filter or the version
+    // button rebuilt the screen, the track to show; a choice the filter hides gives the first track it offers.
+    {
+        int chosen = shown_of(rdram, t >= 0 ? t : MEM_BU(0, (int32_t)track_id));
         if (filter_keep_track >= 0 && track_selectable(rdram, filter_keep_track)) chosen = filter_keep_track;
-        for (int i = 0; i < menu_tracks && !track_selectable(rdram, chosen); i++) {
-            if (track_selectable(rdram, i)) chosen = i;
+        if (filter_present != 0 && filter_on) {
+            for (int i = 0; i < menu_tracks && !track_selectable(rdram, chosen); i++) {
+                if (track_selectable(rdram, i)) chosen = i;
+            }
         }
         if (chosen != MEM_BU(0, (int32_t)track_id)) t = chosen;
     }
@@ -1123,14 +1395,41 @@ extern "C" void trackselect_init_draw_803AB294(uint8_t* rdram, recomp_context* c
 extern "C" int rush2_track49_filter_frame(uint8_t* rdram, recomp_context* ctx) {
     // An online joiner's carousel holds the host's offered tracks (set_online_offered): a change rebuilds it the same way.
     bool offered_changed;
+    int switched = -1;
     {
         std::lock_guard lock{ menu_mutex };
         offered_changed = std::exchange(offered_rebuild, false);
+        // The version button: the course's next version, picked (and saved) and shown.
+        constexpr uint32_t menu_pressed = 0x8011962A;   // u16: the menus' presses this frame
+        constexpr uint16_t c_left = 0x0002;
+        if (!offered_changed && !rush2::game_filter::input_captured() &&
+            (MEM_HU(0, (int32_t)menu_pressed) & c_left) != 0) {
+            int t = MEM_BU(0, (int32_t)track_id);
+            switched = next_version(rdram, t);
+            if (switched >= 0) {
+                version_picks[version_groups[size_t(group_of[size_t(t)])].key] = version_label(switched);
+                if (select_kind == select_stunt) stunt_selection = switched;
+                else if (select_kind == select_battle) battle_selection = switched;
+                else selection = switched - first_menu_id;
+                write_selection();
+            }
+        }
     }
-    if (!offered_changed && !rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
+    if (switched >= 0) {
+        constexpr int sound_change = 0x49;
+        recomp_context saved = *ctx;
+        ctx->r4 = sound_change;
+        menu_play_sound_80064908(rdram, ctx);
+        *ctx = saved;
+        filter_keep_track = switched;
+    }
+    else if (!offered_changed &&
+             !rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
         return 0;
     }
-    filter_keep_track = MEM_BU(0, (int32_t)track_id);
+    else {
+        filter_keep_track = MEM_BU(0, (int32_t)track_id);
+    }
     recomp_context saved = *ctx;
     ctx->r4 = 0;
     trackselect_init_draw_803AB294(rdram, ctx);
@@ -1141,7 +1440,13 @@ extern "C" int rush2_track49_filter_frame(uint8_t* rdram, recomp_context* ctx) {
 // End of the track select's option text callback (func_803C6268 at 0x803C6940): the game filter's prompt and panel.
 extern "C" void rush2_track49_filter_text(uint8_t* rdram, recomp_context* ctx) {
     if (MEM_W(0, (int32_t)game_state) == 1) {
-        rush2::game_filter::draw(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present);
+        rush2::game_filter::VersionPrompt version;
+        {
+            std::lock_guard lock{ menu_mutex };
+            int t = MEM_BU(0, (int32_t)track_id);
+            if (other_version(rdram, t)) version.label = version_label(t);
+        }
+        rush2::game_filter::draw(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present, &version);
     }
 }
 
@@ -1537,7 +1842,7 @@ namespace {
             }
         }
         // The tube's color: race track k's, or race track 4's red for a custom track's route (src/track_mod/track_mod_menu.cpp).
-        int k = t - first_menu_id + 1;
+        int k = course_id(t) - first_menu_id + 1;
         if (is_mod_track(t)) k = 4;
         else if (k < 1 || k > track_count) return;
         if (model.local.size() < size_t(preview_tube_rings) * 4) return;
@@ -1755,7 +2060,7 @@ extern "C" void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx
 // on the current track at $a1. On the added tracks the unlock system decides (rush2::unlocks::added_track_keys).
 extern "C" int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx) {
     int count;
-    if (!rush2::unlocks::added_track_keys(rdram, (int32_t)ctx->r4, MEM_BU(0, (int32_t)track_id),
+    if (!rush2::unlocks::added_track_keys(rdram, (int32_t)ctx->r4, course_id(MEM_BU(0, (int32_t)track_id)),
                                           (ctx->r6 & 0xFF) != 0, count)) {
         return 0;
     }
@@ -1785,6 +2090,7 @@ int rush2::track2049::host_menu_track(uint8_t* rdram, int t) {
 }
 
 bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_t>& out) {
+    t = course_id(t);   // a Dreamcast version: its course's banner
     if (t >= 0 && t < rush2_tracks) {
         return rush2::assets::read_original(rdram, 4 + t, out);
     }
@@ -1945,7 +2251,7 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     all.push_back(8);   // CRASH
     if (rush2::unlocks::track_open(rdram, 9, MEM_BU(0, (int32_t)pipe_unlocked) != 0)) all.push_back(9);
     for (int t = first_menu_id; t < circuit_tracks; t++) {
-        if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, t)) all.push_back(t);
+        if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, course_id(t))) all.push_back(t);
     }
     for (int t : all) {
         if (rush2::circuit::course_chosen(rdram, t)) pool.push_back(t);

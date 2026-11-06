@@ -3,17 +3,29 @@
 Tags: **[V]** verified in data or code, **[I]** inferred. Addresses `0x8C......` are the disc executable's
 (`1ST_READ.BIN`, loaded at 0x8C010000, little endian SH-4).
 
-## Status (experimental)
+## Status
 
 The Games tab takes a Dreamcast disc image (.cdi, .gdi, .cue, .iso; USA disc only) in place of the N64 ROM. Its files are
 copied into `rush2049_dc.pak` in the app folder; the N64 ROM's copy (`rush2049.z64`) is kept too. With both there, the
-Games tab's Rush 2049 Source option (`rush2049_source` in games.json, default Dreamcast Disc, which is what a disc
-chosen before the option existed got) picks one; selecting a ROM or disc points the option at it
+Games tab's Enabled Source option (`rush2049_enabled_source`: N64, Dreamcast or Both, default Both; added
+2026-11-05) says which the game may use, and with Both the Primary Source option (`rush2049_source`, named Rush 2049
+Source until 2026-11-05; default Dreamcast Disc, which is what a disc chosen before the option existed got) picks the
+one in use for everything but the race tracks' versions (`wings.cpp resolved_choice`, `rush2::wings::source_enabled`);
+selecting a ROM or disc points Primary Source at it (and Enabled Source at Both if it left that one out)
 (src/rush2049/wings.cpp `load_chosen_source`). Switching it takes effect without a restart: the source changes at once, the
 Dreamcast Textures follow (`set_texture_sources`), the next race converts its track again (track2049.cpp
 `loaded_source`), battle tuning is read again, and the cars and their physics are rebuilt the next time the game is
 in the menus or track select (car2049.cpp `check_source`, game state 0-1, when no car is loaded from the old assets).
 The track select's dioramas, sounds, songs, movers and props already follow the source in use.
+
+The race tracks are the exception (2026-11-05, issue 55): with both copies stored, each of the six offers both
+versions on the track select at once, whatever the option says: its N64 version (ids 12-17, from the N64 ROM) and its
+Dreamcast version (ids 249-254, from the disc), behind one entry whose version button switches them
+(docs/custom_tracks.md#versions). `rush2::wings::track_source(disc)` gives either copy (the other one opened once and
+kept); track2049.cpp `source_for` picks a race track's, the arenas and obstacle course keep the option's, and the
+disc's conversions are cached apart (`cache_k`: entry k + 100) so neither replaces the other. The raced track's
+props and moving objects read that copy's tables (`rush2::track2049::race_source`). With the disc alone, 12-17 are
+the disc's. The Dreamcast versions share the course's records, ghosts, unlocks and track select art.
 Everything reads 2049 through `rush2::rom2049::Source` (include/rush2049_rom.h) in N64 terms: the disc's files are
 converted to N64 files and its tables to N64 code segments on the fly, so no consumer knows which game it got.
 

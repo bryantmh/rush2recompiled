@@ -140,7 +140,7 @@ namespace {
     }
 
     bool load_types() {
-        auto rom = rush2::wings::get_rom();
+        auto rom = rush2::track2049::race_source();
         if (rom == nullptr) {
             return false;
         }

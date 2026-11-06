@@ -984,7 +984,7 @@ namespace {
 // One arcade track (TRACKS/<folder>) as the mod's tracks/<track_id>/ (in a49, whose Vertex the body means).
 namespace rush2::arcade2049 {
 static bool build_one(const std::filesystem::path& data_dir, const char* folder, const std::string& track_id, const std::string& name,
-               const std::string& menu_after, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+               const char* course, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
                const std::function<bool()>& cancelled) {
     std::vector<std::string> report;
     std::string error;
@@ -2046,7 +2046,11 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         "smooth_collision = false\n\n" +
         // Alcatraz is at night; the others keep the custom tracks' default fog.
         std::string(track_id == "alcatraz" ? "[look]\nfog_color = \"#0c1424\"\n\n" : "") +
-        "[menu]\nlogo = \"logo.png\"\nafter = \"" + menu_after + "\"\n" +
+        // Alcatraz after the Rush 2049 tracks; the others are versions of their courses (the track select's version
+        // button), shown as ARCADE.
+        "[menu]\nlogo = \"logo.png\"\n" +
+        (course != nullptr ? "variant_of = \"" + std::string(course) + "\"\nvariant = \"ARCADE\"\n"
+                           : std::string("after = \"rush2049\"\n")) +
         (std::filesystem::exists(assets_dir / (track_id + "_preview.png")) ? "preview = \"preview.png\"\n" : "") +
         // How the moving objects play: their dobs scripts' events (docs/arcade2049.md#dobsrom-dynamic-objects).
         mover_toml);
@@ -2087,28 +2091,22 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
 }
 
 bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
-                          std::string& log, bool alcatraz_only, const std::function<bool()>& cancelled) {
-    // Each after the one before it in arcade_tracks (the track select order), the first after the Rush 2049 tracks.
-    // The tracks are built at once, a thread each (build_one shares nothing), and put together in that order.
+                          std::string& log, const std::function<bool()>& cancelled) {
+    // The tracks are built at once, a thread each (build_one shares nothing), and put together in arcade_tracks order.
     struct Part {
         const ArcadeTrack* track;
-        std::string after, log;
+        std::string log;
         ModFiles files;
         bool ok = false;
     };
     std::vector<Part> parts;
-    std::string after = "rush2049";
-    for (const ArcadeTrack& a : arcade_tracks) {
-        if (alcatraz_only && std::string(a.id) != "alcatraz") continue;
-        parts.push_back({ &a, after });
-        after = a.id;
-    }
+    for (const ArcadeTrack& a : arcade_tracks) parts.push_back({ &a });
     if (cancelled && cancelled()) return false;
     std::vector<std::thread> threads;
     for (Part& p : parts) {
         threads.emplace_back([&p, &data_dir, &assets_dir, &cancelled] {
-            p.ok = build_one(data_dir, p.track->folder, p.track->id, p.track->name, p.after, assets_dir, p.files, p.log,
-                             cancelled);
+            p.ok = build_one(data_dir, p.track->folder, p.track->id, p.track->name, p.track->course, assets_dir, p.files,
+                             p.log, cancelled);
         });
     }
     for (std::thread& t : threads) t.join();

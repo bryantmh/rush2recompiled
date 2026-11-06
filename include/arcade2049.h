@@ -19,7 +19,7 @@ namespace rush2::ui {
 }
 
 // The San Francisco Rush 2049 arcade (SE) content (src/arcade2049/, docs/arcade2049.md): Alcatraz, the arcade-only
-// track, and the arcade's cars, built from the arcade data ProjectR unpacks from the arcade hard drive into two mods
+// track, the arcade's versions of the six Rush 2049 race tracks, and the arcade's cars, built from the arcade data ProjectR unpacks from the arcade hard drive into two mods
 // (src/arcade2049/arcade_track.cpp, arcade_cars.cpp). The Games tab builds and installs them; a new
 // build or new arcade data rebuilds them once at the next launch.
 namespace rush2::arcade2049 {
@@ -34,31 +34,31 @@ namespace rush2::arcade2049 {
     // The data folder `picked` (any file or folder inside it) is in, if any.
     std::optional<std::filesystem::path> find_data_dir(const std::filesystem::path& picked);
 
-    // The arcade tracks the track mod can hold: Alcatraz (arcade only) and, with the Alcatraz Only option off, the
-    // arcade's own versions of the six Rush 2049 tracks, as tracks of their own (tracks/<id>/ in the mod).
+    // The arcade tracks the track mod holds (tracks/<id>/ in the mod): Alcatraz (arcade only), after the Rush 2049
+    // tracks, and the arcade's own versions of the six Rush 2049 race tracks, each a version of its course
+    // (track.toml [menu] variant_of, variant = "ARCADE": the track select's version button switches to it).
     struct ArcadeTrack {
         const char* folder;   // TRACKS/<folder>
         const char* id;
         const char* name;
+        const char* course;   // the course it is a version of (track.toml [menu] variant_of), or null
     };
-    // In track select order: the N64 tracks' (Marina, Haight, Civic, Metro, Mission, Presidio), Alcatraz last, all after
-    // the Rush 2049 tracks (each track.toml's [menu] after names the one before).
     inline constexpr ArcadeTrack arcade_tracks[] = {
-        { "TRACK1", "marina_arcade", "Marina Arcade" },
-        { "TRACK2", "haight_arcade", "Haight Arcade" },
-        { "TRACK3", "civic_arcade", "Civic Arcade" },
-        { "TRACK5", "metro_arcade", "Metro Arcade" },
-        { "TRACK6", "mission_arcade", "Mission Arcade" },
-        { "TRACK7", "presidio_arcade", "Presidio Arcade" },
-        { "TRACK4", "alcatraz", "Alcatraz" },
+        { "TRACK1", "marina_arcade", "Marina Arcade", "rush2049:marina" },
+        { "TRACK2", "haight_arcade", "Haight Arcade", "rush2049:haight" },
+        { "TRACK3", "civic_arcade", "Civic Arcade", "rush2049:civic" },
+        { "TRACK5", "metro_arcade", "Metro Arcade", "rush2049:metro" },
+        { "TRACK6", "mission_arcade", "Mission Arcade", "rush2049:mission" },
+        { "TRACK7", "presidio_arcade", "Presidio Arcade", "rush2049:presidio" },
+        { "TRACK4", "alcatraz", "Alcatraz", nullptr },
     };
 
     // The two mods' files by their path in the mod. `cancelled` is polled between steps; the log gets what each
     // conversion did. assets_dir holds each track's <id>_logo.png and <id>_preview.png (made by
-    // tools/build_banners.py --arcade). alcatraz_only: just Alcatraz, else every arcade_tracks entry.
+    // tools/build_banners.py --arcade). Every arcade_tracks entry.
     using ModFiles = std::map<std::string, std::vector<uint8_t>>;
     bool build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
-                         std::string& log, bool alcatraz_only = true, const std::function<bool()>& cancelled = {});
+                         std::string& log, const std::function<bool()>& cancelled = {});
     bool build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, std::string& log,
                        const std::function<bool()>& cancelled = {});
 
@@ -71,7 +71,7 @@ namespace rush2::arcade2049 {
     // A mod has been built this session (by refresh_now or the Games tab): the launch's progress screen shows.
     bool rebuilt();
 
-    // The Games tab's options under Rush 2049 Arcade: Alcatraz Only (arcade_install.cpp) and Arcade Checkpoints.
+    // The Games tab's options under Rush 2049 Arcade: Arcade Checkpoints.
     void init_config();
     void load_config();   // after rush2::wings::load_config()
     void add_options(rush2::ui::OptionsPage* page);

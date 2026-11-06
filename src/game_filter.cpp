@@ -12,6 +12,9 @@
 // again with the filtered list (players4's second car select round does the same). The track select keeps the track it
 // showed if it is still offered; the car select keeps each player's car, as it opens on the record's car.
 //
+// The track select's version prompt (track versions, src/rush2049/track2049_menu.cpp) is drawn here too, under FILTER
+// (in its place without the filter's): C-left's button (X, Square, J) above the shown track's version name.
+//
 // The filter applies where the prompt can show: not on a circuit's track select (its TRACK row is greyed), an online
 // joiner's track select (it offers the host's select's tracks, so the host's filter applies there:
 // rush2::track2049::set_online_offered), the online lobby's car select, the ghost race's car select (its ghost panel
@@ -79,6 +82,7 @@ namespace {
     // right of the box and below it (beside the car's name).
     constexpr int compact_x = 288, compact_y = 44;
     constexpr int glyph_w = 16, glyph_h = 14, glyph_y_offset = -4;
+    constexpr int version_row = 16;     // the version prompt's line, below the filter's
     constexpr int panel_x = 80, panel_w = 160, panel_y = 64;
     constexpr int title_y = 8, rows_y = 26, row_h = 14, footer_gap = 8;
 
@@ -315,7 +319,8 @@ Game rush2::game_filter::track_game(int t) {
     using namespace rush2::track2049;
     if (t < first_menu_id) return Game::Rush2;
     if (t >= rush2::track1::first_menu_id && t < rush2::track1::first_menu_id + rush2::track1::track_count) return Game::SFRush;
-    if (is_mod_id(t)) return Game::Custom;     // 38-63 and 80-254
+    if (is_disc_course(t)) return Game::Rush2049;   // the race tracks' Dreamcast versions, 249-254
+    if (is_mod_id(t)) return Game::Custom;     // 38-63 and 80-248
     if (t >= rush2::calspeed::first_menu_id) return Game::CalSpeed;
     return Game::Rush2049;      // 12-17 and the stunt arenas, obstacle course and battle arenas, 25-37
 }
@@ -375,8 +380,11 @@ bool rush2::game_filter::frame(uint8_t* rdram, recomp_context* ctx, Screen s, un
     return false;
 }
 
-void rush2::game_filter::draw(uint8_t* rdram, recomp_context* ctx, Screen s, unsigned present) {
-    if (!enabled() || !applies(present)) {
+void rush2::game_filter::draw(uint8_t* rdram, recomp_context* ctx, Screen s, unsigned present,
+                              const VersionPrompt* version) {
+    bool filter = enabled() && applies(present);
+    bool versions = version != nullptr && !version->label.empty();
+    if (!filter && !versions) {
         return;
     }
     using rush2::controls::MenuButton;
@@ -385,7 +393,7 @@ void rush2::game_filter::draw(uint8_t* rdram, recomp_context* ctx, Screen s, uns
     call(rdram, ctx, text_select_font_80088C24, font_labels);
     call(rdram, ctx, menu_text_set_scale_from_global_80093FA8, 0, 0, 0, 0.0f);
 
-    bool open = panel_open && panel_screen == s;
+    bool open = filter && panel_open && panel_screen == s;
     if (open) {
         int rows = (int)panel_rows.size();
         int footer_y = panel_y + rows_y + rows * row_h + footer_gap;
@@ -431,13 +439,25 @@ void rush2::game_filter::draw(uint8_t* rdram, recomp_context* ctx, Screen s, uns
         rush2::controls::end_menu_glyphs(rdram);
         return;
     }
-    // The prompt: the button and FILTER, under the header art's right end.
+    // The prompt: the button and FILTER, under the header art's right end. The version prompt goes under it (in its
+    // place without the filter's), its button under the filter's and its text where FILTER's starts, so neither
+    // moves. A version name has at most 6 characters; one wider than FILTER (ARCADE) runs a couple of pixels past the
+    // text drawer's clip at x 308 (text_draw_string_80072A38's safe-area inset), which only shows at 4:3.
     const std::string label = "FILTER";
     int text_x = prompt_right - width(rdram, ctx, label);
-    print(rdram, ctx, style_white, text_x, prompt_y, label);
+    int glyph_x = text_x - glyph_w - 3;
+    int version_y = filter ? prompt_y + version_row : prompt_y;
+    if (filter) print(rdram, ctx, style_white, text_x, prompt_y, label);
+    if (versions) {
+        print(rdram, ctx, style_white, text_x, version_y, version->label);
+    }
     rush2::controls::begin_menu_glyphs(rdram);
-    rush2::controls::add_menu_glyph(rdram, port, MenuButton::Y, text_x - glyph_w - 3, prompt_y + glyph_y_offset, glyph_w,
-                                    glyph_h);
+    if (filter) {
+        rush2::controls::add_menu_glyph(rdram, port, MenuButton::Y, glyph_x, prompt_y + glyph_y_offset, glyph_w, glyph_h);
+    }
+    if (versions) {
+        rush2::controls::add_menu_glyph(rdram, port, MenuButton::X, glyph_x, version_y + glyph_y_offset, glyph_w, glyph_h);
+    }
     rush2::controls::end_menu_glyphs(rdram);
 }
 

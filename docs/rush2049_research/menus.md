@@ -543,7 +543,9 @@ in 0x800D3E40): `+2` races finished, `+4` random seed, `+8` the cars' places, 3 
 ### Circuit length and courses (port) [V]
 
 The General tab's Circuit Length select (4 to 28 races) and Circuit Courses section (a toggle per course of Rush 2
-0-6, CRASH 8 and PIPE 9, Rush 2049 12-17 and SF Rush 18-24, and one per game for all of them) are in src/circuit.cpp.
+0-6, CRASH 8 and PIPE 9, Rush 2049 12-17, the Rush 2049 race tracks' Dreamcast versions 249-254 (their own game
+group, "Rush 2049 Dreamcast", shown while both copies are enabled: docs/custom_tracks.md#versions), SF Rush 18-24 and
+California Speed 64-79, and one per game for all of them) are in src/circuit.cpp (`course_ids` 255).
 CRASH and PIPE start off, since Rush 2's own circuits only draw tracks 0-6; PIPE is only drawn once it is unlocked
 (0x800E7D50 or the UNLOCKS shop), and HALFPIPE (7) is never a course. A circuit keeps
 what was chosen when it started: the hook at the end of `func_800B2A58` (0x800B2BBC) records the length and courses
@@ -583,7 +585,7 @@ review's (and the next track select's) earlier races were other tracks than the 
 The hook now winds the state back 4 x (current + 1) draws (multiplier inverse mod 2^32) to the state before the
 loop, which depends only on the circuit, and every machine of an online circuit computes the same one.
 
-Custom tracks (ids 38-63 and 80-254) also follow the enabled mods, which can
+Custom tracks (ids 38-63 and 80-248) also follow the enabled mods, which can
 be missing for a while (the arcade mod is rebuilt at launch after a new build) or in another order, so a circuit's
 earlier races could come out as other tracks. The hook also keeps each race's track and direction bits with the circuit's record (saves "circuits", key
 `tracks`: `[race, track id or custom track folder, direction]`, `rush2::circuit::record_races`) and takes them from

@@ -69,7 +69,7 @@ namespace {
     constexpr uint32_t race_type = 0x8010C3E8;         // s32: 0 a race, 1 circuit, 2 stunt
     constexpr uint32_t menu_settings = 0x800D5760;     // +0 laps, +1 drones (func_80094698 copies them to the race)
     constexpr int max_players = 4;
-    // Track select ids: Rush 2's, the added games', the custom tracks' (38-63 and 80-254) and California Speed's (64-79).
+    // Track select ids: Rush 2's, the added games', the custom tracks' (38-63 and 80-248) and California Speed's (64-79).
     constexpr int menu_tracks = rush2::track2049::menu_id_limit;
 
     int call(uint8_t* rdram, recomp_context* ctx, void (*func)(uint8_t*, recomp_context*), int32_t a0 = 0,

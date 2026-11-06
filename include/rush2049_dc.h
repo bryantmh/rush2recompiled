@@ -51,11 +51,12 @@ namespace rush2::rom2049::dc {
 
     // The disc's textures at their full size (src/rush2049dc/rush2049_dc_pack.cpp), kept in
     // <app folder>/track_cache/dc_textures (built in the background once per disc and build). With a disc as the
-    // source, its scaled-down textures are always drawn from those images: a texture pack RT64 loads like any other,
-    // which installed packs override. With the N64 ROM as the source, a disc stored and the Dreamcast Textures option
-    // (Settings > Graphics) on, an N64 texture whose picture is a disc texture's, scaled down, is drawn with the disc's
-    // image instead (match, used by src/texture_upscale.cpp as live replacements). Images the player upscaled from the
-    // dump (rush2049dc) take the disc's images' place in both.
+    // source (Disc mode), or the N64 ROM as the source with a disc stored and the Dreamcast Textures option (Settings >
+    // Graphics) on (N64 mode), both of these apply, since the track select offers the race tracks' N64 and Dreamcast
+    // versions with either source: the disc's scaled-down textures are drawn from those images, a texture pack RT64
+    // loads like any other, which installed packs override; and an N64 texture whose picture is a disc texture's,
+    // scaled down, is drawn with the disc's image instead (match, used by src/texture_upscale.cpp as live
+    // replacements). Images the player upscaled from the dump (rush2049dc) take the disc's images' place in both.
     void set_textures_enabled(bool enabled);
     // The Rush 2049 source in use, and the stored disc pack (empty path: none) for N64 matching.
     void set_texture_sources(std::shared_ptr<const Source> active, const std::filesystem::path& disc_pack);

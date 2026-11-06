@@ -97,7 +97,7 @@ palette cycles, Monterey 2 scrolls and 1 palette cycle, in game]
   redirects (`track1::set_redirects`); windows and buildings stay static; the helicopter and stealth bomber draw
   nothing (`CSNONE`). [V]
 - **Cache:** `track_cache` entry 2000 + t plus the blob `calspeed_track<t>_<prefix>`, keyed on the ROM and the build. [V]
-- **Track select:** ids 64-79 (`rush2::calspeed::first_menu_id`), between custom tracks 38-63 and 80-254; the
+- **Track select:** ids 64-79 (`rush2::calspeed::first_menu_id`), between custom tracks 38-63 and 80-248; the
   screen's tables are at 0x80310000 (names +0, scales +0x400, cloud heights +0x800, logos +0xC00, carousel +0x1000
   (256 x 0x1C), circuit instances +0x2C00 (255), custom track strings +0x3000, California Speed strings +0x5000),
   us.toml repointing the instructions. BACKWARD isn't listed on its tracks and LAPS isn't on the point-to-point ones. [V]

@@ -805,12 +805,13 @@ void rush2::controls::add_menu_glyph(uint8_t* rdram, int port, MenuButton button
     Input in;
     if (shown_device(port) == Device::Keyboard) {
         constexpr SDL_Scancode keys[] = { SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_Q, SDL_SCANCODE_E,
-                                          SDL_SCANCODE_I };
+                                          SDL_SCANCODE_I, SDL_SCANCODE_J };
         in = { Input::Type::Key, keys[(int)button] };
     }
     else {
         constexpr SDL_GameControllerButton buttons[] = { SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B,
-            SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_Y };
+            SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_Y,
+            SDL_CONTROLLER_BUTTON_X };
         in = { Input::Type::Button, buttons[(int)button] };
     }
     GlyphColor g = glyph_for(in, rush2::input::port_has_playstation_controller(port));

@@ -115,6 +115,19 @@ How a select is rebuilt after a change, as the game rebuilds it between visits:
   Not found, the game opens on index 0 with that player's number as the type, so `rush2_filter_car_cursor` opens on
   the list's first car when the filter took the record's car off.
 
+### Track versions
+
+A course with more than one version (the Rush 2049 race tracks' N64 version 12-17 and Dreamcast version 249-254, the
+arcade mod's ARCADE versions, any custom track's `[menu] variant_of`: docs/custom_tracks.md#versions) is one carousel
+entry. C-left (X, Square, J on the keyboard; `CL` in an input script, which reaches it: the hook reads the game's own
+presses, 0x8011962A) switches the shown course to its next version, under the FILTER prompt with the version's name
+(N64, DC, ARCADE, a mod's own: at most 6 letters, what fits before the text drawer's clip with FILTER where it always
+was). A course whose other versions are locked (Metro, Mission, Presidio before unlocking, with the arcade mod)
+shows its arcade version and still names it; `--config cheats.unlock_all_tracks=true` opens them for a test run
+(src/rush2049/track2049_menu.cpp `rush2_track49_filter_frame`, drawn by `rush2::game_filter::draw`). The pick is saved
+per course in the saves' "track_select" section ("versions") and the screen is rebuilt as after a filter change, on
+the new version. `RUSH2_TEST_TRACK=ID` with a course's other version opens on that version (picked for the run).
+
 ## Pause menu
 
 `race_pause_menu_step_800AFD44` (src/pause_menu.cpp has the full layout).
