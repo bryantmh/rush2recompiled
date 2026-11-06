@@ -36,6 +36,7 @@
 #include "track2049.h"
 #include "track_cache.h"
 #include "track_mod.h"
+#include "race_time_model.h"
 #include "track_mod_runtime.h"
 #include "wings.h"
 
@@ -527,6 +528,7 @@ namespace {
         write_report(f.entry.folder, report);
         remember_report(f.entry, report, ok);
         if (!ok) return false;
+        rush2::race_time::fill(out.track);
         if (f.sky_pending) {
             remember_textures(f.entry, out.textures);
             return true;

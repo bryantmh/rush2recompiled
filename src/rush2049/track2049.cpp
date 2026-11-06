@@ -60,6 +60,7 @@
 #include "track1.h"
 #include "calspeed.h"
 #include "track2049.h"
+#include "race_time_model.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
 #include "car2049.h"
@@ -196,6 +197,7 @@ namespace {
         auto claim = rush2::track_cache::claim(rush2::track_cache::entry_2049(k));
         if (rush2::track_cache::load_2049(k, prefix, source, out)) return true;
         if (!rush2::track2049::convert_track(rom, k, prefix, shared_model_names(), true, out, error)) return false;
+        rush2::race_time::fill(out);
         rush2::track_cache::save_2049(k, prefix, source, out);
         return true;
     }
@@ -929,48 +931,42 @@ extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// func_80093048 at 0x80093298, after func_800924E4 worked out the race's time: the start time (path header +0) and
-// each checkpoint's lap-1 and later-lap extensions (+0x1E/+0x20) are the time to drive each stretch at the speeds of
-// the path's AI lanes. Some of Rush 2049's lanes run faster than Rush 2's average even after the Car Speeds lane map
-// (rush2_race_lane_speeds), so the times are scaled by how much faster this path's first lane is than Rush 2's lanes
-// on average in the same Car Speeds mode, and each stretch gets the time of its slowest lane where lane 0 is faster
-// than the others (docs/rush2049_research/checkpoints.md).
+// func_80093048 at 0x80093298, after func_800924E4 worked out the race's time from the AI lanes (the start time, path
+// header +0, and each checkpoint's lap-1 and later-lap extensions, +0x1E/+0x20). Rush 2's lanes were set for its cars,
+// other games' for theirs, so a Rush 2049, California Speed or custom race track is timed by the race time model
+// instead (src/race_time_model.cpp): the time Rush 2's average car needs for each stretch, scaled as Rush 2's own
+// tracks are, through Rush 2's own start rule. It was worked out with the track's conversion (track.lane_time), so
+// the race only reads it. Rush 2's tracks keep their own times, SF Rush's SF Rush's
+// (docs/rush2049_research/checkpoints.md#09-one-rule-the-race-time-model).
 static void path_race_time(uint8_t* rdram) {
     constexpr uint32_t header = 0x8010BCE8;       // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
-    constexpr uint32_t path_pointer = 0x800D575C; // The loaded path file.
-    constexpr float rush2_lane_speed = 139.3f;    // Distance-weighted lane 0 speed of Rush 2's 9 race paths, both ways.
+    constexpr uint32_t backward = 0x80119848;     // u8: the race runs backward (the path_backward file).
     // SF Rush tracks get SF Rush's own times (src/rush1/track1.cpp).
     if (rush2::track1::race_time(rdram)) {
         return;
     }
     int count = (int16_t)MEM_H(0, (int32_t)(header + 8));
+    if (count <= 0 || count > 10) {
+        return;
+    }
+    bool mod = hosting_mod(rdram);
     // A custom track with times in its track.toml: start_time is the clock at the start and also what crossing the
     // finish line adds; checkpoint_time[n - 1] is what CHECKPOINT_n adds on lap 1 and on later laps (Rush 2 has no
-    // separate lap 3+ time). Without them, and in backward races (whose checkpoints come in the other order), the
-    // game's own times from the AI lanes stand.
-    if (hosting_mod(rdram)) {
-        constexpr uint32_t backward = 0x80119848;
-        if (mod_settings.start_time && count > 0 && count <= 10 && MEM_B(0, (int32_t)backward) == 0) {
-            int16_t start = (int16_t)std::lround(*mod_settings.start_time);
-            MEM_H(0, (int32_t)header) = start;
-            MEM_H(0, (int32_t)(header + 0xC + 0x1E)) = start;
-            MEM_H(0, (int32_t)(header + 0xC + 0x20)) = start;
-            for (int i = 1; i < count && i - 1 < (int)mod_settings.checkpoint_time.size(); i++) {
-                const auto& t = mod_settings.checkpoint_time[i - 1];
-                MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x1E)) = (int16_t)std::lround(t[0]);
-                MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x20)) = (int16_t)std::lround(t[1]);
-            }
+    // separate lap 3+ time). The author's times stand (forward; a backward race's checkpoints come in the other order).
+    if (mod && mod_settings.start_time && MEM_B(0, (int32_t)backward) == 0) {
+        int16_t start = (int16_t)std::lround(*mod_settings.start_time);
+        MEM_H(0, (int32_t)header) = start;
+        MEM_H(0, (int32_t)(header + 0xC + 0x1E)) = start;
+        MEM_H(0, (int32_t)(header + 0xC + 0x20)) = start;
+        for (int i = 1; i < count && i - 1 < (int)mod_settings.checkpoint_time.size(); i++) {
+            const auto& t = mod_settings.checkpoint_time[i - 1];
+            MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x1E)) = (int16_t)std::lround(t[0]);
+            MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x20)) = (int16_t)std::lround(t[1]);
         }
         return;
     }
-    if (rush2::track2049::race_track() == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
-        return;
-    }
-    uint32_t file = (uint32_t)MEM_W(0, (int32_t)path_pointer);
-    if (file == 0 || count <= 0 || count > 10) {
-        return;
-    }
-    if (rush2::track2049::race_track() == rush2::track2049::obstacle) {
+    bool hosted_2049 = rush2::track2049::race_track() != 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+    if (hosted_2049 && rush2::track2049::race_track() == rush2::track2049::obstacle) {
         // Rush 2049's obstacle course gives no time at checkpoints (rush2_track49_obstacle_clock sets the clock).
         MEM_H(0, (int32_t)header) = (int16_t)rush2::track2049::obstacle_time;
         for (int i = 0; i < count; i++) {
@@ -979,78 +975,13 @@ static void path_race_time(uint8_t* rdram) {
         }
         return;
     }
-    auto u16 = [&](uint32_t o) { return (uint32_t)MEM_HU(0, (int32_t)(file + o)); };
-    auto s16 = [&](uint32_t o) { return (int)(int16_t)MEM_H(0, (int32_t)(file + o)); };
-    // Routes (race.md �3.3): header, branch records, total count, spine and branch points, then 4 lanes of
-    // {u16 count, u8, u8, 4 bytes} + count x {s16 x, y, z, u8 speed, u8}.
-    constexpr uint32_t route = 0x32C;
-    uint32_t spine = u16(route), branches = MEM_BU(0, (int32_t)(file + route + 8));
-    uint32_t o = route + 16, points = spine;
-    for (uint32_t b = 0; b < branches; b++) {
-        points += u16(o + b * 16 + 0xA);
+    bool mod_race = mod && rush2::track_mod::race_type() == rush2::track_mod::race_race;
+    if (!hosted_2049 && !calspeed_path(rdram) && !mod_race) {
+        return;   // Rush 2's own track
     }
-    o += 16 * branches + 2 + 6 * points;
-    uint32_t lane = u16(o);
-    o += 8;
-    double length = 0.0, time = 0.0;
-    for (uint32_t i = 0; i < lane && lane < 4096; i++) {
-        uint32_t a = o + i * 8, b = o + ((i + 1) % lane) * 8;
-        double dx = s16(b) - s16(a), dy = s16(b + 2) - s16(a + 2), dz = s16(b + 4) - s16(a + 4);
-        double d = std::sqrt(dx * dx + dy * dy + dz * dz);
-        int speed = MEM_BU(0, (int32_t)(file + a + 6));
-        if (speed > 0) {
-            length += d;
-            time += d / speed;
-        }
-    }
-    if (time <= 0.0) {
-        return;
-    }
-    float scale = std::max(1.0f, float(length / time) / (rush2_lane_speed * rush2::car2049::rush2_lane_scale()));
-    // func_800924E4 times each stretch (checkpoint i's crossing to the next one's, the extension stored at i) along
-    // lane 0 only. Rush 2's four lanes agree to within about a second a lap, but some Rush 2049 lanes 0 hold one speed
-    // all the way round with no slowing for corners (Marina forward: 181 everywhere, its lane 1 laps 22% slower), so
-    // each stretch gets the time of its slowest lane (checkpoints.md#01-flat-lane-0-on-marina-and-civic-forward).
-    // Lane speeds here are already through the Car Speeds map (rush2_race_lane_speeds), as func_800924E4 read them.
-    int loop_cp = (int16_t)MEM_H(0, (int32_t)(header + 2));
-    auto lane_stretch = [&](int l, int from_cp, int to_cp) -> double {
-        uint32_t pts = (uint32_t)MEM_W(0, (int32_t)(lane_points + l * 4));
-        int n = MEM_HU(0, (int32_t)(lane_counts + l * 2));
-        int a = (int16_t)MEM_H(0, (int32_t)(header + 0xC + from_cp * 0x50 + 0x22 + (l + 1) * 2));
-        int b = (int16_t)MEM_H(0, (int32_t)(header + 0xC + to_cp * 0x50 + 0x22 + (l + 1) * 2));
-        if (pts == 0 || n <= 1 || n > 4096 || a < 0 || a >= n || b < 0 || b >= n) return 0.0;
-        double t = 0.0;
-        for (int i = a; i != b; i = (i + 1) % n) {
-            uint32_t p = pts + i * 8, q = pts + ((i + 1) % n) * 8;
-            double dx = (int16_t)MEM_H(0, (int32_t)q) - (int16_t)MEM_H(0, (int32_t)p);
-            double dy = (int16_t)MEM_H(0, (int32_t)(q + 2)) - (int16_t)MEM_H(0, (int32_t)(p + 2));
-            double dz = (int16_t)MEM_H(0, (int32_t)(q + 4)) - (int16_t)MEM_H(0, (int32_t)(p + 4));
-            int speed = MEM_BU(0, (int32_t)(p + 6));
-            if (speed > 0) t += std::sqrt(dx * dx + dy * dy + dz * dz) / speed;
-        }
-        return t;
-    };
-    double lap0 = 0.0, lap_slowest = 0.0;
-    std::vector<float> stretch_scale(count, scale);
-    for (int i = 0; i < count; i++) {
-        int next = i + 1 < count ? i + 1 : loop_cp;
-        if (next < 0 || next >= count) continue;
-        double t0 = lane_stretch(0, i, next), slowest = t0;
-        for (int l = 1; l < 4; l++) slowest = std::max(slowest, lane_stretch(l, i, next));
-        lap0 += t0;
-        lap_slowest += slowest;
-        if (t0 > 0.0) stretch_scale[i] = std::max(scale, float(slowest / t0));
-    }
-    float start_scale = lap0 > 0.0 ? std::max(scale, float(lap_slowest / lap0)) : scale;
-    auto scale_field = [&](uint32_t addr, float s) {
-        if (s <= 1.0f) return;
-        int16_t v = (int16_t)MEM_H(0, (int32_t)addr);
-        MEM_H(0, (int32_t)addr) = (int16_t)std::lround(v * s);
-    };
-    scale_field(header, start_scale);
-    for (int i = 0; i < count; i++) {
-        scale_field(header + 0xC + i * 0x50 + 0x1E, stretch_scale[i]);
-        scale_field(header + 0xC + i * 0x50 + 0x20, stretch_scale[i]);
+    const std::vector<float>& profile = track.lane_time[MEM_B(0, (int32_t)backward) != 0 ? 1 : 0];
+    if (!rush2::race_time::apply(rdram, profile)) {
+        printf("[racetime] no race time model for this path (%zu points): the AI lanes' times stand\n", profile.size());
     }
 }
 

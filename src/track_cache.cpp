@@ -33,14 +33,14 @@
 
 namespace {
     constexpr char magic[4] = { 'R', '2', 'T', 'C' };
-    constexpr uint32_t format_version = 3;
+    constexpr uint32_t format_version = 4;
     enum class Kind : uint32_t { Rush1 = 1, Rush2049 = 2, Blob = 3 };
 
     // A field added to a converted track struct has to be added to write()/read() below; then update these sizes (as
     // MSVC lays the structs out; other standard libraries size their members differently).
 #ifdef _MSC_VER
     static_assert(sizeof(rush2::track1::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (track1)");
-    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 512, "update track_cache.cpp for ConvertedTrack (2049)");
+    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 560, "update track_cache.cpp for ConvertedTrack (2049)");
     static_assert(sizeof(rush2::track1::ConvertedTrack::Timing) == 64, "update track_cache.cpp for Timing");
     static_assert(sizeof(rush2::track2049::TexFlipbook) == 72, "update track_cache.cpp for TexFlipbook");
     static_assert(sizeof(rush2::track2049::TexScroll) == 72, "update track_cache.cpp for TexScroll");
@@ -335,6 +335,7 @@ namespace {
         for (const auto& b : t.tex_anims.blink) w.pods(b);
         w.pods(t.mover_paths);
         w.pods(t.mover_collision);
+        for (const auto& l : t.lane_time) w.pods(l);
     }
 
     void read(Reader& r, rush2::track2049::ConvertedTrack& t) {
@@ -387,6 +388,7 @@ namespace {
         for (auto& b : t.tex_anims.blink) r.pods(b);
         r.pods(t.mover_paths);
         r.pods(t.mover_collision);
+        for (auto& l : t.lane_time) r.pods(l);
     }
 
     std::filesystem::path blob_file(const std::string& name) {

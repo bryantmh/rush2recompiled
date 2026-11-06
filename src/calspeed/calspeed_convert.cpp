@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "calspeed.h"
+#include "race_time_model.h"
 #include "calspeed_billboards.h"
 #include "calspeed_scenery.h"
 #include "texture_upscale.h"
@@ -949,6 +950,7 @@ bool rush2::calspeed::load_track(const std::vector<uint8_t>& rom, int t, const s
         error = e.message;
         return false;
     }
+    rush2::race_time::fill(out.track);
     rush2::track_cache::save_2049(k, prefix, source, out.track);
     Writer w;
     w.word(out.cloud_scroll);

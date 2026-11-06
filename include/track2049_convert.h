@@ -131,6 +131,10 @@ namespace rush2::track2049 {
         // polygon's info word and the MOVER records. Empty for the 2049 tracks, whose own files are used.
         std::vector<uint8_t> mover_paths;
         std::vector<uint8_t> mover_collision;
+        // Race time model (src/race_time_model.cpp): per AI lane 0 point of `path` [0] and `path_backward` [1], the
+        // seconds Rush 2's average car needs from the lane's first point (one more entry: the whole lane). Built with
+        // the conversion, so a race only reads it.
+        std::vector<float> lane_time[2];
     };
 
     // The battle arenas' k for convert_track: DM n (1-8) is k = battle_first + n - 1 (2049 track id 6 + n - 1).
