@@ -437,9 +437,11 @@ void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
 // it also enables the extended GBI (RT64 disables it at the start of every display list).
 void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx) {
     uint32_t cmd_addr = (uint32_t)ctx->r2;
-    GfxCommand cmds[6];
+    GfxCommand cmds[7];
     uint32_t count = 0;
     gEXEnable(&cmds[count++]);
+    // Sky Fog's haze for this view (src/sky_fog.cpp), 0 when off or outside a race.
+    gEXSetSkyFog(&cmds[count++], rush2::sky_fog::take_haze());
     // The draw distance's fog, which needs the extended GBI enabled.
     float fog_mul, fog_offset;
     if (rush2::draw_distance_take_fog(fog_mul, fog_offset)) {
@@ -652,20 +654,32 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
     for (int i = 0; i < out_count; i++) {
         write_vtx(rdram, vtx_addr + i * 16, out[i]);
     }
-    GfxCommand cmds[1 + 4 * 2];
-    cmds[0].values.word0 = 0x01000000u | ((uint32_t)out_count << 12) | ((uint32_t)out_count << 1);
-    cmds[0].values.word1 = vtx_addr;
+    // Sky Fog (src/sky_fog.cpp) hazes the sky right after the view's last sky draw, so the dome's pieces are marked.
+    const bool mark_sky = rush2::sky_fog::enabled();
+    GfxCommand cmds[3 + 4 * 2];
+    uint32_t count = 0;
+    if (mark_sky) {
+        gEXSetSkyDraw(&cmds[count++], 1);
+    }
+    cmds[count].values.word0 = 0x01000000u | ((uint32_t)out_count << 12) | ((uint32_t)out_count << 1);
+    cmds[count].values.word1 = vtx_addr;
+    count++;
     auto tri_word = [](int a, int b, int c) {
         return (uint32_t)(a * 2 << 16) | (uint32_t)(b * 2 << 8) | (uint32_t)(c * 2);
     };
     for (int t = 0; t < tri_count; t++) {
         int b = t * 6;
-        cmds[1 + t * 2].values.word0 = 0x06000000u | tri_word(b, b + 1, b + 2);
-        cmds[1 + t * 2].values.word1 = tri_word(b, b + 2, b + 3);
-        cmds[2 + t * 2].values.word0 = 0x06000000u | tri_word(b, b + 3, b + 4);
-        cmds[2 + t * 2].values.word1 = tri_word(b, b + 4, b + 5);
+        cmds[count].values.word0 = 0x06000000u | tri_word(b, b + 1, b + 2);
+        cmds[count].values.word1 = tri_word(b, b + 2, b + 3);
+        count++;
+        cmds[count].values.word0 = 0x06000000u | tri_word(b, b + 3, b + 4);
+        cmds[count].values.word1 = tri_word(b, b + 4, b + 5);
+        count++;
     }
-    replace_with_call(rdram, vtx_cmd, write_side_dl(rdram, cmds, 1 + tri_count * 2));
+    if (mark_sky) {
+        gEXSetSkyDraw(&cmds[count++], 0);
+    }
+    replace_with_call(rdram, vtx_cmd, write_side_dl(rdram, cmds, count));
 }
 
 // func_8007C624 exit. Resets the group IDs so later draws (HUD, other views) don't inherit them.
@@ -682,6 +696,11 @@ void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx) {
     uint32_t head = (uint32_t)MEM_W(0, (int32_t)main_dl_head);
     replace_with_call(rdram, head, side_dl);
     MEM_W(0, (int32_t)main_dl_head) = (int32_t)(head + 8);
+}
+
+// A display list in the side buffer holding cmds, ended by G_ENDDL, for other files' wrappers (src/sky_fog.cpp).
+uint32_t rush2_interp_side_dl(uint8_t* rdram, const GfxCommand* cmds, uint32_t count) {
+    return write_side_dl(rdram, cmds, count);
 }
 
 // The matrices of a view as func_8007C624 last set them: its root modelview, its projection without the view's

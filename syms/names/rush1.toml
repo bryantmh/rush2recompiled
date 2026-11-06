@@ -3625,6 +3625,7 @@ name = "race_fog_zone_setup"
 desc = "Per-view fog setup: fog start/end and far plane from tables by player count and FOG, then blended by the nearest fog zone holding the camera (list pointer 0x800CF87C[track], 12-byte records {s16 x, z, radius, fog start, fog end, far}). Same scheme as Rush 2's race_fog_zone_setup_80081074; the Golden Gate's bridge fog is its track 1 zone."
 status = "verified"
 rush2 = 0x80081074
+rush2049 = [0x800AB18C]
 link = "role"
 area = "render"
 ref = "docs/rush1_research.md#13-fog-zones"

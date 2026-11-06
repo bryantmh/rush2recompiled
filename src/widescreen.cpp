@@ -514,4 +514,6 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::sheen_model(rdram, ctx);
     // Rush 2049's car lighting (src/rush2049/car2049.cpp), around all of the above.
     rush2::car2049::light_model(rdram, ctx, dl);
+    // Sky Fog marks the sky model as the sky (src/sky_fog.cpp), around everything else.
+    rush2_sky_fog_model_draw(rdram, ctx);
 }

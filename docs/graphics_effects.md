@@ -12,6 +12,7 @@ runs. It is a change to RT64, kept in `lib/patches/rt64.patch` (edit under `lib/
 | Car Sheen (`car_sheen`) | Original, All Off, All On, Cube Map | Original | none: under Cube Map the game marks draws with `gEXSetCarReflection` |
 | Car Reflections (`car_reflections`) | 5% to 100%, steps of 5 | 70% | `RT64::CarReflectionStrength` (0 to 1) |
 | Car Lighting (`car_lighting`) | Original, Light Probes | Original | none: game side only (`rush2::probes::set_mode`, [Car light probes](#car-light-probes)) |
+| Sky Fog (`sky_fog`) | Off, On | Off | none: the game marks each race view with `gEXSetSkyFog` ([Sky fog](#sky-fog)) |
 
 The option lives in `src/config.cpp` (`add_ambient_occlusion_option`). The global is
 declared in `lib/rt64/src/common/rt64_enhancement_configuration.h` and read every frame by
@@ -271,6 +272,70 @@ path, `--trace 99` where cars find no probe in reach; TRACK `k49:K` is Rush 2049
 a fixed cube (above white, +x green, the rest dark gray): the roof lit, the tail and underside dark, the +x side (the
 left, the game's x points left) green. Checked 2026-10-14: the cube on a Rush 2 car (Seattle) and a Rush 2049 car
 (NY Two), Presidio's tunnel start against Original, and the bake times above in game.
+
+## Sky fog
+
+Settings > Graphics > Sky Fog = **On**: the race's sky is hazed toward the fog color by height above the horizon, as
+real haze does, so the fogged skyline blends into the sky instead of standing out as a pale band against it. The game
+fogs the world by distance (`gSPFogPosition` from the view's +0x4C / +0x4E in `view_fog_setup_8007C624`) but never the
+sky: Rush 2's cloud dome (`sky_setup_800A45A8`, only its rim faded by vertex alpha), the sky models (Las Vegas
+SKYO1, the stunt arena, Rush 2049 tracks, custom `SKY` meshes) and the clear color. Hot-swappable: decided per view
+each frame.
+
+**Model.** An exponential height fog around the camera: density sigma at the camera's height falling by e every H above
+it. A ray at elevation e passes through optical depth sigma H / sin e on its way out, so the sky keeps
+`exp(-haze / sin e)` of its color, haze = sigma H. At the horizon that is none of it, the fog color, which is what the
+world's fog reaches at the far plane, so the skyline meets the sky in the same color; overhead the sky stays nearly as
+it was. The world's own fog is left as the game draws it.
+
+**Game side** (`src/sky_fog.cpp`): `rush2_draw_distance_projection` (before guPerspective at 0x8007CB5C) passes each
+view's near, far and fog range to `rush2::sky_fog::view_setup`, and `rush2_interp_projection` emits
+`gEXSetSkyFog(haze in thousandths)` with the view's projection, 0 when off or outside a race (game states 3, 6, 9, 10:
+the car and track selects' 3D draws over 2D backgrounds, which would be hazed too).
+- The game's fog at distance d is (D - min) / (max - min) with D = 500 (z / w + 1) and z / w = a - b / d
+  (guPerspective's a = (f + n) / (f - n), b = 2fn / (f - n)): linear in 1 / d from its start to its end. The draw
+  distance factor puts both ends k times farther (src/draw_distance.cpp).
+- sigma = ln 2 / the distance where the game's fog is half (1 / d halfway between the ends): a uniform medium's fog
+  1 - exp(-sigma d) then agrees with the game's at its middle and its extremes.
+- H = 200 ft, well under the dome's 900 ft cloud lid: a shallow layer under the clouds. One player with FOG 2 (fog
+  from about 260 ft to 1500 ft, draw distance Original) gives haze 0.31: the zenith keeps 73% of its color, 10 degrees
+  up 17%. Thicker FOG options and fog zones raise the haze with the
+  world's fog.
+- **FOG 1 on a converted course with a sky model is no fog** (`rush2::sky_fog::fog_removed`), whatever Sky Fog is set
+  to. Rush 2049's own lowest fog level is no fog (its level 0 leaves every race view at fog range 1000 / 999,
+  [Rush 2049 race research](rush2049_research/race.md#fog)), and the arcade and custom courses with a sky model follow
+  it. A course counts when a converted one is applied in the slot raced (`rush2::track2049::converted_race`: Rush 2049
+  tracks and arenas, arcade and custom tracks; the 2049 arenas sit in the stunt arena's slot, so the slot alone doesn't
+  tell) and its view has a sky model (a transform in the moved 0x80125B68; views 2 and 3 draw views 0 and 1's).
+  Stock Rush 2 courses keep Rush 2's fog at FOG 1 (from about 477 ft), Las Vegas and the stunt arena included, and so
+  do courses with the cloud dome (SF Rush, California Speed, custom tracks with `sky = "clouds"`).
+  `rush2_draw_distance_projection` replaces the view's fog with factors 0 (`gEXSetFogFloat`), so the game's own fog
+  values, which the fog zones read, are untouched; the view's haze is 0. Sky Fog itself only adds the haze.
+- **Sky draws** are marked with `gEXSetSkyDraw(1)` ... `(0)`: the dome's pieces in `rush2_interp_poly_end`
+  (src/interpolation.cpp, which redraws them), and the sky model, whose scene node's transform (node +4) is one of the
+  per-view sky transforms, in `rush2_sky_fog_model_draw` (from `rush2_model_draw` at 0x8007AF84, $s7 = node, $fp =
+  list, wrapped in a side list). Only marked while Sky Fog is on.
+
+**RT64 side** (`lib/patches/rt64.patch`): `G_EX_SETSKYFOG_V1` (0x36) sets `DrawExtendedFlags::skyFog`. When the frame's
+draws are sorted (`FramebufferRenderer::addFramebuffer`), each perspective view with marked draws gets one
+`SkyFogPass` (projections with the same viewport in a framebuffer pair are one view): the inverse of its view
+projection's x, y and w columns (what the GPU drew with, interpolated frames included) with the viewport folded in
+(RT64's screen y is `-clip.y / w` times the viewport scale, RSPProcessCS.hlsl: a first version missed the flip and
+hazed the whole sky as if below the horizon), so
+`pixel.x * dirX + pixel.y * dirY + dirW` is the pixel's direction in the world's axes (y up); the depth-to-w constants
+of [Depth to distance](#depth-to-distance); and the fog color of its draws that use the standard fog blender cycle
+(`Blender::usesStandardFogCycle`). A view with no fogged draw, or no sky draw (`G_EX_SETSKYDRAW_V1` 0x37,
+`DrawExtendedFlags::skyDraw`; it shows the clear color, which the game sets to the fog color), gets no pass. The pass
+runs once, right after the view's last sky draw, over the area its marked draws covered so far. Not after the view's
+last draw: see-through scenery drawn without depth writes (Marina's boat sails) was still at the depth clear there and
+came out hazed like the sky (reported 2026-11-05). The 2049 sky models draw first, so the pass hazes the whole view and
+the world covers it; Rush 2's dome draws after the world, over the same clear-depth pixels it covers anyway. `SkyFogPS.hlsl` (and
+`SkyFogPSMS` for a multisampled depth buffer, sample 0) keeps only the pixels still at the clear (depth 0.99999 and up,
+or a w not above 0: the dome's prim depth 0x7FFE included) and returns the fog color with alpha
+`1 - exp(-haze / sin e)`, which the pipeline blends over the color target's RGB.
+
+Limits: blended draws without depth writes drawn before a Rush 2 dome (under its rim) are hazed as sky; the haze
+follows the camera's height, not the world's (the world's fog doesn't either).
 
 ## Soft particles (removed)
 

@@ -7934,6 +7934,7 @@ desc = "Patched in us.toml. The per-view fog setup indexes tables by the number 
 status = "verified"
 ported = true
 rush1 = [0x80082524]
+rush2049 = [0x800AB18C]
 area = "render"
 ref = "docs/rush1_research.md#13-fog-zones"
 

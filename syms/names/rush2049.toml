@@ -1854,6 +1854,18 @@ area = "render"
 ref = "docs/rush2049_research/placement.md#2-rush-2049-placement-format-v"
 
 [[func]]
+vram = 0x800AB18C
+name = "race_fog_zone_setup"
+sig = "void race_fog_zone_setup(s32 view, Vec3 *pos)"
+desc = "Per-view fog setup, twin of Rush 2 race_fog_zone_setup_80081074: fog level byte 0x8013F1D8 0 returns at once (no fog: the race start's range 1000/999 stays); levels 1-3 set view +0x40 fog start (s16 0x8011E810[players*4+level]), +0x42 end 1000, +0x3C far (0x8011E7F0), cull 0x80151AA0 (0x8011E7A8); fog zones 0x8011E76C (all NULL)."
+consts = "0x3E8 = fog end 1000; 0x7FFF = nearest zone distance start"
+status = "verified"
+rush2 = 0x80081074
+rush1 = [0x80082524]
+area = "render"
+ref = "docs/rush2049_research/race.md#fog"
+
+[[func]]
 vram = 0x800AB53C
 desc = "Finds the top-level section whose box contains a spawn point (parent for spawned path objects). | Places path objects as static children of the section containing their spawn point."
 status = "verified"

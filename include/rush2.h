@@ -63,6 +63,21 @@ namespace rush2 {
     // the extended GBI is enabled.
     bool draw_distance_take_fog(float& mul, float& offset);
 
+    // Sky Fog (src/sky_fog.cpp): hazes the sky toward the fog color by elevation, in races.
+    namespace sky_fog {
+        void set_enabled(bool on);
+        bool enabled();
+        // The sky model's marking is rush2_sky_fog_model_draw (include/rush2_hooks.h).
+        // Whether the view (its address) draws without fog: FOG 1 on a converted course with a sky model, as Rush
+        // 2049's lowest fog level (not part of Sky Fog: stock Rush 2 courses keep their fog).
+        bool fog_removed(uint8_t* rdram, uint32_t view_address);
+        // Each view, before guPerspective (from rush2_draw_distance_projection): works out the view's haze from its
+        // fog and near and far planes (in view units, before the draw distance factor).
+        void view_setup(uint8_t* rdram, uint32_t view, double near16, double far16);
+        // The view's haze in thousandths (0 = none), for its gEXSetSkyFog.
+        uint16_t take_haze();
+    }
+
     // High-resolution fonts (src/fonts.cpp). install_font_pack copies the built-in pack into the mods folder and must
     // run after the config path is registered. set_hires_fonts_enabled turns the pack and its tile clamping on or off.
     void install_font_pack();

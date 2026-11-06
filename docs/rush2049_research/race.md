@@ -287,6 +287,24 @@ The 2049 AI rubber band has no per-track factor (`func_800F93A0` (2049)).
 
 2049 song ids index 2049's own MusyX music. Rush 2 needs a Rush 2 song number (plan §9.8).
 
+### Fog
+
+Rush 2049's per-view fog setup is `func_800AB18C` (view index a0, camera position a1), the twin of Rush 2's
+`race_fog_zone_setup_80081074` [V]. Views are 0x48 bytes at 0x8017A510: +0x40 fog start, +0x42 fog end (u16, 0-1000),
++0x3C far plane (f32).
+- The fog level is the byte 0x8013F1D8 (0-3). **Level 0 returns at once** (0x800AB1A0): the view keeps the range the
+  race start gave it, `func_800A7480(1000, 999, r, g, b, 0xFF, view)` from 0x800FB894 with the track's fog color
+  (0x80114658), an empty range, so **level 0 is no fog**.
+- Levels 1-3: fog start s16 0x8011E810[players * 4 + level], end 1000, far s16 0x8011E7F0[players * 4 + level], cull
+  distance f32 0x8011E7A8[players * 4 + level] into 0x80151AA0 (players at 0x8014A108). One player: start 992 / 975 /
+  900, far 1500 / 1000 / 600, the same as Rush 2's FOG 2-4 (Rush 2 0x800CA258 / 0x800CA244, rows of 5, one player
+  996 / 992 / 975 / 900 and 2000 / 1500 / 1000 / 600 for FOG 1-4). 2049's table also holds 996 / 2000 at level 0's
+  index, never read.
+- Fog zones: a list per track at 0x8011E76C (all NULL), blended as Rush 2's.
+
+The port keeps Rush 2's FOG 1-4 and gives FOG 1 on a converted course with a sky model 2049's no-fog level
+(`rush2::sky_fog::fog_removed`, docs/graphics_effects.md#sky-fog).
+
 ## 8. What a converted 2049 race track needs (replacing Rush 2 slot t)
 
 1. **Paths:** asset `0x57+t` = 2049 file `158+k`, and `0x63+t` = file `177+k`, both unchanged

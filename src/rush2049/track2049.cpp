@@ -472,6 +472,11 @@ int rush2::track2049::loaded_slot() {
     return applied_slot;
 }
 
+bool rush2::track2049::converted_race(uint8_t* rdram) {
+    int s = applied_slot;
+    return s >= 0 && MEM_B(0, (int32_t)track_id) == s;
+}
+
 bool rush2::track2049::mod_smooth_collision(uint8_t* rdram, float* fold) {
     int s = applied_slot;
     if (!applied_smooth || s < 0 || MEM_B(0, (int32_t)track_id) != s) return false;

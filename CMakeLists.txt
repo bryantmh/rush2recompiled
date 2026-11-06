@@ -162,6 +162,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/interpolation.cpp
     ${CMAKE_SOURCE_DIR}/src/lod.cpp
     ${CMAKE_SOURCE_DIR}/src/draw_distance.cpp
+    ${CMAKE_SOURCE_DIR}/src/sky_fog.cpp
     ${CMAKE_SOURCE_DIR}/src/cheats.cpp
     ${CMAKE_SOURCE_DIR}/src/fonts.cpp
     ${CMAKE_SOURCE_DIR}/src/texture_upscale.cpp

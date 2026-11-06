@@ -7,6 +7,7 @@
 //   per player, 1 to 4 players (split screen). Without it, one player in RUSH2_TEST_CAR's car, or the Pickup (0).
 // - RUSH2_TEST_RACE_LAPS=<n>, RUSH2_TEST_RACE_DRONES=<n>: the track select's LAPS and DRONES (the race keeps the saved
 //   ones otherwise).
+// - RUSH2_TEST_RACE_FOG=<1-4>: the track select's FOG (settings +0xE, the race's 0x800D1FA8).
 // - RUSH2_TEST_RACE_BACKWARD=1: the track select's BACKWARD on (settings +0xC, copied to 0x80119848 by
 //   menu_settings_to_race_globals_80094698 at 0x800947C0).
 // - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
@@ -158,6 +159,9 @@ namespace {
         }
         if (const char* drones = env("RUSH2_TEST_RACE_DRONES")) {
             MEM_B(1, (int32_t)menu_settings) = (int8_t)std::atoi(drones);
+        }
+        if (const char* fog = env("RUSH2_TEST_RACE_FOG")) {
+            MEM_B(0xE, (int32_t)menu_settings) = (int8_t)std::atoi(fog);
         }
         if (const char* backward = env("RUSH2_TEST_RACE_BACKWARD")) {
             MEM_B(0xC, (int32_t)menu_settings) = (int8_t)(std::atoi(backward) != 0);

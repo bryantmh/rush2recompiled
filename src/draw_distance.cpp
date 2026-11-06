@@ -137,11 +137,23 @@ bool rush2::draw_distance_take_fog(float& mul, float& offset) {
 // (already stored). The view's G_MW_FOG is already written.
 extern "C" void rush2_draw_distance_projection(uint8_t* rdram, recomp_context* ctx) {
     pending_fog = false;
+    // Sky Fog works from the same view values (src/sky_fog.cpp).
+    rush2::sky_fog::view_setup(rdram, (uint32_t)ctx->r16, read_f32(rdram, (uint32_t)ctx->r29 + 0x10),
+                               (double)ctx->f8.fl * ctx->f24.fl);
     float k = scale.load(std::memory_order_relaxed);
+    if (k != 1.0f) {
+        ctx->f8.fl *= k;
+    }
+    // FOG 1 on a converted course with a sky model: no fog (fog alpha 0 at every depth; src/sky_fog.cpp).
+    if (rush2::sky_fog::fog_removed(rdram, (uint32_t)ctx->r16)) {
+        pending_fog_mul = 0.0f;
+        pending_fog_offset = 0.0f;
+        pending_fog = true;
+        return;
+    }
     if (k == 1.0f) {
         return;
     }
-    ctx->f8.fl *= k;
 
     // The game's fog factors (0x8007C930-0x8007C9BC): mul = 128000 / (max - min), offset = (500 - min) * 256 /
     // (max - min), both s16. RT64's fog alpha is z / w * mul + offset.

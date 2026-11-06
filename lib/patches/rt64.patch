@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 79dfc38..6527f6c 100644
+index 79dfc38..8f33330 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -504,6 +504,8 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
@@ -19,7 +19,7 @@ index 79dfc38..6527f6c 100644
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl" "src/shaders/RSPVertexTestZCSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/RtCopyColorToDepthPS.hlsl")
-@@ -550,7 +553,13 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+@@ -550,7 +553,16 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
  build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/VideoInterfacePSPixel.hlsl" "-D PIXEL_ANTIALIASING")
  build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
  build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
@@ -30,25 +30,30 @@ index 79dfc38..6527f6c 100644
 +build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionPS.hlsl" "src/shaders/AmbientOcclusionPSMS.hlsl" "-D MULTISAMPLING")
 +build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionApplyPS.hlsl")
 +build_pixel_shader(  rt64 "src/shaders/CarReflectionPS.hlsl")
++# Rush 2 recomp: sky fog.
++build_pixel_shader(  rt64 "src/shaders/SkyFogPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/SkyFogPS.hlsl" "src/shaders/SkyFogPSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/DebugPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/PostProcessPS.hlsl")
 diff --git a/include/rt64_extended_gbi.h b/include/rt64_extended_gbi.h
-index d387090..112d14d 100644
+index d387090..9bae535 100644
 --- a/include/rt64_extended_gbi.h
 +++ b/include/rt64_extended_gbi.h
-@@ -80,7 +80,9 @@
+@@ -80,7 +80,11 @@
  #define G_EX_SETVERTEXSEGMENT_V1        0x000031
  #define G_EX_SETTEXCOORDWRAPPOINT_V1    0x000032
  #define G_EX_SETRECTASPECT_V1           0x000033
 -#define G_EX_MAX                        0x000034
 +#define G_EX_SETFOGFLOAT_V1             0x000034
 +#define G_EX_SETCARREFLECTION_V1        0x000035
-+#define G_EX_MAX                        0x000036
++#define G_EX_SETSKYFOG_V1               0x000036
++#define G_EX_SETSKYDRAW_V1              0x000037
++#define G_EX_MAX                        0x000038
  
  #define G_EX_ORIGIN_NONE            0x800
  #define G_EX_ORIGIN_LEFT            0x0
-@@ -579,4 +581,23 @@ typedef union {
+@@ -579,4 +583,40 @@ typedef union {
          PARAM(aspect, 2, 0) \
      )
  
@@ -69,6 +74,23 @@ index d387090..112d14d 100644
 +    G_EX_COMMAND1(cmd, \
 +        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETCARREFLECTION_V1, 24, 0), \
 +        PARAM(group, 8, 0) \
++    )
++
++// Marks the 3D draws that follow as a view whose sky is hazed toward the fog color by how much fog a ray at that angle
++// above the horizon passes through (FramebufferRenderer, submitSkyFog): right after the view's last sky draw
++// (gEXSetSkyDraw), every pixel then still at the depth clear. haze is the fog's vertical optical depth (density at the
++// camera times the fog's scale height) in thousandths, 0 to end. Lasts until the next sky fog command.
++#define gEXSetSkyFog(cmd, haze) \
++    G_EX_COMMAND1(cmd, \
++        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETSKYFOG_V1, 24, 0), \
++        PARAM(haze, 16, 0) \
++    )
++
++// Marks the draws that follow as the sky (on = 1) or not (0), for gEXSetSkyFog. Lasts until the next sky draw command.
++#define gEXSetSkyDraw(cmd, on) \
++    G_EX_COMMAND1(cmd, \
++        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETSKYDRAW_V1, 24, 0), \
++        PARAM(on, 1, 0) \
 +    )
 +
  #endif // RT64_EXTENDED_GBI
@@ -265,7 +287,7 @@ index 4857f22..5646b55 100644
  
      NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::InternalColorFormat, {
 diff --git a/src/gbi/rt64_gbi_extended.cpp b/src/gbi/rt64_gbi_extended.cpp
-index 20c0d4d..68cbeef 100644
+index 20c0d4d..f21beab 100644
 --- a/src/gbi/rt64_gbi_extended.cpp
 +++ b/src/gbi/rt64_gbi_extended.cpp
 @@ -4,6 +4,8 @@
@@ -277,7 +299,7 @@ index 20c0d4d..68cbeef 100644
  #include "../include/rt64_extended_gbi.h"
  
  namespace RT64 {
-@@ -331,6 +333,21 @@ namespace RT64 {
+@@ -331,6 +333,30 @@ namespace RT64 {
              state->rdp->setRectAspect(aspect);
          }
  
@@ -296,15 +318,26 @@ index 20c0d4d..68cbeef 100644
 +            state->rdp->setCarReflection(group);
 +        }
 +
++        void setSkyFogV1(State *state, DisplayList **dl) {
++            const uint16_t haze = (*dl)->p1(0, 16);
++            state->rdp->setSkyFog(haze);
++        }
++
++        void setSkyDrawV1(State *state, DisplayList **dl) {
++            state->rdp->setSkyDraw((*dl)->p1(0, 1) != 0);
++        }
++
          void noOpHook(State *state, DisplayList **dl) {
              uint32_t magicNumber = (*dl)->p0(0, 24);
              if (magicNumber == RT64_HOOK_MAGIC_NUMBER) {
-@@ -439,6 +456,8 @@ namespace RT64 {
+@@ -439,6 +465,10 @@ namespace RT64 {
              Map[G_EX_SETVERTEXSEGMENT_V1] = &setVertexSegmentV1;
              Map[G_EX_SETTEXCOORDWRAPPOINT_V1] = &setTexcoordWrapPointV1;
              Map[G_EX_SETRECTASPECT_V1] = &setRectAspectV1;
 +            Map[G_EX_SETFOGFLOAT_V1] = &setFogFloatV1;
 +            Map[G_EX_SETCARREFLECTION_V1] = &setCarReflectionV1;
++            Map[G_EX_SETSKYFOG_V1] = &setSkyFogV1;
++            Map[G_EX_SETSKYDRAW_V1] = &setSkyDrawV1;
              MapInitialized = true;
          }
      }
@@ -388,16 +421,20 @@ index 785de27..3c40137 100644
          rasterShaderCache = std::make_unique<RasterShaderCache>(rasterShaderThreads, ubershaderThreads);
          rasterShaderCache->setup(device.get(), renderInterface->getCapabilities().shaderFormat, shaderLibrary.get(), multisampling);
 diff --git a/src/hle/rt64_draw_call.h b/src/hle/rt64_draw_call.h
-index 0e62be1..35ed6a6 100644
+index 0e62be1..d237c4e 100644
 --- a/src/hle/rt64_draw_call.h
 +++ b/src/hle/rt64_draw_call.h
-@@ -65,6 +65,9 @@ namespace RT64 {
+@@ -65,6 +65,13 @@ namespace RT64 {
          uint32_t forceUpscale2D : 1;
          uint32_t forceTrueBilerp : 2;
          uint32_t forceScaleLOD : 1;
 +        // Rush 2 recomp: the car whose paint these triangles are (its number + 1), drawn as a reflection
 +        // (gEXSetCarReflection), or 0.
 +        uint32_t carReflection : 8;
++        // Rush 2 recomp: the view's sky haze in thousandths (gEXSetSkyFog), or 0.
++        uint32_t skyFog : 16;
++        // Rush 2 recomp: drawn as the sky (gEXSetSkyDraw).
++        uint32_t skyDraw : 1;
      };
  
      struct DrawCall {
@@ -599,7 +636,7 @@ index 3227ab1..883cf36 100644
  
          ext.sharedResources->interpolatedCondition.notify_all();
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
-index a10c11a..ae15f84 100644
+index a10c11a..e05eb8d 100644
 --- a/src/hle/rt64_rdp.cpp
 +++ b/src/hle/rt64_rdp.cpp
 @@ -785,6 +785,13 @@ namespace RT64 {
@@ -616,7 +653,7 @@ index a10c11a..ae15f84 100644
  #   ifdef ASSERT_LOAD_METHODS
          assert((texture.siz == G_IM_SIZ_16b) && "Non-16 bit textures are not currently supported.");
          assert((t.siz == G_IM_SIZ_4b) && "Non-4 bit tiles are not currently supported.");
-@@ -1076,6 +1083,12 @@ namespace RT64 {
+@@ -1076,6 +1083,23 @@ namespace RT64 {
          state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
      }
  
@@ -626,18 +663,31 @@ index a10c11a..ae15f84 100644
 +        state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
 +    }
 +
++    // Rush 2 recomp: sky fog (gEXSetSkyFog).
++    void RDP::setSkyFog(uint16_t haze) {
++        extended.drawExtendedFlags.skyFog = haze;
++        state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
++    }
++
++    void RDP::setSkyDraw(bool on) {
++        extended.drawExtendedFlags.skyDraw = on;
++        state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
++    }
++
      void RDP::clearExtended() {
          extended.scissorLeftOriginStack[0] = G_EX_ORIGIN_NONE;
          extended.scissorRightOriginStack[0] = G_EX_ORIGIN_NONE;
 diff --git a/src/hle/rt64_rdp.h b/src/hle/rt64_rdp.h
-index 84f4e7c..eeab022 100644
+index 84f4e7c..df5ff15 100644
 --- a/src/hle/rt64_rdp.h
 +++ b/src/hle/rt64_rdp.h
-@@ -199,6 +199,7 @@ namespace RT64 {
+@@ -199,6 +199,9 @@ namespace RT64 {
          void forceUpscale2D(bool force);
          void forceTrueBilerp(uint8_t mode);
          void forceScaleLOD(bool force);
 +        void setCarReflection(uint8_t group);
++        void setSkyFog(uint16_t haze);
++        void setSkyDraw(bool on);
          void clearExtended();
  
          // The expected size and order for the elements in each array are:
@@ -1109,7 +1159,7 @@ index 69a82ac..df03596 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..c3ca351 100644
+index 9fae0d4..546f8f3 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,14 +4,20 @@
@@ -1149,16 +1199,17 @@ index 9fae0d4..c3ca351 100644
      RenderRect convertFixedRect(FixedRect rect, hlslpp::float2 resScale, int32_t fbWidth, float aspectRatioScale, float extOriginPercentage, int32_t horizontalMisalignment, uint16_t leftOrigin, uint16_t rightOrigin) {
          if (!rect.isNull()) {
              auto computeOrigin = [=](uint16_t origin) {
-@@ -169,6 +181,8 @@ namespace RT64 {
+@@ -169,6 +181,9 @@ namespace RT64 {
      
      void FramebufferRenderer::resetFramebuffers(RenderWorker *worker, bool ubershadersVisible, float ditherNoiseStrength, const RenderMultisampling &multisampling) {
          instanceDrawCallVector.clear();
 +        occlusionParamsVector.clear();
 +        carReflectionScenes.clear();
++        skyFogPasses.clear();
          hitGroupVector.clear();
          renderIndicesVector.clear();
          rspSmoothNormalVector.clear();
-@@ -250,6 +264,9 @@ namespace RT64 {
+@@ -250,6 +265,9 @@ namespace RT64 {
                      gpuTile.flags.fromCopy = true;
                      gpuTile.flags.rawTMEM = false;
                      gpuTile.flags.hasMipmaps = false;
@@ -1168,7 +1219,7 @@ index 9fae0d4..c3ca351 100644
                  }
              }
              else {
-@@ -258,20 +275,31 @@ namespace RT64 {
+@@ -258,20 +276,31 @@ namespace RT64 {
                  bool textureReplaced = false;
                  bool hasMipmaps = false;
                  bool shiftedByHalf = false;
@@ -1205,7 +1256,7 @@ index 9fae0d4..c3ca351 100644
              }
          }
      }
-@@ -508,14 +536,100 @@ namespace RT64 {
+@@ -508,14 +537,180 @@ namespace RT64 {
              }
          };
  
@@ -1284,6 +1335,62 @@ index 9fae0d4..c3ca351 100644
 +            switchToGraphicsPipeline();
 +        };
 +
++        // Rush 2 recomp: sky fog. A view's pass runs once, right after its last sky draw, over the area its marked draws
++        // covered so far: it blends the fog color over the pixels still at the depth clear (SkyFogPS.hlsl). Running
++        // there, not after the view's last draw, keeps see-through things drawn later without depth writes (sails,
++        // smoke) out of it.
++        int32_t dueSkyFog = -1;
++        auto submitSkyFog = [&]() {
++            const int32_t skyFogIndex = dueSkyFog;
++            dueSkyFog = -1;
++            RenderTarget *colorTarget = fbStorage->colorTarget;
++            RenderTarget *depthTarget = fbStorage->depthTarget;
++            if ((skyFogIndex < 0) || (colorTarget == nullptr) || (depthTarget == nullptr)) {
++                return;
++            }
++
++            SkyFogPass &pass = skyFogPasses[skyFogIndex];
++            if (pass.done || !pass.fogged || !pass.hasSky || !pass.rectSet || (pass.cb.haze <= 0.0f)) {
++                return;
++            }
++
++            pass.done = true;
++            const RenderRect rect(std::max(pass.rect.left, 0), std::max(pass.rect.top, 0),
++                std::min(pass.rect.right, int32_t(colorTarget->width)), std::min(pass.rect.bottom, int32_t(colorTarget->height)));
++            if (rect.isEmpty()) {
++                return;
++            }
++
++            RenderDevice *device = worker->device;
++            if (fbStorage->colorOnly == nullptr) {
++                const RenderTexture *colorTexture = colorTarget->texture.get();
++                fbStorage->colorOnly = device->createFramebuffer(RenderFramebufferDesc(&colorTexture, 1));
++            }
++
++            if (fbStorage->occlusionDepthSet == nullptr) {
++                fbStorage->occlusionDepthSet = std::make_unique<TextureCopyDescriptorSet>(device);
++                fbStorage->occlusionDepthSet->setTexture(fbStorage->occlusionDepthSet->gInput, depthTarget->texture.get(), RenderTextureLayout::DEPTH_READ, depthTarget->textureView.get());
++            }
++
++            const RenderViewport targetViewport(0.0f, 0.0f, float(colorTarget->width), float(colorTarget->height));
++            const bool depthMS = (depthTarget->multisampling.sampleCount > 1);
++            const ShaderRecord &skyFogShader = depthMS ? shaderLibrary->skyFogMS : shaderLibrary->skyFog;
++            submitDepthAccess(worker, fbStorage, true, depthState);
++            worker->commandList->setFramebuffer(fbStorage->colorOnly.get());
++            worker->commandList->setViewports(targetViewport);
++            worker->commandList->setScissors(rect);
++            worker->commandList->setPipeline(skyFogShader.pipeline.get());
++            worker->commandList->setGraphicsPipelineLayout(skyFogShader.pipelineLayout.get());
++            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionDepthSet->get(), 0);
++            worker->commandList->setGraphicsPushConstants(0, &pass.cb);
++            worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
++            worker->commandList->drawInstanced(3, 1, 0, 0);
++
++            // Back to the scene's framebuffer, with the depth buffer still read only.
++            worker->commandList->setFramebuffer(fbStorage->colorWriteDepthRead.get());
++            switchToGraphicsPipeline();
++        };
++
          if (fbStorage->colorTarget != nullptr) {
              switchToGraphicsPipeline();
          }
@@ -1291,6 +1398,30 @@ index 9fae0d4..c3ca351 100644
 +
          for (uint32_t i : rasterScene.instanceIndices) {
              const InstanceDrawCall &drawCall = instanceDrawCallVector[i];
++            if (dueSkyFog >= 0) {
++                submitSkyFog();
++            }
++
++            if ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && (drawCall.triangles.skyFogIndex >= 0) && !drawCall.triangles.scissor.isEmpty()) {
++                SkyFogPass &pass = skyFogPasses[drawCall.triangles.skyFogIndex];
++                const RenderRect &scissor = drawCall.triangles.scissor;
++                if (!pass.rectSet) {
++                    pass.rect = scissor;
++                    pass.rectSet = true;
++                }
++                else {
++                    pass.rect.left = std::min(pass.rect.left, scissor.left);
++                    pass.rect.top = std::min(pass.rect.top, scissor.top);
++                    pass.rect.right = std::max(pass.rect.right, scissor.right);
++                    pass.rect.bottom = std::max(pass.rect.bottom, scissor.bottom);
++                }
++            }
++
++            if ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && (drawCall.triangles.skyFogIndex >= 0) &&
++                skyFogPasses[drawCall.triangles.skyFogIndex].hasSky && (skyFogPasses[drawCall.triangles.skyFogIndex].lastInstance == i)) {
++                dueSkyFog = drawCall.triangles.skyFogIndex;
++            }
++
 +            if (pendingOcclusion >= 0) {
 +                const bool endsOcclusion =
 +                    ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && !drawCall.triangles.perspective) ||
@@ -1308,7 +1439,7 @@ index 9fae0d4..c3ca351 100644
              case InstanceDrawCall::Type::RawTriangles:
              case InstanceDrawCall::Type::RegularRect: {
                  assert(fbStorage->colorTarget != nullptr);
-@@ -550,6 +664,23 @@ namespace RT64 {
+@@ -550,6 +745,23 @@ namespace RT64 {
                      continue;
                  }
  
@@ -1332,7 +1463,7 @@ index 9fae0d4..c3ca351 100644
                  // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
                  const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
                  bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
-@@ -578,6 +709,20 @@ namespace RT64 {
+@@ -578,6 +790,20 @@ namespace RT64 {
  
                  drawCallTriangles(drawCall);
  
@@ -1353,16 +1484,17 @@ index 9fae0d4..c3ca351 100644
                  // Simulate dither noise.
                  if (triangles.postBlendDitherNoise) {
                      if (triangles.postBlendDitherNoiseNegative) {
-@@ -638,6 +783,8 @@ namespace RT64 {
+@@ -638,6 +864,9 @@ namespace RT64 {
              }
          }
  
++        submitSkyFog();
 +        submitOcclusion();
 +
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -1316,6 +1463,533 @@ namespace RT64 {
+@@ -1316,6 +1545,533 @@ namespace RT64 {
      }
  #endif
  
@@ -1896,7 +2028,7 @@ index 9fae0d4..c3ca351 100644
      void FramebufferRenderer::addFramebuffer(const DrawParams &p) {
          assert(p.fbStorage != nullptr);
          
-@@ -1450,8 +2124,17 @@ namespace RT64 {
+@@ -1450,8 +2206,18 @@ namespace RT64 {
          uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
@@ -1908,13 +2040,14 @@ index 9fae0d4..c3ca351 100644
 +        std::vector<std::vector<const GameCall *>> reflectionMarkedCalls(fbPair.projectionCount);
 +        std::vector<RenderColor> reflectionClearColors(fbPair.projectionCount, RenderColor(0.5f, 0.5f, 0.5f, 1.0f));
 +        RenderColor lastFillColor(0.5f, 0.5f, 0.5f, 1.0f);
++        const uint32_t skyFogPassStart = uint32_t(skyFogPasses.size());
          for (uint32_t pr = 0; (pr < fbPair.projectionCount) && (globalCallIndex < p.maxGameCall); pr++) {
              const Projection &proj = fbPair.projections[pr];
 +            reflectionClearColors[pr] = lastFillColor;
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2189,52 @@ namespace RT64 {
+@@ -1506,6 +2272,135 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -1964,10 +2097,93 @@ index 9fae0d4..c3ca351 100644
 +                }
 +            }
 +
++            // Rush 2 recomp: the sky fog pass of this projection's view, made on its first draw marked with
++            // gEXSetSkyFog. Projections with the same viewport in this framebuffer pair are one view and share it.
++            // A pixel's direction is (ndc.x, ndc.y, 1) times the inverse of the view projection's x, y and w columns
++            // (what the GPU used, interpolated frames included), and ndc comes from the pixel through the viewport.
++            int32_t projSkyFogIndex = -2;
++            auto skyFogPassOf = [&](uint16_t haze) -> int32_t {
++                if (projSkyFogIndex != -2) {
++                    return projSkyFogIndex;
++                }
++
++                projSkyFogIndex = -1;
++                if (!perspectiveProj || (projDepthB == 0.0f)) {
++                    return -1;
++                }
++
++                const interop::RSPViewport &viewport = drawData.rspViewports[proj.transformsIndex];
++                const int16_t viewportEdges[4] = { 1, 1, -1, -1 };
++                const RenderViewport viewportRect = convertViewportRect(viewport.rect(viewportEdges), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
++                if ((viewportRect.width <= 0.0f) || (viewportRect.height <= 0.0f) || (viewport.scale.x == 0.0f) || (viewport.scale.y == 0.0f)) {
++                    return -1;
++                }
++
++                for (uint32_t s = skyFogPassStart; s < skyFogPasses.size(); s++) {
++                    const RenderViewport &other = skyFogPasses[s].viewport;
++                    if ((other.x == viewportRect.x) && (other.y == viewportRect.y) && (other.width == viewportRect.width) && (other.height == viewportRect.height)) {
++                        projSkyFogIndex = int32_t(s);
++                        return projSkyFogIndex;
++                    }
++                }
++
++                const interop::float4x4 &viewProj = (proj.transformsIndex < drawData.modViewProjTransforms.size()) ? drawData.modViewProjTransforms[proj.transformsIndex] : drawData.viewProjTransforms[proj.transformsIndex];
++                const uint32_t clipColumns[3] = { 0, 1, 3 };
++                float g[3][3];
++                for (uint32_t j = 0; j < 3; j++) {
++                    for (uint32_t i = 0; i < 3; i++) {
++                        g[i][j] = viewProj[i][clipColumns[j]];
++                    }
++                }
++
++                const float det =
++                    g[0][0] * (g[1][1] * g[2][2] - g[1][2] * g[2][1]) -
++                    g[0][1] * (g[1][0] * g[2][2] - g[1][2] * g[2][0]) +
++                    g[0][2] * (g[1][0] * g[2][1] - g[1][1] * g[2][0]);
++                if (std::abs(det) < 1e-20f) {
++                    return -1;
++                }
++
++                const float invDet = 1.0f / det;
++                float gi[3][3];
++                gi[0][0] = (g[1][1] * g[2][2] - g[1][2] * g[2][1]) * invDet;
++                gi[0][1] = (g[0][2] * g[2][1] - g[0][1] * g[2][2]) * invDet;
++                gi[0][2] = (g[0][1] * g[1][2] - g[0][2] * g[1][1]) * invDet;
++                gi[1][0] = (g[1][2] * g[2][0] - g[1][0] * g[2][2]) * invDet;
++                gi[1][1] = (g[0][0] * g[2][2] - g[0][2] * g[2][0]) * invDet;
++                gi[1][2] = (g[0][2] * g[1][0] - g[0][0] * g[1][2]) * invDet;
++                gi[2][0] = (g[1][0] * g[2][1] - g[1][1] * g[2][0]) * invDet;
++                gi[2][1] = (g[0][1] * g[2][0] - g[0][0] * g[2][1]) * invDet;
++                gi[2][2] = (g[0][0] * g[1][1] - g[0][1] * g[1][0]) * invDet;
++
++                // screen = (clip.x / w, -clip.y / w) * scale + translate (RSPProcessCS.hlsl flips y), so clip / w is
++                // (pixel - center) / half size, signed like the scale and with y turned over.
++                const float ax = ((viewport.scale.x < 0.0f) ? -1.0f : 1.0f) / (viewportRect.width / 2.0f);
++                const float ay = ((viewport.scale.y < 0.0f) ? 1.0f : -1.0f) / (viewportRect.height / 2.0f);
++                const float bx = -ax * (viewportRect.x + viewportRect.width / 2.0f);
++                const float by = -ay * (viewportRect.y + viewportRect.height / 2.0f);
++                SkyFogPass pass;
++                pass.viewport = viewportRect;
++                pass.cb.dirX = interop::float4(ax * gi[0][0], ax * gi[0][1], ax * gi[0][2], 0.0f);
++                pass.cb.dirY = interop::float4(ay * gi[1][0], ay * gi[1][1], ay * gi[1][2], 0.0f);
++                pass.cb.dirW = interop::float4(
++                    bx * gi[0][0] + by * gi[1][0] + gi[2][0],
++                    bx * gi[0][1] + by * gi[1][1] + gi[2][1],
++                    bx * gi[0][2] + by * gi[1][2] + gi[2][2], 0.0f);
++                pass.cb.fogColor = interop::float4(0.0f, 0.0f, 0.0f, 1.0f);
++                pass.cb.depthA = projDepthA;
++                pass.cb.depthB = projDepthB;
++                pass.cb.haze = haze / 1000.0f;
++                pass.cb.padding = 0.0f;
++                projSkyFogIndex = int32_t(skyFogPasses.size());
++                skyFogPasses.push_back(pass);
++                return projSkyFogIndex;
++            };
++
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +2352,18 @@ namespace RT64 {
+@@ -1623,6 +2518,19 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -1978,6 +2194,7 @@ index 9fae0d4..c3ca351 100644
 +                        triangles.occlusionIndex = -1;
 +                        triangles.reflectionIndex = -1;
 +                        triangles.reflectionCar = -1;
++                        triangles.skyFogIndex = -1;
 +                        if (perspectiveProj && !callCopyMode && (callOtherMode.zMode() != ZMODE_DEC) && callOtherMode.zUpd() &&
 +                            !interop::Blender::usesAlphaBlend(callOtherMode)) {
 +                            triangles.occlusionIndex = projOcclusionIndex;
@@ -1986,7 +2203,7 @@ index 9fae0d4..c3ca351 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +2488,19 @@ namespace RT64 {
+@@ -1747,6 +2655,41 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -2002,11 +2219,33 @@ index 9fae0d4..c3ca351 100644
 +                        else {
 +                            reflectionCubeInstances[pr].push_back(instanceIndex);
 +                        }
++
++                        // Rush 2 recomp: a view marked for sky fog. Its pass runs right after its last sky draw
++                        // (gEXSetSkyDraw) and takes the fog color of its fogged draws.
++                        if (call.callDesc.extendedFlags.skyFog != 0) {
++                            const int32_t skyFogIndex = skyFogPassOf(call.callDesc.extendedFlags.skyFog);
++                            if (skyFogIndex >= 0) {
++                                SkyFogPass &pass = skyFogPasses[skyFogIndex];
++                                if (call.callDesc.extendedFlags.skyDraw) {
++                                    pass.lastInstance = instanceIndex;
++                                    pass.hasSky = true;
++                                }
++
++                                pass.cb.haze = call.callDesc.extendedFlags.skyFog / 1000.0f;
++                                if (interop::Blender::usesStandardFogCycle(call.shaderDesc.otherMode)) {
++                                    const interop::float4 &fogColor = drawData.rdpParams[call.callDesc.callIndex].fogColor;
++                                    pass.cb.fogColor = interop::float4(fogColor.x, fogColor.y, fogColor.z, 1.0f);
++                                    pass.fogged = true;
++                                }
++
++                                instanceDrawCall.triangles.skyFogIndex = skyFogIndex;
++                            }
++                        }
 +                    }
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +2508,8 @@ namespace RT64 {
+@@ -1754,6 +2697,8 @@ namespace RT64 {
              }
          }
  
@@ -2016,10 +2255,10 @@ index 9fae0d4..c3ca351 100644
          checkRtScene(rtScene);
  #   endif
 diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
-index 3add9c3..6abb6d8 100644
+index 3add9c3..8bc9543 100644
 --- a/src/render/rt64_framebuffer_renderer.h
 +++ b/src/render/rt64_framebuffer_renderer.h
-@@ -5,12 +5,15 @@
+@@ -5,12 +5,16 @@
  #pragma once
  
  #include <stdint.h>
@@ -2032,10 +2271,11 @@ index 3add9c3..6abb6d8 100644
  #include "preset/rt64_preset_scene.h"
 +#include "shared/rt64_ambient_occlusion.h"
 +#include "shared/rt64_car_reflection.h"
++#include "shared/rt64_sky_fog.h"
  #include "shared/rt64_frame_params.h"
  #include "shared/rt64_gpu_tile.h"
  #include "shared/rt64_render_indices.h"
-@@ -58,6 +61,41 @@ namespace RT64 {
+@@ -58,6 +62,59 @@ namespace RT64 {
          uint32_t indexCount;
      };
  
@@ -2074,20 +2314,39 @@ index 3add9c3..6abb6d8 100644
 +        bool atlasDrawn = false;
 +    };
 +
++    // Rush 2 recomp: sky fog (SkyFogPS.hlsl). One per view marked with gEXSetSkyFog: run once, right after the view's
++    // last sky draw (gEXSetSkyDraw), over the screen area its marked draws covered.
++    struct SkyFogPass {
++        interop::SkyFogCB cb;
++        // The viewport the view draws to, which tells views apart.
++        RenderViewport viewport;
++        // The scissors of the view's marked draws, joined.
++        RenderRect rect;
++        bool rectSet = false;
++        // The view's last sky draw (instanceDrawCallVector index), if it has any. A view with no sky draw shows the
++        // clear color, which the game sets to the fog color, so it needs no pass.
++        uint32_t lastInstance = 0;
++        bool hasSky = false;
++        // Whether a marked draw of the view is fogged (cb.fogColor is its color). A view without fog gets no haze.
++        bool fogged = false;
++        bool done = false;
++    };
++
      struct FramebufferRenderer {
          std::vector<uint32_t> textureCacheVersions;
          std::vector<Texture *> textureCacheTextures;
-@@ -67,6 +105,9 @@ namespace RT64 {
+@@ -67,6 +124,10 @@ namespace RT64 {
          uint32_t textureCacheGlobalVersion = 0;
          bool textureCacheReplacementMapEnabled = false;
          std::vector<InstanceDrawCall> instanceDrawCallVector;
 +        std::vector<interop::AmbientOcclusionCB> occlusionParamsVector; // Rush 2 recomp.
 +        std::vector<CarReflectionScene> carReflectionScenes; // Rush 2 recomp.
 +        std::vector<CarReflectionSlot> carReflectionSlots; // Rush 2 recomp.
++        std::vector<SkyFogPass> skyFogPasses; // Rush 2 recomp.
          std::vector<RenderPipelineProgram> hitGroupVector;
          std::vector<interop::RenderIndices> renderIndicesVector;
          std::vector<DynamicTextureView> dynamicTextureViewVector;
-@@ -165,6 +206,9 @@ namespace RT64 {
+@@ -165,6 +226,9 @@ namespace RT64 {
          void submitRSPSmoothNormalCompute(RenderWorker *worker, const OutputBuffers *outputBuffers);
          bool submitDepthAccess(RenderWorker *worker, RenderFramebufferStorage *fbStorage, bool readOnly, bool &depthState);
          void submitRasterScene(RenderWorker *worker, const Framebuffer &framebuffer, RenderFramebufferStorage *fbStorage, const RasterScene &rasterScene, bool &depthState);
@@ -2098,10 +2357,10 @@ index 3add9c3..6abb6d8 100644
          void endFramebuffers(RenderWorker *worker, const DrawBuffers *drawBuffers, const OutputBuffers *outputBuffers, bool rtEnabled);
          void recordSetup(RenderWorker *worker, std::vector<BufferUploader *> bufferUploaders, RSPProcessor *rspProcessor, VertexProcessor *vertexProcessor, const OutputBuffers *outputBuffers, bool rtEnabled);
 diff --git a/src/render/rt64_framebuffer_renderer_call.h b/src/render/rt64_framebuffer_renderer_call.h
-index f2eee70..a0b4bdc 100644
+index f2eee70..ac443eb 100644
 --- a/src/render/rt64_framebuffer_renderer_call.h
 +++ b/src/render/rt64_framebuffer_renderer_call.h
-@@ -41,6 +41,15 @@ namespace RT64 {
+@@ -41,6 +41,18 @@ namespace RT64 {
                  bool vertexTestZ : 1;
                  bool postBlendDitherNoise : 1;
                  bool postBlendDitherNoiseNegative : 1;
@@ -2114,6 +2373,9 @@ index f2eee70..a0b4bdc 100644
 +                int32_t reflectionIndex;
 +                // Rush 2 recomp: the car the draw is part of, in that scene's cars (CarReflectionScene::carBoxes).
 +                int32_t reflectionCar;
++                // Rush 2 recomp: the sky fog pass of the view this draw is part of (FramebufferRenderer::skyFogPasses),
++                // or -1.
++                int32_t skyFogIndex;
              } triangles;
  
              struct {
@@ -2874,7 +3136,7 @@ index 5c40c18..2e33dae 100644
 \ No newline at end of file
 +};
 diff --git a/src/render/rt64_render_target_manager.h b/src/render/rt64_render_target_manager.h
-index 7368711..249ced4 100644
+index 7368711..6949601 100644
 --- a/src/render/rt64_render_target_manager.h
 +++ b/src/render/rt64_render_target_manager.h
 @@ -9,6 +9,7 @@
@@ -2885,11 +3147,12 @@ index 7368711..249ced4 100644
  #include "rt64_render_target.h"
  
  namespace RT64 {
-@@ -56,6 +57,15 @@ namespace RT64 {
+@@ -56,6 +57,16 @@ namespace RT64 {
          uint64_t colorTargetRevision = 0;
          uint64_t depthTargetRevision = 0;
  
-+        // Rush 2 recomp: screen space ambient occlusion (FramebufferRenderer::submitRasterScene), made when first used.
++        // Rush 2 recomp: screen space ambient occlusion and sky fog (FramebufferRenderer::submitRasterScene), made when
++        // first used. Sky fog uses colorOnly and occlusionDepthSet.
 +        std::unique_ptr<RenderTexture> occlusionTexture;
 +        std::unique_ptr<RenderFramebuffer> occlusionFramebuffer;
 +        std::unique_ptr<RenderFramebuffer> colorOnly;
@@ -2902,18 +3165,19 @@ index 7368711..249ced4 100644
      };
  
 diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
-index d1c5273..47db0f1 100644
+index d1c5273..e2acd4d 100644
 --- a/src/render/rt64_shader_library.cpp
 +++ b/src/render/rt64_shader_library.cpp
-@@ -5,6 +5,7 @@
+@@ -5,6 +5,8 @@
  #include "rt64_shader_library.h"
  
  #include "common/rt64_common.h"
 +#include "shared/rt64_ambient_occlusion.h"
++#include "shared/rt64_sky_fog.h"
  #include "shared/rt64_render_target_copy.h"
  #include "shared/rt64_rsp_vertex_test_z.h"
  
-@@ -49,6 +50,12 @@
+@@ -49,6 +51,14 @@
  #include "shaders/FullScreenVS.hlsl.spirv.h"
  #include "shaders/Im3DVS.hlsl.spirv.h"
  #include "shaders/ComposePS.hlsl.spirv.h"
@@ -2923,10 +3187,12 @@ index d1c5273..47db0f1 100644
 +#include "shaders/CarReflectionCS.hlsl.spirv.h"
 +#include "shaders/CarReflectionVS.hlsl.spirv.h"
 +#include "shaders/CarReflectionPS.hlsl.spirv.h"
++#include "shaders/SkyFogPS.hlsl.spirv.h"
++#include "shaders/SkyFogPSMS.hlsl.spirv.h"
  #include "shaders/DebugPS.hlsl.spirv.h"
  #include "shaders/Im3DPS.hlsl.spirv.h"
  #include "shaders/PostProcessPS.hlsl.spirv.h"
-@@ -95,6 +102,12 @@
+@@ -95,6 +105,14 @@
  #   include "shaders/FullScreenVS.hlsl.dxil.h"
  #   include "shaders/Im3DVS.hlsl.dxil.h"
  #   include "shaders/ComposePS.hlsl.dxil.h"
@@ -2936,10 +3202,12 @@ index d1c5273..47db0f1 100644
 +#   include "shaders/CarReflectionCS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionVS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionPS.hlsl.dxil.h"
++#   include "shaders/SkyFogPS.hlsl.dxil.h"
++#   include "shaders/SkyFogPSMS.hlsl.dxil.h"
  #   include "shaders/DebugPS.hlsl.dxil.h"
  #   include "shaders/Im3DPS.hlsl.dxil.h"
  #   include "shaders/PostProcessPS.hlsl.dxil.h"
-@@ -140,6 +153,12 @@
+@@ -140,6 +158,14 @@
  #   include "shaders/FullScreenVS.hlsl.metal.h"
  #   include "shaders/Im3DVS.hlsl.metal.h"
  #   include "shaders/ComposePS.hlsl.metal.h"
@@ -2949,10 +3217,12 @@ index d1c5273..47db0f1 100644
 +#   include "shaders/CarReflectionCS.hlsl.metal.h"
 +#   include "shaders/CarReflectionVS.hlsl.metal.h"
 +#   include "shaders/CarReflectionPS.hlsl.metal.h"
++#   include "shaders/SkyFogPS.hlsl.metal.h"
++#   include "shaders/SkyFogPSMS.hlsl.metal.h"
  #   include "shaders/DebugPS.hlsl.metal.h"
  #   include "shaders/Im3DPS.hlsl.metal.h"
  #   include "shaders/PostProcessPS.hlsl.metal.h"
-@@ -148,6 +167,7 @@
+@@ -148,6 +174,7 @@
  #include "shared/rt64_fb_common.h"
  #include "shared/rt64_fb_reinterpret.h"
  #include "shared/rt64_texture_copy.h"
@@ -2960,7 +3230,7 @@ index d1c5273..47db0f1 100644
  #include "shared/rt64_video_interface.h"
  
  #include "rt64_descriptor_sets.h"
-@@ -535,6 +555,20 @@ namespace RT64 {
+@@ -535,6 +562,20 @@ namespace RT64 {
              rspSmoothNormal.pipeline = device->createComputePipeline(pipelineDesc);
          }
  
@@ -2981,7 +3251,7 @@ index d1c5273..47db0f1 100644
          // RSP World.
          {
              RSPWorldDescriptorSet descriptorSet;
-@@ -573,7 +607,7 @@ namespace RT64 {
+@@ -573,7 +614,7 @@ namespace RT64 {
          {
              TextureDecodeDescriptorSet descriptorSet;
              layoutBuilder.begin();
@@ -2990,7 +3260,7 @@ index d1c5273..47db0f1 100644
              layoutBuilder.addDescriptorSet(descriptorSet);
              layoutBuilder.end();
              textureDecode.pipelineLayout = layoutBuilder.create(device);
-@@ -851,7 +885,106 @@ namespace RT64 {
+@@ -851,7 +892,143 @@ namespace RT64 {
              pipelineDesc.multisampling = multisampling;
              postProcess.pipeline = device->createGraphicsPipeline(pipelineDesc);
          }
@@ -3039,6 +3309,43 @@ index d1c5273..47db0f1 100644
 +            pipelineDesc.pixelShader = applyShader.get();
 +            pipelineDesc.multisampling = multisampling;
 +            ambientOcclusionApply.pipeline = device->createGraphicsPipeline(pipelineDesc);
++        }
++
++        // Rush 2 recomp: sky fog. Reads the depth target and blends the fog color over the color target's RGB where the
++        // depth is the clear, by the alpha the shader returns.
++        {
++            TextureCopyDescriptorSet descriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::SkyFogCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(descriptorSet);
++            layoutBuilder.end();
++            skyFog.pipelineLayout = layoutBuilder.create(device);
++            skyFogMS.pipelineLayout = layoutBuilder.create(device);
++
++            std::unique_ptr<RenderShader> skyFogShader = device->createShader(CREATE_SHADER_INPUTS(SkyFogPSBlobDXIL, SkyFogPSBlobSPIRV, SkyFogPSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> skyFogMSShader = device->createShader(CREATE_SHADER_INPUTS(SkyFogPSMSBlobDXIL, SkyFogPSMSBlobSPIRV, SkyFogPSMSBlobMSL, "PSMain", shaderFormat));
++            RenderBlendDesc fogBlend;
++            fogBlend.blendEnabled = true;
++            fogBlend.srcBlend = RenderBlend::SRC_ALPHA;
++            fogBlend.dstBlend = RenderBlend::INV_SRC_ALPHA;
++            fogBlend.blendOp = RenderBlendOperation::ADD;
++            fogBlend.srcBlendAlpha = RenderBlend::ZERO;
++            fogBlend.dstBlendAlpha = RenderBlend::ONE;
++            fogBlend.blendOpAlpha = RenderBlendOperation::ADD;
++            fogBlend.renderTargetWriteMask = uint8_t(RenderColorWriteEnable::RED) | uint8_t(RenderColorWriteEnable::GREEN) | uint8_t(RenderColorWriteEnable::BLUE);
++            RenderGraphicsPipelineDesc pipelineDesc;
++            pipelineDesc.renderTargetBlend[0] = fogBlend;
++            pipelineDesc.renderTargetFormat[0] = RenderTarget::colorBufferFormat(usesHDR);
++            pipelineDesc.renderTargetCount = 1;
++            pipelineDesc.vertexShader = fullScreenVertexShader.get();
++            pipelineDesc.multisampling = multisampling;
++            pipelineDesc.pipelineLayout = skyFog.pipelineLayout.get();
++            pipelineDesc.pixelShader = skyFogShader.get();
++            skyFog.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            pipelineDesc.pipelineLayout = skyFogMS.pipelineLayout.get();
++            pipelineDesc.pixelShader = skyFogMSShader.get();
++            skyFogMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
 +        }
 +
 +        // Rush 2 recomp: car reflections. Draws a marked draw's triangles over the paint they are a layer of, blended by
@@ -3099,10 +3406,10 @@ index d1c5273..47db0f1 100644
          {
              FramebufferRendererDescriptorCommonSet descriptorCommonSet(samplerLibrary, deviceCapabilities.raytracing);
 diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
-index 641f3ec..3dc2fcb 100644
+index 641f3ec..5068fdd 100644
 --- a/src/render/rt64_shader_library.h
 +++ b/src/render/rt64_shader_library.h
-@@ -18,7 +18,12 @@ namespace RT64 {
+@@ -18,7 +18,14 @@ namespace RT64 {
          bool usesHardwareResolve = false;
  
          // All shaders.
@@ -3112,6 +3419,8 @@ index 641f3ec..3dc2fcb 100644
          ShaderRecord bicubicScaling;
 +        ShaderRecord carReflection;
 +        ShaderRecord carReflectionDraw;
++        ShaderRecord skyFog;
++        ShaderRecord skyFogMS;
          ShaderRecord boxFilter;
          ShaderRecord compose;
          ShaderRecord debug;
@@ -5081,6 +5390,52 @@ index e7895c3..d107485 100644
  }
  #endif
 \ No newline at end of file
+diff --git a/src/shaders/SkyFogPS.hlsl b/src/shaders/SkyFogPS.hlsl
+new file mode 100644
+index 0000000..b3bbb91
+--- /dev/null
++++ b/src/shaders/SkyFogPS.hlsl
+@@ -0,0 +1,40 @@
++//
++// RT64
++//
++
++// Rush 2 recomp: sky fog. Over the pixels a view's 3D left at the depth clear (the sky dome or sky model, which don't
++// write depth, and the clear color), returns the fog color with the share of the sky's light the fog takes away along
++// that pixel's ray, for the pipeline to blend over the color target.
++//
++// The fog is an exponential height fog around the camera: density sigma at the camera's height falling by e every H
++// above it. A ray at elevation e passes through optical depth sigma * H / sin e on its way out, so the sky keeps
++// exp(-haze / sin e) of its light, haze = sigma * H. At the horizon that is nothing, the fog color, the same as the
++// world's own fog at the far plane; it clears with height.
++
++#include "shared/rt64_sky_fog.h"
++
++[[vk::push_constant]] ConstantBuffer<SkyFogCB> gConstants : register(b0);
++
++#ifdef MULTISAMPLING
++Texture2DMS<float> gDepth : register(t1);
++#else
++Texture2D<float> gDepth : register(t1);
++#endif
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    const int2 pixel = int2(pos.xy);
++#ifdef MULTISAMPLING
++    const float depth = gDepth.Load(pixel, 0);
++#else
++    const float depth = gDepth.Load(int3(pixel, 0));
++#endif
++    const float w = gConstants.depthB / (depth - gConstants.depthA);
++    if ((depth < 0.99999f) && (w > 0.0f)) {
++        discard;
++    }
++
++    const float3 dir = pos.x * gConstants.dirX.xyz + pos.y * gConstants.dirY.xyz + gConstants.dirW.xyz;
++    const float sinElevation = dir.y * rsqrt(max(dot(dir, dir), 1e-20f));
++    const float transmittance = (sinElevation > 0.0f) ? exp(-gConstants.haze / sinElevation) : 0.0f;
++    return float4(gConstants.fogColor.rgb, 1.0f - transmittance);
++}
 diff --git a/src/shaders/TextureDecodeCS.hlsl b/src/shaders/TextureDecodeCS.hlsl
 index 19e6fad..0fd02a8 100644
 --- a/src/shaders/TextureDecodeCS.hlsl
@@ -5527,3 +5882,40 @@ index 4548f15..9add7cd 100644
  #endif
      struct GPUTile {
          float2 ulScale;
+diff --git a/src/shared/rt64_sky_fog.h b/src/shared/rt64_sky_fog.h
+new file mode 100644
+index 0000000..0eba2e0
+--- /dev/null
++++ b/src/shared/rt64_sky_fog.h
+@@ -0,0 +1,31 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include "shared/rt64_hlsl.h"
++
++#ifdef HLSL_CPU
++namespace interop {
++#endif
++    // Rush 2 recomp: sky fog (SkyFogPS.hlsl). Hazes the sky, the pixels a view's 3D left at the depth clear, toward
++    // the fog color by the fog a ray at that angle above the horizon passes through.
++    struct SkyFogCB {
++        // A pixel's direction from the camera, in the space the view's world transforms put vertices in (y up):
++        // pixel.x * dirX + pixel.y * dirY + dirW, any length.
++        float4 dirX;
++        float4 dirY;
++        float4 dirW;
++        // The view's fog color.
++        float4 fogColor;
++        // Depth buffer value d to w: w = depthB / (d - depthA). w not above 0 is the sky.
++        float depthA;
++        float depthB;
++        // The fog's vertical optical depth: a ray at elevation e keeps exp(-haze / sin e) of the sky's light.
++        float haze;
++        float padding;
++    };
++#ifdef HLSL_CPU
++};
++#endif

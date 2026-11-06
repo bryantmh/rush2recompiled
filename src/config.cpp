@@ -409,6 +409,39 @@ static void add_ambient_occlusion_option(recomp::config::Config& config) {
         });
 }
 
+namespace sky_fog_option {
+    const std::string id = "sky_fog";
+    enum class SkyFog : uint32_t { Off, On };
+
+    void apply(recomp::config::ConfigValueVariant value) {
+        rush2::sky_fog::set_enabled(static_cast<SkyFog>(std::get<uint32_t>(value)) == SkyFog::On);
+    }
+}
+
+// Sky fog: hazes the race's sky toward the fog color by height above the horizon, as real haze does, so the fogged
+// skyline blends into the sky (src/sky_fog.cpp, SkyFogPS.hlsl, docs/graphics_effects.md#sky-fog).
+static void add_sky_fog_option(recomp::config::Config& config) {
+    using sky_fog_option::SkyFog;
+
+    config.add_enum_option(
+        sky_fog_option::id,
+        "Sky Fog",
+        "Blends the fog into the sky the way real haze does: the sky fades into the fog color toward the horizon and "
+        "stays clear overhead, so distant scenery melts into the sky instead of standing out against it. "
+        "<recomp-color primary>Off</recomp-color> matches the original game.",
+        {
+            { SkyFog::Off, "Off", "Off" },
+            { SkyFog::On, "On", "On" },
+        },
+        SkyFog::Off
+    );
+
+    config.add_option_change_callback(sky_fog_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            sky_fog_option::apply(cur_value);
+        });
+}
+
 namespace car_lighting_option {
     const std::string id = "car_lighting";
 }
@@ -1028,7 +1061,7 @@ void rush2::init_config() {
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value,
                            graphics::options::api_option } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id }, true },
-            { "Effects", { ambient_occlusion_option::id, car_lighting_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
+            { "Effects", { ambient_occlusion_option::id, sky_fog_option::id, car_lighting_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
             { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id }, true },
@@ -1069,6 +1102,7 @@ void rush2::init_config() {
     add_mipmap_option(graphics_config);
     add_anisotropy_option(graphics_config);
     add_ambient_occlusion_option(graphics_config);
+    add_sky_fog_option(graphics_config);
     add_car_lighting_option(graphics_config);
     add_car_sheen_option(graphics_config);
     add_car_reflections_option(graphics_config);
@@ -1106,6 +1140,7 @@ void rush2::init_config() {
         std::get<uint32_t>(loaded_graphics_config.get_option_value(anisotropy_option::id)), 4u);
     RT64::AmbientOcclusionStrength = ambient_occlusion_option::strength(
         loaded_graphics_config.get_option_value(ambient_occlusion_option::id));
+    sky_fog_option::apply(loaded_graphics_config.get_option_value(sky_fog_option::id));
     // Car Lighting is disabled for now (add_car_lighting_option): the cars keep Original lighting whatever is saved.
     rush2::probes::set_mode(rush2::probes::Mode::Original);
     car_sheen_option::apply(loaded_graphics_config, loaded_graphics_config.get_option_value(car_sheen_option::id));
