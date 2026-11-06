@@ -40,7 +40,16 @@ the car is drawn at (car state +0, 0x801124A0 + car x 0x354).
 - The left column has the whole digits, white on black. The right column has the tenths, black on white.
 
 The port splits the two columns into RGBA16 images in spare RDRAM: 0x80C9A000 for the whole digits and 0x80C9A600 for
-the tenths. Each one is clamped at its own edges. A Dreamcast source's larger image is averaged down to the N64 size.
+the tenths. Each one is clamped at its own edges.
+
+A Dreamcast source has file 64 made from the disc's `HUDCOM` container (ODOMETER, MAP_LG, RADAR_LG and the rest of
+the N64 file). Converted, ODOMETER is shrunk to 32 x 64 to fit TMEM, too short for the 11 cells, so the odometer takes
+the disc's full-size image (`file_textures` / `source_image`): 32 x 256 ARGB1555, rows stored bottom up like the
+N64's, the digits in the 176 rows on top once upright, averaged 2 x 2 down to the N64 size. Until 2026-11-05 file 64
+wasn't converted at all and the odometer drew nothing with the disc as the source.
+
+The images are made off the game thread: `odometer2049::prepare` runs in the launch prewarm (with the 2049 cars) and
+again when the Rush 2049 source changes. Until they are ready, `draw` starts a worker for them and draws nothing.
 
 ## Placement in Rush 2
 

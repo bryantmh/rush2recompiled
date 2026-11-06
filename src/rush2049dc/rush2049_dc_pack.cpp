@@ -766,7 +766,7 @@ size_t rush2::rom2049::dc::dump_images(const std::filesystem::path& dir, bool in
             auto it = by_key.find(key);
             if (it == by_key.end() || (images[it->second].flags & flag_damaged)) continue;
             const ImageInfo& info = images[it->second];
-            if (!interface && (info.file == "HUD" || info.file == "HUDBATTLE" || info.file == "SELCAR" ||
+            if (!interface && (info.file == "HUD" || info.file == "HUDBATTLE" || info.file == "HUDCOM" || info.file == "SELCAR" ||
                                info.file == "SELTRK")) {
                 continue; // Interface art (Upscale Interface off).
             }

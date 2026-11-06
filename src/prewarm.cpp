@@ -48,6 +48,7 @@
 #include "car2049.h"
 #include "arcade2049.h"
 #include "car_mods.h"
+#include "odometer2049.h"
 #include "prewarm.h"
 #include "rush2049_rom.h"
 #include "texture_prewarm.h"
@@ -196,7 +197,7 @@ namespace {
             job("Custom tracks", [] { rush2::track_mod::prepare(); });
             cars.join();
         });
-        if (r49 != nullptr) spawn(L"Prewarm 2049 Cars", [r49] { job("Rush 2049 cars", [&] { rush2::car2049::prepare(*r49); }); });
+        if (r49 != nullptr) spawn(L"Prewarm 2049 Cars", [r49] { job("Rush 2049 cars", [&] { rush2::car2049::prepare(*r49); rush2::odometer2049::prepare(r49); }); });
         if (cs != nullptr) spawn(L"Prewarm CS Cars", [cs] { job("California Speed cars", [&] { rush2::calspeed::prepare_cars(*cs); }); });
         spawn(L"Prewarm Car Stats", [] { job("Car stats", [] { rush2::car2049::prepare_bar_ranges(); }); });
         if (sf_rush) {
@@ -234,6 +235,7 @@ namespace {
         std::string built = tracks_signature();
         if (!built_all) {
             if (r49 != nullptr) rush2::car2049::prepare(*r49);
+            rush2::odometer2049::prepare(r49);
             if (cs != nullptr) rush2::calspeed::prepare_cars(*cs);
             rush2::car_mods::prepare();
             prepare_tracks();
@@ -243,6 +245,7 @@ namespace {
             if (auto now = rush2::wings::get_rom(); now != r49) {
                 r49 = now;
                 if (r49 != nullptr) rush2::car2049::prepare(*r49);
+                rush2::odometer2049::prepare(r49);
             }
             if (auto now = rush2::calspeed::get_rom(); now != cs) {
                 cs = now;

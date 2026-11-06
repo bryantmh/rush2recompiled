@@ -179,6 +179,7 @@ bool rush2::rom2049::dc::convert_file(const Files& files, int index, std::vector
         case 60: model = "SELTRK"; break;
         case 61: case 62: model = "HUD"; break;
         case 63: model = "HUDBATTLE"; break;
+        case 64: model = "HUDCOM"; break;   // ODOMETER, MAP_LG, RADAR_LG... (src/rush2049/odometer.cpp)
         case 68: model = "TARGETSNOPAK"; break;
         case 76: model = "WEAPONS"; break;
         case 77: model = "WINGS"; break;

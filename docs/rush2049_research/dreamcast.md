@@ -72,7 +72,7 @@ Files with fixed RDRAM windows (HUD 61 and 62, battle HUD 63, weapons 76: src/ru
 every other file keeps each texture as big as TMEM takes. One file over its window fails `battle_render::ready()` and
 loses every battle model (weapons, kill coin, health frame): 62 was missing from the list until 2026-11-02. Fitting
 63 shrinks HEALTHBG to 4 x 8, so the battle health bar on a disc is drawn from its full-size image
-(`battle_render::image`) at the N64's 64 x 8, not as a Rush 2 HUD widget (which can't draw RGBA). Object names differ in places: `tools/rush2049/dc_names.py` pairs them
+(`battle_render::image`) at the N64's 64 x 8, not as a Rush 2 HUD widget (which can't draw RGBA). File 64 (the N64's HUD images) is made from the disc's `HUDCOM`; the odometer reads its full-size ODOMETER the same way (odometer.md). Object names differ in places: `tools/rush2049/dc_names.py` pairs them
 (`src/rush2049dc/rush2049_dc_names.inc`).
 
 Collision (`TRACKnROAD`): little-endian header, SEG, NODE, POLY, VERT and MOVER records; the VLIST and LEAF byte

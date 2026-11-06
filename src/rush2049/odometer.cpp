@@ -25,7 +25,9 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "recomp.h"
@@ -50,36 +52,58 @@ namespace {
 
     std::atomic_bool option = false;
 
-    std::shared_ptr<const rush2::rom2049::Source> loaded_rom;
-    bool image_ok = false;
-    std::vector<uint16_t> columns[2];               // upright RGBA16, cell x column_h each
-    bool written = false;                           // columns are in RDRAM
+    // The digit columns made from one source's ODOMETER: upright RGBA16, cell x column_h each. Made off the game thread
+    // (prepare): a Dreamcast source converts the disc's HUDCOM container for it, long enough to show as a hitch.
+    struct Image {
+        std::shared_ptr<const rush2::rom2049::Source> rom;
+        bool ok = false;
+        std::vector<uint16_t> columns[2];
+    };
+    std::mutex image_mutex;
+    std::shared_ptr<const Image> image;             // under image_mutex
+    std::atomic_bool loading = false;
+    std::shared_ptr<const Image> written;           // the image whose columns are in RDRAM (game thread)
 
     float distance[4];
     float last_pos[4][3];
     bool has_last[4];
 
-    // ODOMETER from the HUD file as RGBA, upright.
+    // ODOMETER from the HUD file as RGBA, upright. The N64's is 16 x 88. A Dreamcast source's converted file has it
+    // shrunk to fit TMEM (32 x 64, too short for the 11 cells), so the disc's full-size image is used: 32 x 256, rows
+    // stored bottom up like the N64's, the 176 rows of digits on top once upright.
     bool read_image(const rush2::rom2049::Source& rom, std::vector<std::array<uint8_t, 4>>& rgba, int& w, int& h) {
+        if (rom.is_dreamcast()) {
+            for (const rush2::rom2049::SourceTexture& t : rom.file_textures(rush2::rom2049::hud_file)) {
+                std::vector<uint8_t> px;
+                if (t.name != "ODOMETER" || !rom.source_image(t, px, w, h) || w <= 0 || h <= 0) continue;
+                rgba.resize((size_t)(w * h));
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        const uint8_t* p = &px[((size_t)(h - 1 - y) * w + x) * 4];
+                        rgba[(size_t)(y * w + x)] = { p[0], p[1], p[2], p[3] };
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
         std::vector<uint8_t> file;
         return rom.read_file(rush2::rom2049::hud_file, file) && rush2::rom2049::file_image(file, "ODOMETER", rgba, w, h);
     }
 
-    void load_image() {
-        auto rom = rush2::wings::get_rom();
-        if (rom == loaded_rom) return;
-        loaded_rom = rom;
-        image_ok = false;
-        written = false;
+    // The two columns of rom's ODOMETER, averaged down to the N64's size.
+    std::shared_ptr<const Image> make_image(std::shared_ptr<const rush2::rom2049::Source> rom) {
+        auto made = std::make_shared<Image>();
+        made->rom = rom;
         std::vector<std::array<uint8_t, 4>> rgba;
         int w = 0, h = 0;
         if (rom == nullptr || !read_image(*rom, rgba, w, h) || w < 2 * cell || h < column_h) {
             if (rom != nullptr) fprintf(stderr, "[Odometer] Couldn't read Rush 2049's ODOMETER image\n");
-            return;
+            return made;
         }
         int fx = w / (2 * cell), fy = h / column_h;
         for (int c = 0; c < 2; c++) {
-            columns[c].assign((size_t)(cell * column_h), 0);
+            made->columns[c].assign((size_t)(cell * column_h), 0);
             for (int y = 0; y < column_h; y++) {
                 for (int x = 0; x < cell; x++) {
                     int sum[4] = {};
@@ -90,21 +114,50 @@ namespace {
                         }
                     }
                     int n = fx * fy;
-                    columns[c][(size_t)(y * cell + x)] = (uint16_t)((sum[0] / n >> 3) << 11 | (sum[1] / n >> 3) << 6 |
-                                                                    (sum[2] / n >> 3) << 1 | (sum[3] / n >= 128 ? 1 : 0));
+                    made->columns[c][(size_t)(y * cell + x)] = (uint16_t)((sum[0] / n >> 3) << 11 | (sum[1] / n >> 3) << 6 |
+                                                                          (sum[2] / n >> 3) << 1 | (sum[3] / n >= 128 ? 1 : 0));
                 }
             }
         }
-        image_ok = true;
+        made->ok = true;
+        return made;
     }
 
-    void write_images(uint8_t* rdram) {
+    // The image for the current Rush 2049 source, or null while it is being made (on a worker, never the game thread).
+    std::shared_ptr<const Image> current_image() {
+        auto rom = rush2::wings::get_rom();
+        std::shared_ptr<const Image> have;
+        {
+            std::lock_guard lock{ image_mutex };
+            have = image;
+        }
+        if (have != nullptr && have->rom == rom) return have;
+        if (!loading.exchange(true)) {
+            std::thread([rom] {
+                rush2::odometer2049::prepare(rom);
+                loading = false;
+            }).detach();
+        }
+        return nullptr;
+    }
+
+    void write_images(uint8_t* rdram, const std::shared_ptr<const Image>& img) {
         for (int c = 0; c < 2; c++) {
             uint32_t address = c == 0 ? whole_image : tenths_image;
-            for (int t = 0; t < cell * column_h; t++) MEM_H(t * 2, (int32_t)address) = (int16_t)columns[c][(size_t)t];
+            for (int t = 0; t < cell * column_h; t++) MEM_H(t * 2, (int32_t)address) = (int16_t)img->columns[c][(size_t)t];
         }
-        written = true;
+        written = img;
     }
+}
+
+void rush2::odometer2049::prepare(std::shared_ptr<const rush2::rom2049::Source> rom) {
+    {
+        std::lock_guard lock{ image_mutex };
+        if (image != nullptr && image->rom == rom) return;
+    }
+    auto made = make_image(rom);
+    std::lock_guard lock{ image_mutex };
+    image = std::move(made);
 }
 
 void rush2::odometer2049::set_option(bool on) {
@@ -120,7 +173,7 @@ void rush2::odometer2049::reset() {
         distance[p] = 0.0f;
         has_last[p] = false;
     }
-    written = false;
+    written = nullptr;
 }
 
 void rush2::odometer2049::update(uint8_t* rdram) {
@@ -154,9 +207,9 @@ void rush2::odometer2049::update(uint8_t* rdram) {
 // func_80106D94's digits.
 void rush2::odometer2049::draw(uint8_t* rdram, int player, float x, float y, float scale, float anchor) {
     if (player < 0 || player > 3) return;
-    load_image();
-    if (!image_ok) return;
-    if (!written) write_images(rdram);
+    auto img = current_image();
+    if (img == nullptr || !img->ok) return;
+    if (written != img) write_images(rdram, img);
 
     float d = distance[player];
     if (MEM_B(0, (int32_t)metric_flag) != 0) d /= 0.6f;

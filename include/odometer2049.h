@@ -2,6 +2,11 @@
 #define __ODOMETER2049_H__
 
 #include <cstdint>
+#include <memory>
+
+namespace rush2::rom2049 {
+    class Source;
+}
 
 // Rush 2049's odometer (src/rush2049/odometer.cpp): four rolling digits under each player's race time with the miles
 // (km with the speedometer in km/h) their car has driven this race. The Odometer option is in the Games tab's Rush 2049
@@ -13,6 +18,10 @@ namespace rush2::odometer2049 {
     constexpr int gap = 2;
 
     void set_option(bool on);
+    // Makes the digit images from rom's ODOMETER (null: none) on the calling thread; src/prewarm.cpp calls it at launch.
+    // draw() never makes them itself: until they are ready for the current source it starts this on a worker and
+    // draws nothing (a Dreamcast source converts the disc's HUDCOM container for them).
+    void prepare(std::shared_ptr<const rush2::rom2049::Source> rom);
     // The option is on and Rush 2049 is loaded.
     bool enabled();
     // A race is set up (or restarted): the distances start over.
