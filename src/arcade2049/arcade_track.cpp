@@ -8,7 +8,7 @@
 //   - FINISH at the finish sign, CHECKPOINT_n at the checkpoint banners
 //   - AIPATH_main over the drones' centre line, AIPATH_lane1-4 the drones' racing lines, each point with the
 //     arcade's speed and steering behaviour (_SPEED, _AI_MODE)
-//   - BILLBOARD_ the cards the arcade turns to the camera (frontface); PROP_KNOCK_ the knock-over cones and
+//   - BILLBOARD_ the cards the arcade turns to the camera (dobs frontface, worlds.rom names FF_); PROP_KNOCK_ the knock-over cones and
 //     construction horses (bounce); MOVE_ the moving objects (follow, spin, flipbook frames, doors) with their dobs
 //     events in track.toml [movers.*]; TRIGGER_ boxes the events wait for
 // and track.toml ([track] gravity = "rush2049", smooth_collision = false). Left out (reported): the coin pickups,
@@ -1090,12 +1090,15 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         M3 M;
         V3 pos;
         std::vector<std::string> script;
+        bool card = false;      // a worlds.rom card the arcade turns to the camera (name FF_)
     };
     std::vector<Instance> instances;
     for (const WorldEntry& w : worlds) {
         const Object* o = t.object_named(w.name);
         if (!o) { report.push_back("worlds.rom: " + w.name + " names no object, left out"); continue; }
-        instances.push_back({ o, w.m, w.pos, {} });
+        // The arcade's worlds loader (ProjectR 0x1402D69EE) gives a placement named FF_ the flag dobs' `frontface`
+        // sets (0x2000000): mostly trees, plus Presidio's bridge glows and Mission's glare sprites.
+        instances.push_back({ o, w.m, w.pos, {}, starts_with(upper(w.name), "FF_") });
     }
     for (const DobsEntry& d : dobs) {
         const Object* o = t.object_named(d.name);
@@ -1339,7 +1342,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             }
         }
         bool door = !open_ev.empty() || !close_ev.empty();
-        bool knock = words.count("bounce") > 0, card = words.count("frontface") > 0;
+        bool knock = words.count("bounce") > 0, card = in.card || words.count("frontface") > 0;
         if (knock || (card && !follow.on)) {
             PrimSet prims;
             add_tris(prims, lod, local, 0.0);

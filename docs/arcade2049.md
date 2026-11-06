@@ -120,6 +120,14 @@ s16 next, s16 -1, u32. Bytes after a name's NUL are leftovers of longer names, s
 Read at 8, arcade Marina, Haight, Civic and Presidio lost 64, 107, 355 and 469 placements (the AF_/FF_/AL_/BL_/LP_
 objects, ambiguous at 8); the readers now take the long name when it is an object. Every Alcatraz matrix is identity.
 
+Name prefixes set object flags **[V]** (ProjectR 0x1402D69EE, the per-instance worlds loader; strings at 0x1406EA205):
+`FF_` 0x2000000, the same flag dobs' `frontface` sets (0x1402D83B5), so `FF_` placements are cards turned to the camera;
+`AF_` 0x20000, `AL_` 0x80000 (not decoded); `LP_` 0x4000090, the same as dobs' `lightpoint`. An identity matrix adds 0x10.
+`FF_` placements are mostly trees: Marina 34, Haight 74, Civic 286, Alcatraz 0, Metro 1 (the moon), Mission 133,
+Presidio 320 (plus bridge glows and glare sprites). The converter makes them `BILLBOARD_` as it does `frontface` objects
+(`src/arcade2049/arcade_track.cpp`, `Instance::card`; until 2026-11-05 they were fixed scenery, edge-on or missing
+from most angles). Each is a flat quad centered on its own origin with an identity matrix, so it turns in place.
+
 ## dobs.rom (dynamic objects)
 
 u8 1, then records: u8 name length (with its NUL), the name (can be longer than the object table's 15 characters; a
