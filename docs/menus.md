@@ -163,7 +163,8 @@ up, for a script through the real menus (it starts as JUST PLAY: the folder has 
   (`view_cars` 0x80240380, as online sets them): left unset, view 0 kept another car and split screen's first view
   watched it from far off. Without it one player, in
   `RUSH2_TEST_CAR`'s car or the Pickup (0). `RUSH2_TEST_RACE_LAPS`, `RUSH2_TEST_RACE_DRONES`: the track select's LAPS
-  and DRONES (0x800D5760 +0 and +1, raw counts); otherwise the saved ones. `RUSH2_TEST_RACE_BATTLE=1`: the race
+  and DRONES (0x800D5760 +0 and +1, raw counts); otherwise the saved ones. `RUSH2_TEST_RACE_BACKWARD=1`: BACKWARD on (+0xC, the race's 0x80119848).
+  `RUSH2_TEST_RACE_BATTLE=1`: the race
   select's BATTLE row on (not saved; docs/rush2049_research/battle.md section 7.2). `RUSH2_TEST_MANUAL`, `RUSH2_TEST_DEATHS`
   and `RUSH2_TEST_FINISH` (src/players4.cpp) still apply.
 - Each player races as JUST PLAY leaves them, never with a saved player: record +0x24 is the controller's own buffer

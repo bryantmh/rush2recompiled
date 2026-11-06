@@ -509,8 +509,9 @@ Rush 2049. Without it they stand still and cars drive through them.
 
 Set a material's Blend Mode to **Alpha Blend** (glTF BLEND) for glass, glows, smoke or soft clouds. It is drawn
 see-through by its texture's alpha after the solid scenery, the way Rush 2 draws its own windows. This works on
-scenery, billboards, props, moving objects and the `SKY`. See-through surfaces aren't sorted against each other, so
-two that overlap on screen can show in either order: keep them apart, or use Alpha Clip where hard edges will do.
+scenery, billboards, props, moving objects and the `SKY`. Their mostly solid parts (alpha of one half and up) hide
+what is behind them, so a soft-edged tree in front of a glow or a truss stays in front; the faint parts (soft edges,
+glow halos) aren't sorted against other see-through surfaces, so a far one drawn later can still show through them.
 
 ## Point to point
 
@@ -972,7 +973,13 @@ merges and renames as needed.
 - **See-through materials:** BLEND triangles get their own sections (the grid cell is keyed by translucency too),
   whose records have the late-pass flag 0x40000 (drawn after the opaque nodes, as Rush 2's own transparent ones). Every
   list draws its translucent materials last with render mode 0xC8104A50 (fog, then AA z-buffered translucent: Rush 2's
-  own); the SKY list uses 0x00504240 (G_RM_XLU_SURF, both cycles). A stand-in (RGBA16) holds 1-bit alpha only, so
+  own); the SKY list uses 0x00504240 (G_RM_XLU_SURF, both cycles). Outside the SKY each translucent batch is drawn
+  twice (2026-11-05): first `mode_blend_depth` (0xC8104270: the same blend in the opaque z mode with Z_UPD) under alpha
+  compare (G_SETOTHERMODE_L 0xE2001E01 = 1, threshold G_SETBLENDCOLOR alpha 0x80), so its solid texels write depth, then
+  0xC8104A50 with alpha compare off for the soft edges; the list puts the blend color back to Rush 2's 0x10 (the HUD's
+  threshold). Without it, late sections drawn in no order let the arcade Mission's trusses and light strips (BLEND
+  RK_EXPLR_BEAM2, AL_STRTBLUE) paint over nearer soft-edged trees (SPRUCE_01, LUCKYTREE1: BLEND by >5% soft texels).
+  A stand-in (RGBA16) holds 1-bit alpha only, so
   `Texture::blend` makes the full-size image keep its alpha (`track_mod.cpp`; the stand-ins' cache records hold the
   flag from converter version 15).
 - **Far moving objects:** a `MOVE_` object without collision whose mesh reaches past `vertex_reach` (2,000 ft) is

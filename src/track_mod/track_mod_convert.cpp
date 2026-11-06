@@ -68,6 +68,16 @@ namespace {
     constexpr uint32_t mode_opaque = 0xC8112230;   // fog, then AA z-buffered opaque surface
     constexpr uint32_t mode_cutout = 0xC8113278;   // fog, then AA z-buffered alpha-tested (texture edge)
     constexpr uint32_t mode_blend = 0xC8104A50;    // fog, then AA z-buffered translucent (no depth write)
+    // A translucent material's first pass: mode_blend in the opaque z mode with depth write, under alpha compare
+    // (texels under blend_depth_alpha are skipped). Translucent triangles write no depth and are drawn in no order, so
+    // without it a far one drawn later painted over a nearer one: the arcade Mission's trusses and lamp glows over its
+    // trees (all soft-edged, so BLEND). The second pass (mode_blend) then adds the soft edges the first one skipped.
+    constexpr uint32_t mode_blend_depth = (mode_blend & ~0xC00u) | 0x20;    // ZMODE_OPA, Z_UPD
+    constexpr uint32_t blend_depth_alpha = 0x80;
+    constexpr uint32_t set_alpha_compare = 0xE2001E01;  // G_SETOTHERMODE_L, G_MDSFT_ALPHACOMPARE: 1 threshold, 0 none
+    // G_SETBLENDCOLOR as Rush 2's frame setup leaves it (0x80020178; track2049_convert.cpp blend_rush2): its alpha is
+    // the HUD's alpha-compare threshold, put back after a depth pass.
+    constexpr uint32_t blend_color_rush2 = 0x00000010;
     constexpr uint32_t late_pass = 0x40000;        // placement/node flag: drawn after the opaque nodes (transparent)
     constexpr uint32_t camera_card = 0x8000;       // node flag: an upright card turned to the camera (view_billboard_basis)
     constexpr uint32_t combine[2] = { 0xFC127FFF, 0xFFFFF238 };
@@ -1103,9 +1113,11 @@ namespace {
     void emit_mesh(const std::vector<VisualTri>& vtris, const std::vector<int>& tris, const std::vector<int>& order,
                    const std::vector<DrawMaterial>& materials, const Vec3& origin, float unit,
                    const std::function<void(MeshList&, size_t)>& load, MeshList& m,
-                   uint32_t opaque = mode_opaque, uint32_t cutout = mode_cutout, uint32_t blend = mode_blend) {
+                   uint32_t opaque = mode_opaque, uint32_t cutout = mode_cutout, uint32_t blend = mode_blend,
+                   bool blend_depth = true) {
         const float light[3] = { 0.30f, 0.80f, 0.52f };
         int current_mode = -1;
+        bool depth_state = false;   // the blend color and alpha compare are the depth pass's
         // Translucent materials last, over what is behind them.
         std::vector<size_t> passes;
         for (int pass = 0; pass < 2; pass++) {
@@ -1118,7 +1130,13 @@ namespace {
             const DrawMaterial& dm = materials[mi];
             const rush2::track_mod::Texture& tex = *dm.texture;
             int mode = dm.blend ? 2 : dm.cutout ? 1 : 0;
-            if (mode != current_mode) { m.cmd(0xE200001C, mode == 2 ? blend : mode ? cutout : opaque); current_mode = mode; }
+            bool two_pass = dm.blend && blend_depth;
+            if (two_pass && !depth_state) {
+                m.cmd(0xF9000000, blend_depth_alpha);   // G_SETBLENDCOLOR: the alpha compare threshold
+                depth_state = true;
+            }
+            if (two_pass) current_mode = -1;            // each batch sets its two passes' modes
+            else if (mode != current_mode) { m.cmd(0xE200001C, mode == 2 ? blend : mode ? cutout : opaque); current_mode = mode; }
             load(m, mi);
             // Each triangle's texture coordinates are shifted by whole repeats to stay inside the s16 range.
             std::vector<uint8_t> batch;
@@ -1130,14 +1148,25 @@ namespace {
                 m.vertices.insert(m.vertices.end(), batch.begin(), batch.end());
                 m.vtx_commands.push_back(m.list.size());
                 m.cmd(0x01000000 | (uint32_t(slots) << 12) | (uint32_t(slots) << 1), at);
-                for (size_t t = 0; t < batch_tris.size(); t += 2) {
-                    uint32_t a = (batch_tris[t][0] * 2 << 16) | (batch_tris[t][1] * 2 << 8) | (batch_tris[t][2] * 2);
-                    if (t + 1 < batch_tris.size()) {
-                        uint32_t b = (batch_tris[t + 1][0] * 2 << 16) | (batch_tris[t + 1][1] * 2 << 8) | (batch_tris[t + 1][2] * 2);
-                        m.cmd(0x06000000 | a, b);
+                auto tris_cmds = [&]() {
+                    for (size_t t = 0; t < batch_tris.size(); t += 2) {
+                        uint32_t a = (batch_tris[t][0] * 2 << 16) | (batch_tris[t][1] * 2 << 8) | (batch_tris[t][2] * 2);
+                        if (t + 1 < batch_tris.size()) {
+                            uint32_t b = (batch_tris[t + 1][0] * 2 << 16) | (batch_tris[t + 1][1] * 2 << 8) | (batch_tris[t + 1][2] * 2);
+                            m.cmd(0x06000000 | a, b);
+                        }
+                        else m.cmd(0x05000000 | a, 0);
                     }
-                    else m.cmd(0x05000000 | a, 0);
+                };
+                if (two_pass) {
+                    // The loaded vertices drawn twice: solid texels writing depth, then everything blended.
+                    m.cmd(0xE200001C, mode_blend_depth);
+                    m.cmd(set_alpha_compare, 1);
+                    tris_cmds();
+                    m.cmd(0xE200001C, blend);
+                    m.cmd(set_alpha_compare, 0);
                 }
+                tris_cmds();
                 batch.clear();
                 batch_tris.clear();
                 slots = 0;
@@ -1180,6 +1209,7 @@ namespace {
             }
             flush();
         }
+        if (depth_state) m.cmd(0xF9000000, blend_color_rush2);
     }
 
     // The commands loading RGBA16 stand-in texture t from `texels` (the pointer is the first command's second word),
@@ -3628,7 +3658,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         m.cmd(0xD9FEFFFE, 0x00000000);          // G_ZBUFFER, G_FOG off
         m.cmd(0xD7000002, 0xFFFFFFFF);
         emit_mesh(stris, all, used_materials, draw_materials, Vec3{}, unit,
-                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m, sky_opaque, sky_cutout, sky_blend);
+                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m, sky_opaque, sky_cutout, sky_blend, false);
         m.cmd(0xD9FFFFFF, 0x00010001);          // G_ZBUFFER, G_FOG back on
         m.cmd(0xE3000A01, 0x00100000);          // 2-cycle
         m.cmd(combine[0], combine[1]);
