@@ -173,6 +173,7 @@ void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_carousel_order(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_step(uint8_t* rdram, recomp_context* ctx);
+void rush2_track49_carousel_slide(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx);
 int rush2_track49_select_available(uint8_t* rdram, recomp_context* ctx);

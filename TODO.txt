@@ -36,3 +36,4 @@ California Speed:
 
 California speed had a custom RGB paint system, could that be ported over to here on rush?
 "No Damage" feature, be applied to all cars, not just the player, can be toggled.
+Circuit review not properly showing modded cars

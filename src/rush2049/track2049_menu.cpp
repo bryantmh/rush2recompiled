@@ -1103,15 +1103,32 @@ extern "C" void rush2_track49_carousel_order(uint8_t* rdram, recomp_context* ctx
     }
 }
 
+namespace {
+    // The last TRACK left / right step's direction ($a1 of func_803ABE0C: -1 or +1), for the carousel slide.
+    std::atomic<int> last_step_direction{ -1 };
+}
+
 // func_803ABE0C at 0x803AC12C: TRACK left / right moved the carousel position by one (wrapped) and the track id to
 // the next selectable id ($a2, at $a3); the track is the one at the new position, in display order.
 extern "C" void rush2_track49_select_step(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r5 != 0) last_step_direction = (int32_t)ctx->r5 < 0 ? -1 : 1;
     int count = MEM_H(0, (int32_t)carousel_count);
     int position = MEM_H(0, (int32_t)carousel_position);
     if (position < 0 || position >= count || count > menu_tracks) return;
     uint8_t t = MEM_BU(0, (int32_t)(new_carousel + position * carousel_entry));
     MEM_B(0, (int32_t)ctx->r7) = t;
     ctx->r6 = (int8_t)t;
+}
+
+// func_803AB294 at 0x803ABB58, each frame per carousel entry $s0: its slot (place relative to the position, $v0 =
+// (index - position) wrapped to [0, count)) changed from the old slot $v1 (+0x14). The game takes the step's direction
+// from the slots: $a1 = $v0 - 1 (wrapped) == $v1 means the position went down (left), and the entry's target x (+0x10)
+// drops by the spacing; otherwise it rises. With two entries both directions give the same slots, so every step
+// slid the same way. There the button's direction decides.
+extern "C" void rush2_track49_carousel_slide(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_H(0, (int32_t)carousel_count) != 2) return;
+    int old_slot = (int32_t)ctx->r3;
+    ctx->r5 = last_step_direction < 0 ? (uint64_t)(int64_t)old_slot : (uint64_t)(int64_t)(old_slot + 1);
 }
 
 // Rush 2049's own preview for the 2049 entries (docs/rush2049_research/menus.md §7.5): the carousel instances the

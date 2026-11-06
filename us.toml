@@ -1025,6 +1025,12 @@ func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC12C
 text = "    rush2_track49_select_step(rdram, ctx);"
 
+# With two carousel entries the slide's direction (from the slots alone) was the same both ways: the button's decides.
+[[patches.hook]]
+func = "trackselect_init_draw_803AB294"
+before_vram = 0x803ABB58
+text = "    rush2_track49_carousel_slide(rdram, ctx);"
+
 # Rush 2049 entries show 2049's own track select preview (src/rush2049/track2049_menu.cpp): the camera-space model replaces the
 # diorama when the carousel instances it, and its pose replaces the carousel's spin each frame.
 [[patches.hook]]

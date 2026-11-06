@@ -156,6 +156,16 @@ Anything ≥ 11 → yes, **so 12–17 already pass**.
 - Users of 0x803D0698 [V]: 0x803AB104 (`func_803AB0E4`), 0x803AB6F4, 0x803AB8A4, 0x803ABAC8, 0x803ABCD4.
 - **Initial `carouselIndex` search:** 0x803AB640–0x803AB688 (`slti 0xC`).
 
+**Carousel slide** [V] (`func_803AB294` each frame, 0x803ABB1C–0x803ABC34, per entry `$s0`):
+- New slot `$v0` = (index − `carouselIndex`) wrapped to [0, `count`); old slot `$v1` = +0x14.
+- If they differ: `$a1` = `$v0` − 1 wrapped. `$a1 == $v1` (the index went down, TRACK left) → target x +0x10 −= 100;
+  else += 100. Then +0x14 = `$v0`.
+- +4 x moves toward the target by (target − x of the shown entry) / 10 · dt; past ±`count`·50 both x and target wrap
+  by `count`·100.
+- **Two entries:** slots 0 ↔ 1 look the same both ways, so the game always slid them left. The hook at 0x803ABB58
+  (`rush2_track49_carousel_slide`, src/rush2049/track2049_menu.cpp) sets `$a1` from the last TRACK step's `$a1`
+  direction (recorded at 0x803AC12C) when `count` is 2.
+
 **Initial track** [V] (0x803AB3C0–0x803AB5C0):
 - Circuit mode: `track = 0x800D3A60[0x800D3DF0·4]`.
 - Else, if 0x800E7D38 > 0 (ATARI just unlocked) → 10.
