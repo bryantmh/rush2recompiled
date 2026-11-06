@@ -10,7 +10,9 @@
 //   0x2000 (CONE1, GASPUMP) are removed.
 // - Signs and parking meters, kind 0 sub-kinds 1-2 (func_8010E72C, update func_8010E828): the sign turns to face the
 //   car's travel direction and tips over about its x axis for 4 frames, by the sub-kind's angles per frame (table
-//   0x80118D70: -0.384 rad, GETOFF -0.375 rad), and stays down.
+//   0x80118D70: -0.384 rad, GETOFF -0.375 rad), and stays down. The Dreamcast disc runs at 60 Hz: its sign init
+//   (0x8C05A58C) sets 8 frames and its table (0x8C0C1744) has half the angles, so a disc source tips over the same
+//   1.54 rad in the same 2/15 s.
 // - CACTUS (func_8010D9CC, update func_80094888): it turns to face the car's travel direction and runs its 7-frame
 //   flip-book (CACTUSG2-G8, from model index 263 of the handle table 0x8011AD68) at 1/16 s per frame after a 1/30 s
 //   delay, and keeps the last frame (type flag 0x1000).
@@ -76,6 +78,8 @@ namespace {
     constexpr float knock_seconds = 5.0f;
     constexpr float knock_spin[3] = { 0.0f, 12.0f, 15.0f };
     constexpr float sign_frames = 4.0f;
+    constexpr float sign_frames_disc = 8.0f;         // 0x8C05A58C, at 60 frames per second
+    constexpr float frame_rate_disc = 60.0f;
     constexpr float flipbook_delay = 0.0333333f;     // 0x801249BC
     constexpr float flipbook_period = 0.0625f;
     constexpr int cactus_frames = 7;
@@ -106,6 +110,7 @@ namespace {
     std::vector<movers::TypeInfo> types;
     std::vector<std::string> handle_names;   // 2049 model handle table names.
     float sign_angles[3][3] = {};            // Kind 0 parameters of sub-kinds 0-2.
+    bool disc_source = false;                // The Dreamcast disc: sign angles per 60 Hz frame.
 
     uint32_t be32(const uint8_t* p) {
         return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
@@ -172,6 +177,7 @@ namespace {
                 sign_angles[sub][a] = params != 0 && in_main(at, 4) ? bef(&main[at - main_vram]) : 0.0f;
             }
         }
+        disc_source = rom->is_dreamcast();
         types_rom = rom;
         return true;
     }
@@ -332,7 +338,7 @@ namespace {
             facing(v, p.m);
             int sub = t.sub < 3 ? t.sub : 0;
             memcpy(p.angles, sign_angles[sub], sizeof(p.angles));
-            p.frames = sign_frames;
+            p.frames = disc_source ? sign_frames_disc : sign_frames;
             p.state = Prop::State::tipping;
         }
         else if (t.init == init_cactus) {
@@ -373,7 +379,7 @@ namespace {
                 break;
             }
             case Prop::State::tipping: {
-                float step = std::min(frames, p.frames);
+                float step = std::min(dt * (disc_source ? frame_rate_disc : frame_rate), p.frames);
                 float a[3] = { p.angles[0] * step, p.angles[1] * step, p.angles[2] * step };
                 movers::rotate_angles(p.m, a);
                 write_pose(rdram, p);

@@ -112,6 +112,23 @@ descriptors' four tire curve pointers at +0x60 (disc 0x8C0A8B1C front, 0x8C0A8B3
 disc's pointers matched neither, so all four wheels got the front curve (16000 where the rear has 32000) and every
 disc car's rear slid. The disc's car tables are otherwise the N64's, value for value.
 
+### Tables with disc units [V]
+
+Two copied tables keep the disc's meaning, so their consumers convert:
+
+- **Sign tip angles** (kind 0 parameters, disc 0x8C0C1744 -> N64 0x80118D70): the disc runs objects at 60 Hz. Its sign
+  init 0x8C05A58C (N64 0x8010E72C) sets 8 tip frames at +90 (`mov #8`), where the N64 sets 4, and its angles are half
+  the N64's (STOPHIT -0.192 vs -0.384 rad, GETOFF -0.1876 vs -0.3752). The update 0x8C05A61A counts +90 down as
+  0x8010E828 does. `src/rush2049/track2049_props.cpp` steps a disc source's signs 8 times at 60 Hz (same 1.54 rad
+  over 2/15 s). Stepping the half angles 4 times left the signs half tipped.
+- **Texture scroll speeds** (disc 0x8C0C38C4 -> N64 0x8011A840): the disc's scroll 0x8C05B3DE runs the N64's
+  position/wrap/rate logic (vblanks per frame from 0x8C122550), but writes a UV offset position x 0.0625 / texture
+  width (height for kind 10) to the texture at +0x24 (+0x28), which the renderer adds to the UVs. The N64's tile
+  origin is subtracted. So every disc race-track speed is the N64's negated (AROWGRN 64 -> -64, BRI_WATER2 -2 -> 4,
+  MAGMA 2 -> -4, VAPORS 8 -> -8, GREENFLAME2 -16 -> 16; the doubled ones have twice the wrap for the larger
+  textures). `convert_tex_anims` (src/rush2049/track2049_convert.cpp) negates a disc speed. Unnegated, the Haight
+  arrows ran backwards.
+
 ## Audio [V]
 
 The disc has no MusyX. `src/rush2049dc/audio2049_dc.cpp` plays it behind the same `audio2049` calls (N64 effect ids and songs).

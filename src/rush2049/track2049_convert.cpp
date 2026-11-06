@@ -2575,7 +2575,7 @@ namespace {
         return {};
     }
 
-    rush2::track2049::TexAnims convert_tex_anims(const Bytes& main, int k, const Bytes& g) {
+    rush2::track2049::TexAnims convert_tex_anims(const Bytes& main, int k, const Bytes& g, bool disc) {
         rush2::track2049::TexAnims out;
         uint32_t list = u32(main, flip_lists_vram - main_vram + (size_t)(k - 1) * 4);
         for (size_t o = list - main_vram; list != 0 && s16(main, o) != 0; o += 0x14) {
@@ -2629,6 +2629,11 @@ namespace {
             s.position = s16(main, o + 4);
             s.wrap = s16(main, o + 6);
             s.speed = (int8_t)u8(main, o + 8);
+            // The disc's scroll (0x8C05B3DE) moves the texture by a UV offset its renderer adds to the vertex UVs
+            // (texture +0x24 / +0x28 = position x 0.0625 / width), where the N64's tile origin is subtracted from them:
+            // every disc race-track speed is the N64's negated (AROWGRN 64 -> -64, MAGMA 2 -> -4 at twice the wrap).
+            // Here the disc's speed drives the N64's tile origin, so it takes the N64's sign.
+            if (disc) s.speed = (int8_t)-s.speed;
             s.rate = s16(main, o + 0xA);
             // The wrap is the texture's size (16 units a texel). A Dreamcast source's textures are scaled down from the
             // disc's, which its records count in: the wrap becomes this texture's size, the speed (or, where that isn't
@@ -2869,7 +2874,7 @@ bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, c
                 out.demo_starts[b].push_back(s16(main, list - main_vram + i * 2));
             }
         }
-        out.tex_anims = convert_tex_anims(main, k, out.geometry);
+        out.tex_anims = convert_tex_anims(main, k, out.geometry, rom.is_dreamcast());
     }
     catch (const ConvertError& e) {
         error = e.message;
