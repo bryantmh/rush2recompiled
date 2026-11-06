@@ -5,7 +5,7 @@ Tags: **[V]** verified in data or code, **[I]** inferred. Addresses `0x8C......`
 
 ## Status (experimental)
 
-The Games tab takes a Dreamcast disc image (.cdi, .gdi, .iso; USA disc only) in place of the N64 ROM. Its files are
+The Games tab takes a Dreamcast disc image (.cdi, .gdi, .cue, .iso; USA disc only) in place of the N64 ROM. Its files are
 copied into `rush2049_dc.pak` in the app folder; the N64 ROM's copy (`rush2049.z64`) is kept too. With both there, the
 Games tab's Rush 2049 Source option (`rush2049_source` in games.json, default Dreamcast Disc, which is what a disc
 chosen before the option existed got) picks one; selecting a ROM or disc points the option at it
@@ -32,9 +32,16 @@ converted to N64 files and its tables to N64 code segments on the fly, so no con
 
 ## Disc image and pack [V]
 
-`src/rush2049dc/rush2049_dc.cpp`. A .cdi or .iso is one file of 2048-, 2336- or 2352-byte sectors; a .gdi lists track files.
-The game's ISO 9660 volume is the first holding `1ST_READ.BIN`, `TRACK1.LZS` and `SELTRK.LZS` with all files inside
-the image (a self-booting .cdi also has a low-density copy of the directory with no data behind it). The pack is
+`src/rush2049dc/rush2049_dc.cpp`. A .cdi or .iso is one file of 2048-, 2336- or 2352-byte sectors; a .gdi or .cue
+lists track files (Redump's .cue marks the GD-ROM part with `REM HIGH-DENSITY AREA`: its first file starts at LBA
+45000, later files follow on, pregaps inside them). The game's ISO 9660 volume is the first holding `1ST_READ.BIN`,
+`TRACK1.LZS` and `SELTRK.LZS` with all files inside the image (a self-booting .cdi also has a low-density copy of the
+directory with no data behind it). Our USA .cdi's volume (label CDROM, sector 150) counts sectors from its own track;
+other rips count from the disc's start (45000 for a GD track 3 saved as .iso, often 11702 for a self-boot CD-R's second
+session), found from the root directory's "." record, which holds its own sector number. CD-R self-boot copies may keep
+`1ST_READ.BIN` scrambled (the boot ROM unscrambles it from a CD); the import unscrambles it (Comstedt's scramble.c) and
+stores it plain. `tools/rush2049/dc_variants.py` writes the USA .cdi in each of these layouts (plus .gdi and Redump
+.cue) for `dc_test.exe` to import offline. The pack is
 `"R49DCPAK"`, u32 version, entries `{name, u64 offset, u64 size, u32 kind}`; kind 0 is the file as stored (.LZS stays
 compressed, same LZ as the N64's), kind 1 a song re-encoded as IMA ADPCM (block_samples 8192 per channel, 4-byte
 header per block). `known_executable` probes four table addresses so only the disc this map was made for is accepted.

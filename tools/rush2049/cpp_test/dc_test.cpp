@@ -87,7 +87,7 @@ namespace {
             std::vector<float> s;
             for (int block = 0; block < 4 * 50 && audio::sfx_active(h); block++) {
                 std::vector<float> b(rate / 50 * 2, 0.0f);
-                audio::mix(b.data(), rate / 50, rate, 0.0f, sfx_gain);
+                audio::mix(b.data(), rate / 50, rate, 0.0f, sfx_gain, sfx_gain);
                 s.insert(s.end(), b.begin(), b.end());
             }
             audio::sfx_stop_all();
@@ -104,14 +104,14 @@ namespace {
             auto start = std::chrono::steady_clock::now();
             for (int i = 0; i < 1000; i++) {
                 std::vector<float> probe(rate / 100 * 2, 0.0f);
-                audio::mix(probe.data(), rate / 100, rate, music_gain, 0.0f);
+                audio::mix(probe.data(), rate / 100, rate, music_gain, 0.0f, 0.0f);
                 if (std::any_of(probe.begin(), probe.end(), [](float v) { return v != 0.0f; })) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             printf("track %d: song sounded after %.0f ms\n", track, std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count());
             std::vector<float> s(rate * 20 * 2, 0.0f);
-            audio::mix(s.data(), rate * 20, rate, music_gain, 0.0f);
+            audio::mix(s.data(), rate * 20, rate, music_gain, 0.0f, 0.0f);
             double sum = 0, peak = 0;
             for (float v : s) { sum += v * v; peak = std::max(peak, (double)std::fabs(v)); }
             printf("track %d: song %d, rms %.1f dBFS, peak %.1f dBFS\n", track, audio::current_song(),

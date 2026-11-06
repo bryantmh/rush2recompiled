@@ -1,11 +1,14 @@
 // The Dreamcast Rush 2049 (USA) disc as a Rush 2049 source. See include/rush2049_dc.h and
 // docs/rush2049_research/dreamcast.md.
 //
-// Disc images: a .cdi (DiscJuggler) or .iso is one file of sectors; a .gdi lists the GD-ROM's tracks, each its own
-// file. Sectors are 2048 bytes of data, 2336 (8-byte mode 2 subheader first) or 2352 (raw, 16-byte header). The game
-// is an ISO 9660 volume whose primary volume descriptor ("\1CD001" at logical sector 16) is found by scanning; the
-// first volume holding 1ST_READ.BIN, TRACK1.LZS and SELTRK.LZS with every file inside the image is the game's (a
-// self-booting .cdi keeps a second copy of the directory whose files lie past the end of the image).
+// Disc images: a .cdi (DiscJuggler) or .iso is one file of sectors; a .gdi or .cue lists the tracks, each its own
+// file (a .cue may also put every track in one file). Sectors are 2048 bytes of data, 2336 (8-byte mode 2 subheader
+// first) or 2352 (raw, 16-byte mode 1 or 24-byte mode 2 header). The game is an ISO 9660 volume whose primary volume
+// descriptor ("\1CD001" at logical sector 16) is found by scanning; the first volume holding 1ST_READ.BIN, TRACK1.LZS
+// and SELTRK.LZS with every file inside the image is the game's (a self-booting .cdi keeps a second copy of the
+// directory whose files lie past the end of the image). Its sector numbers may count from the track or from the
+// disc's start (try_track), and a CD-R copy may keep 1ST_READ.BIN scrambled (descramble).
+// tools/rush2049/dc_variants.py writes the USA .cdi in each of these layouts to test the import offline.
 //
 // The pack (rush2049_dc.pak in the app folder): "R49DCPAK", u32 version, u32 entry count, u32 length + the image's
 // path (UTF-8), then per entry { u8 name length, name, u64 offset, u64 size, u32 kind }, then the data. Kind 0 is a
@@ -170,8 +173,48 @@ namespace {
         return true;
     }
 
-    // Finds the game's volume in a single-file image (.cdi, .iso): scans for volume descriptors and tries each sector
-    // layout one could sit in.
+    struct Layout { uint32_t size, header; };
+
+    // True if sector lba holds a directory whose first record ("." of itself) says it starts at sector self.
+    bool is_directory_of(const Disc& disc, uint32_t lba, uint32_t self) {
+        std::vector<uint8_t> s;
+        return disc.read(lba, 1, s) && s[0] >= 34 && (s[25] & 2) && s[32] == 1 && s[33] == 0 && le32(&s[2]) == self;
+    }
+
+    // Tries the volume whose descriptor is 16 sectors into a track of `file` starting at byte start. The directory's
+    // sector numbers count either from that track (our USA .cdi) or from where the track sits on the disc: 45000 for
+    // a GD-ROM's track 3 saved as an .iso, the second session's start (often 11702) for a self-boot CD-R. That
+    // offset is found from the root directory, whose "." record holds its own sector number.
+    bool try_track(const std::shared_ptr<std::ifstream>& file, uint64_t start, uint64_t sectors, Layout l, Disc& disc,
+            std::map<std::string, Entry>& files) {
+        Disc d;
+        d.tracks.push_back({ file, 0, start, l.size, l.header, sectors });
+        std::vector<uint8_t> pvd;
+        if (!d.read(16, 1, pvd) || pvd[0] != 1 || memcmp(&pvd[1], "CD001", 5) != 0) {
+            return false;
+        }
+        uint32_t root = le32(&pvd[156 + 2]);
+        if (!is_directory_of(d, root, root)) {
+            // The root directory follows the path tables, a few sectors past the descriptor.
+            uint64_t limit = std::min<uint64_t>({ sectors, uint64_t(root) + 1, 4096 });
+            for (uint32_t rel = 17; rel < limit; rel++) {
+                if (is_directory_of(d, rel, root)) {
+                    d.tracks[0].start_lba = root - rel;
+                    break;
+                }
+            }
+        }
+        std::map<std::string, Entry> f;
+        if (read_volume(d, d.tracks[0].start_lba + 16, f) && is_game_volume(d, f)) {
+            disc = std::move(d);
+            files = std::move(f);
+            return true;
+        }
+        return false;
+    }
+
+    // Finds the game's volume in a single-file image (.cdi, .iso, a .cue's track file): scans for volume descriptors
+    // and tries each sector layout one could sit in.
     bool open_single_file(const fs::path& path, Disc& disc, std::map<std::string, Entry>& files) {
         auto file = std::make_shared<std::ifstream>(path, std::ios::binary);
         if (!*file) {
@@ -182,7 +225,6 @@ namespace {
         static const uint8_t signature[7] = { 1, 'C', 'D', '0', '0', '1', 1 };
         constexpr size_t chunk = 8 << 20;
         std::vector<uint8_t> buf(chunk + sizeof(signature));
-        struct Layout { uint32_t size, header; };
         constexpr Layout layouts[] = { { 2048, 0 }, { 2336, 8 }, { 2352, 16 }, { 2352, 24 } };
         for (uint64_t at = 0; at < size; at += chunk) {
             size_t n = (size_t)std::min<uint64_t>(buf.size(), size - at);
@@ -199,16 +241,145 @@ namespace {
                         continue;
                     }
                     uint64_t base = (pos - l.header) / l.size - 16;
-                    Disc d;
-                    d.tracks.push_back({ file, 0, base * l.size, l.size, l.header, (size - base * l.size) / l.size });
-                    std::map<std::string, Entry> f;
-                    if (read_volume(d, 16, f) && is_game_volume(d, f)) {
-                        disc = std::move(d);
-                        files = std::move(f);
+                    if (try_track(file, base * l.size, (size - base * l.size) / l.size, l, disc, files)) {
                         return true;
                     }
                 }
             }
+        }
+        return false;
+    }
+
+    // A .gdi or .cue line's whitespace-separated fields; a field in quotes may hold spaces.
+    std::vector<std::string> split_fields(const std::string& line) {
+        std::vector<std::string> fields;
+        for (size_t i = 0; i < line.size();) {
+            while (i < line.size() && isspace((unsigned char)line[i])) i++;
+            if (i >= line.size()) break;
+            std::string f;
+            if (line[i] == '"') {
+                size_t e = line.find('"', i + 1);
+                f = line.substr(i + 1, e == std::string::npos ? std::string::npos : e - i - 1);
+                i = e == std::string::npos ? line.size() : e + 1;
+            }
+            else {
+                size_t e = i;
+                while (e < line.size() && !isspace((unsigned char)line[e])) e++;
+                f = line.substr(i, e - i);
+                i = e;
+            }
+            fields.push_back(f);
+        }
+        return fields;
+    }
+
+    // A .cue (Redump's Dreamcast format, also CD-R self-boot copies): FILE "name" BINARY, then per track in it
+    // "TRACK nn MODE1/2352" (or MODE2/2352, MODE2/2336, MODE1/2048, AUDIO) and "INDEX nn mm:ss:ff" (sectors into the
+    // file, 75 a second). Redump splits a GD-ROM at "REM HIGH-DENSITY AREA": the first file after it starts at LBA
+    // 45000 and each later file follows the one before (its pregap is in the file, before INDEX 01), and the volume is
+    // read like a .gdi's. A .cue without that line is a CD: each data track's file is searched like a .cdi.
+    bool open_cue(const fs::path& path, Disc& disc, std::map<std::string, Entry>& files) {
+        std::ifstream list(path);
+        if (!list) {
+            return false;
+        }
+        struct CueTrack { Layout layout; bool data; uint32_t first_index = UINT32_MAX, index1 = UINT32_MAX; };
+        struct CueFile { fs::path path; bool high_density; std::vector<CueTrack> tracks; };
+        std::vector<CueFile> cue;
+        bool high_density = false, any_high_density = false;
+        std::string line;
+        while (std::getline(list, line)) {
+            std::vector<std::string> f = split_fields(line);
+            if (f.empty()) {
+                continue;
+            }
+            std::string key = upper(f[0]);
+            if (key == "REM" && f.size() >= 2) {
+                std::string what = upper(f[1]);
+                if (what == "HIGH-DENSITY") {
+                    high_density = any_high_density = true;
+                }
+                else if (what == "SINGLE-DENSITY") {
+                    high_density = false;
+                }
+            }
+            else if (key == "FILE" && f.size() >= 2) {
+                cue.push_back({ path.parent_path() / fs::u8path(f[1]), high_density, {} });
+            }
+            else if (key == "TRACK" && f.size() >= 3 && !cue.empty()) {
+                std::string mode = upper(f[2]);
+                CueTrack t{ { 2352, 0 }, true };
+                if (mode == "MODE1/2352") t.layout = { 2352, 16 };
+                else if (mode == "MODE2/2352") t.layout = { 2352, 24 };
+                else if (mode == "MODE2/2336") t.layout = { 2336, 8 };
+                else if (mode == "MODE1/2048" || mode == "MODE2/2048") t.layout = { 2048, 0 };
+                else t.data = false; // AUDIO and anything else
+                cue.back().tracks.push_back(t);
+            }
+            else if (key == "INDEX" && f.size() >= 3 && !cue.empty() && !cue.back().tracks.empty()) {
+                unsigned m = 0, s = 0, fr = 0;
+                if (sscanf(f[2].c_str(), "%u:%u:%u", &m, &s, &fr) != 3) {
+                    continue;
+                }
+                uint32_t at = (m * 60 + s) * 75 + fr;
+                CueTrack& t = cue.back().tracks.back();
+                t.first_index = std::min(t.first_index, at);
+                if (std::stoul(f[1]) == 1) {
+                    t.index1 = at;
+                }
+            }
+        }
+
+        if (!any_high_density) {
+            for (const CueFile& c : cue) {
+                for (const CueTrack& t : c.tracks) {
+                    if (t.data && open_single_file(c.path, disc, files)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        Disc d;
+        uint64_t file_lba = 0;
+        bool in_high_density = false;
+        for (const CueFile& c : cue) {
+            if (c.tracks.empty()) {
+                continue;
+            }
+            if (c.high_density && !in_high_density) {
+                file_lba = 45000;
+                in_high_density = true;
+            }
+            auto file = std::make_shared<std::ifstream>(c.path, std::ios::binary);
+            if (!*file) {
+                return false;
+            }
+            file->seekg(0, std::ios::end);
+            uint32_t sector_size = c.tracks[0].layout.size;
+            uint64_t file_sectors = (uint64_t)file->tellg() / sector_size;
+            for (size_t i = 0; i < c.tracks.size(); i++) {
+                const CueTrack& t = c.tracks[i];
+                if (!t.data || t.index1 == UINT32_MAX || !c.high_density) {
+                    continue;
+                }
+                uint64_t end = file_sectors;
+                if (i + 1 < c.tracks.size() && c.tracks[i + 1].first_index != UINT32_MAX) {
+                    end = std::min<uint64_t>(end, c.tracks[i + 1].first_index);
+                }
+                if (end > t.index1) {
+                    d.tracks.push_back({ file, (uint32_t)(file_lba + t.index1), uint64_t(t.index1) * sector_size,
+                        t.layout.size, t.layout.header, end - t.index1 });
+                }
+            }
+            file_lba += file_sectors;
+        }
+        std::map<std::string, Entry> f;
+        if (read_volume(d, 45000 + 16, f) && is_game_volume(d, f)) {
+            disc = std::move(d);
+            files = std::move(f);
+            return true;
         }
         return false;
     }
@@ -226,25 +397,7 @@ namespace {
         std::getline(list, line);
         Disc d;
         while (std::getline(list, line)) {
-            // The file name may be quoted and hold spaces.
-            std::vector<std::string> fields;
-            for (size_t i = 0; i < line.size();) {
-                while (i < line.size() && isspace((unsigned char)line[i])) i++;
-                if (i >= line.size()) break;
-                std::string f;
-                if (line[i] == '"') {
-                    size_t e = line.find('"', i + 1);
-                    f = line.substr(i + 1, e == std::string::npos ? std::string::npos : e - i - 1);
-                    i = e == std::string::npos ? line.size() : e + 1;
-                }
-                else {
-                    size_t e = i;
-                    while (e < line.size() && !isspace((unsigned char)line[e])) e++;
-                    f = line.substr(i, e - i);
-                    i = e;
-                }
-                fields.push_back(f);
-            }
+            std::vector<std::string> fields = split_fields(line);
             if (fields.size() < 5 || fields[2] != "4") {
                 continue;
             }
@@ -268,6 +421,40 @@ namespace {
             return true;
         }
         return false;
+    }
+
+    // Undoes the scrambling of 1ST_READ.BIN on a CD-R self-boot copy (the Dreamcast boot ROM unscrambles the file
+    // when it boots from a CD rather than a GD-ROM; Marcus Comstedt's scramble.c). The file is cut into 2 MB chunks,
+    // then halving sizes down to 32 bytes, and each chunk's 32-byte slices were shuffled by a generator seeded with
+    // the file size; the bytes past the last 32-byte slice stay in place.
+    std::vector<uint8_t> descramble(const std::vector<uint8_t>& data) {
+        std::vector<uint8_t> out(data.size());
+        uint32_t seed = data.size() & 0xFFFF;
+        auto next = [&seed]() {
+            seed = (seed * 2109 + 9273) & 0x7FFF;
+            return (seed + 0xC000) & 0xFFFF;
+        };
+        size_t src = 0, base = 0, left = data.size();
+        std::vector<uint32_t> slices;
+        for (size_t chunk = 2048 * 1024; chunk >= 32; chunk >>= 1) {
+            while (left >= chunk) {
+                uint32_t n = uint32_t(chunk / 32);
+                slices.resize(n);
+                for (uint32_t i = 0; i < n; i++) slices[i] = i;
+                for (int64_t i = n - 1; i >= 0; i--) {
+                    uint32_t x = (next() * uint32_t(i)) >> 16;
+                    std::swap(slices[i], slices[x]);
+                    memcpy(&out[base + 32 * size_t(slices[i])], &data[src], 32);
+                    src += 32;
+                }
+                base += chunk;
+                left -= chunk;
+            }
+        }
+        if (left > 0) {
+            memcpy(&out[base], &data[src], left);
+        }
+        return out;
     }
 
     bool read_entry(const Disc& disc, const Entry& e, std::vector<uint8_t>& out) {
@@ -596,7 +783,7 @@ bool rush2::rom2049::dc::Files::get(const std::string& name, std::vector<uint8_t
 
 bool rush2::rom2049::dc::is_disc_image(const fs::path& path) {
     std::string ext = upper(path.extension().string());
-    return ext == ".CDI" || ext == ".GDI" || ext == ".ISO";
+    return ext == ".CDI" || ext == ".GDI" || ext == ".ISO" || ext == ".CUE";
 }
 
 ImportResult rush2::rom2049::dc::import(const fs::path& image, const fs::path& pack) {
@@ -609,7 +796,9 @@ ImportResult rush2::rom2049::dc::import(const fs::path& image, const fs::path& p
             return ImportResult::FailedToOpen;
         }
     }
-    bool found = ext == ".GDI" ? open_gdi(image, disc, files) : open_single_file(image, disc, files);
+    bool found = ext == ".GDI" ? open_gdi(image, disc, files)
+        : ext == ".CUE" ? open_cue(image, disc, files)
+        : open_single_file(image, disc, files);
     if (!found) {
         return ImportResult::WrongGame;
     }
@@ -617,8 +806,13 @@ ImportResult rush2::rom2049::dc::import(const fs::path& image, const fs::path& p
     if (!read_entry(disc, files["1ST_READ.BIN"], exe)) {
         return ImportResult::FailedToOpen;
     }
+    // A self-boot CD-R copy may keep the executable scrambled; the pack stores it unscrambled.
+    std::vector<uint8_t> unscrambled;
     if (!known_executable(exe)) {
-        return ImportResult::WrongVersion;
+        unscrambled = descramble(exe);
+        if (!known_executable(unscrambled)) {
+            return ImportResult::WrongVersion;
+        }
     }
 
     // Write to a temporary file, then move it over the pack.
@@ -667,7 +861,10 @@ ImportResult rush2::rom2049::dc::import(const fs::path& image, const fs::path& p
         }
         PackEntry e{ (uint64_t)out.tellp(), 0, Kind::Raw };
         const std::vector<uint8_t>* body = &data;
-        if (is_song(name) && encode_song(data, encoded)) {
+        if (name == "1ST_READ.BIN" && !unscrambled.empty()) {
+            body = &unscrambled;
+        }
+        else if (is_song(name) && encode_song(data, encoded)) {
             e.kind = Kind::Music;
             body = &encoded;
         }

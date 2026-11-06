@@ -19,7 +19,7 @@
 namespace rush2::rom2049::dc {
     constexpr const char* pack_file_name = "rush2049_dc.pak";
 
-    // True for the file types a Dreamcast disc image comes in (.cdi, .gdi, .iso).
+    // True for the file types a Dreamcast disc image comes in (.cdi, .gdi, .cue, .iso).
     bool is_disc_image(const std::filesystem::path& path);
 
     enum class ImportResult { Good, FailedToOpen, NotADisc, WrongGame, WrongVersion, WriteFailed };

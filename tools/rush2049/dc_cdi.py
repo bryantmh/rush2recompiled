@@ -8,8 +8,10 @@
                                           decompressed (songs stay the pack's ADPCM)
 
 The image stores raw 2336-byte mode 2 sectors (8-byte subheader, 2048 bytes of data). It holds several ISO9660
-volumes; the game's is the one labelled SFR20491 whose files include the .LZS level data (the other with the same
-label is a low-density copy that has no game data). See docs/rush2049_research/dreamcast.md.
+volumes; the game's is the first, labelled CDROM, at sector 150 (its file positions count from that track). The one
+labelled SFR20491 at sector 272128 keeps the original GD-ROM's file positions, which point past the end of the image,
+and the last (sector 317783) is a 450-sector boot stub. game_volume picks the one with the most readable files. See
+docs/rush2049_research/dreamcast.md.
 """
 import mmap, os, struct, sys
 
