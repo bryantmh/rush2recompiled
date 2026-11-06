@@ -234,6 +234,39 @@ namespace rush2::track2049 {
     // show it (src/track_mod/track_mod.cpp); the track select poses and animates it like the 2049 tracks'.
     bool route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture,
                        std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers, float& radius);
+    // Track versions (docs/menus.md#track-versions): the race tracks' previews have a thin ring around the round
+    // screenshot in their version's color, so the N64, Dreamcast and arcade versions of a course tell apart at a
+    // glance (0xRRGGBB). The ring is drawn after the screenshot, so the track select's turn and the circuit screen
+    // (which skips the screenshot) leave it alone.
+    constexpr uint32_t version_ring_n64 = 0x2E7DFF;       // blue
+    constexpr uint32_t version_ring_dc = 0xFF8A1E;        // orange
+    constexpr uint32_t version_ring_arcade = 0xE51E2A;    // red
+    // The ring's commands sit between G_NOOPs with these words, so the track select can branch over them: it shows
+    // the ring only when the course has another version (the X prompt names the version).
+    constexpr uint32_t version_ring_start = 0x52494E47;   // "RING"
+    constexpr uint32_t version_ring_end = 0x52494E45;     // "RINE"
+    // Race track k's (1-6) preview as menu_preview_name's: `rom`'s route tube in the course's color, then the round
+    // screenshot with a `ring` colored ring. The screenshot is `rom`'s own thumbnail, or with `picture_of` the one in
+    // that route_preview blob (list at `picture_list`): the arcade versions' pictures with the 2049 course's route.
+    // Out as route_preview's.
+    bool course_preview(const rush2::rom2049::Source& rom, int k, const std::vector<uint8_t>* picture_of,
+                        uint32_t picture_list, uint32_t ring, std::vector<uint8_t>& blob, uint32_t& list,
+                        std::vector<uint32_t>& pointers, float& radius);
+    // Whether custom track t (a mod id) is one of the app's Rush 2049 arcade mod's (rush2::arcade2049::track_mod_id,
+    // matched by the mod's id so other mods can't claim it): the game filter files those under Rush 2049.
+    bool mod_from_2049(int t);
+    // The Dreamcast version's (249-254) preview of race track k, beside the N64 one: "R49PDTRACKk".
+    std::string disc_preview_name(int k);
+    // The circuit screen shows the route turning in a small window without the round picture, so the race tracks'
+    // dioramas (R49TRACKn) and previews also have a flat ring in the version's color around the route, between
+    // G_NOOPs with these words: shown there for a course with another version, branched over on the track select.
+    constexpr uint32_t circuit_ring_start = 0x52494E43;   // "RINC"
+    constexpr uint32_t circuit_ring_end = 0x52494E44;     // "RIND"
+    // The Dreamcast version's diorama of race track k (the circuit screen's, the unlock shop's): "R49DTRACKk", the
+    // disc's route tube with the ring in `ring`'s color, as a model for extend_menu_container (out as route_preview's).
+    std::string disc_model_name(int k);
+    bool course_diorama(const rush2::rom2049::Source& rom, int k, uint32_t ring, std::vector<uint8_t>& blob,
+                        uint32_t& list, std::vector<uint32_t>& pointers, float& radius);
     constexpr int preview_tube_rings = 100;
     // A preview's list is followed by room for the track select to turn its model (the tube or the outline) in, so a
     // frame the renderer is still reading isn't rewritten under it (src/rush2049/track2049_menu.cpp, PreviewModel):

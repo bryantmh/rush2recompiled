@@ -47,6 +47,7 @@
 
 #include "asset_catalog.h"
 #include "assets.h"
+#include "arcade2049.h"
 #include "car2049.h"
 #include "car_mods.h"
 #include "data_files.h"
@@ -2475,6 +2476,7 @@ namespace {
                 if (s.scuffed != s.texels) scuffed[s.offset] = s.scuffed; // unpainted: nothing to scuff
             }
             size_t car_bytes = c.car.size();
+            rush2::car2049::set_mod_car_from_2049(n, c.mod_id == rush2::arcade2049::car_mod_id);
             rush2::car2049::set_mod_car(rdram, n, std::move(c.car), "NC" + std::to_string(n + 1), scuffed, c.spec);
             printf("[newcar] %s (%s) from %s as type %d: %zu triangles, %zu textures, %d scheme(s), %zu KB, based on %s\n",
                    c.spec.name.c_str(), c.id.c_str(), c.mod_id.c_str(), rush2::car_types::first_mod + n,

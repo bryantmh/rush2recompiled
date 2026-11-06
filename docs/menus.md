@@ -128,6 +128,27 @@ shows its arcade version and still names it; `--config cheats.unlock_all_tracks=
 per course in the saves' "track_select" section ("versions") and the screen is rebuilt as after a filter change, on
 the new version. `RUSH2_TEST_TRACK=ID` with a course's other version opens on that version (picked for the run).
 
+Each version's preview has a thin ring around the round picture in its version's color: N64 blue, DC orange, ARCADE
+red (`version_ring_*`, include/track2049.h). The ring shows only when the X prompt names the version
+(`other_version`), and on a circuit's track select (no X prompt there; the circuit picked the version) when the
+course has another version installed (`has_other_version`); otherwise the track select branches over it (the ring's commands sit between two G_NOOPs tagged
+"RING"/"RINE", `show_ring` in src/rush2049/track2049_menu.cpp). All three show the course's own 2049 route tube and
+color. The DC versions (249-254) have their own previews, R49PDTRACKn (the disc's picture, built from
+`rush2::wings::track_source(true)`). The arcade versions keep their own picture, read back from their route preview,
+in front of the 2049 course's tube (`course_preview`, src/rush2049/track2049_art.cpp). Both are pooled like custom
+tracks' previews. Test: `tools/test_race.py menus --config cheats.unlock_all_tracks=true --env RUSH2_TEST_TRACK=12
+--script "14:START,17:A,19:DU,20.5:A,27:CL,31:CL" --shots 26,30,34`. For one version add
+`--no-mod rush2049_arcade --games rush2049_enabled_source=N64`.
+
+The circuit screen's window shows the route turning without the round picture, so the race tracks' dioramas
+(R49TRACKn, the DC versions' own R49DTRACKn) and previews also have a flat ring in the version's color around the
+route, lying in its floor plane, drawn without fog. It is built hidden (its first command branches past its end marker
+`circuit_ring_end`). `rush2_track49_circuit_pose` opens it (`circuit_ring_start` G_NOOP) when the course has another
+version installed (`has_other_version`, locked ones count). For an arcade preview it points the still route's branch
+at the ring instead of past it. The track select's lookup closes it again. Test: a circuit whose pool is one version
+(set every `circuit.track_N` off but the one, including 249-254, which default to on, and `circuit.mods_off` for the
+arcade folders), `RUSH2_TEST_FINISH=4`, the circuit recipe above, CIRCUIT REVIEW race 1 page at about 64 s.
+
 ## Pause menu
 
 `race_pause_menu_step_800AFD44` (src/pause_menu.cpp has the full layout).

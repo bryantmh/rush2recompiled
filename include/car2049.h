@@ -157,6 +157,14 @@ namespace rush2::car2049 {
     int car_index(const std::string& name);
     // Takes mod car n off the car select (its mod was turned off).
     void clear_mod_car(uint8_t* rdram, int n);
+    // Whether mod car n comes from the app's own Rush 2049 arcade car mod (rush2::arcade2049::car_mod_id, matched by
+    // the mod's id so other mods can't claim it; src/car_mods.cpp sets it with the car). Those cars list right after
+    // the 2049 cars (append_to_car_list) and the game filter files them under Rush 2049.
+    void set_mod_car_from_2049(int n, bool from_2049);
+    bool mod_car_from_2049(int type);
+    // Every car type in the car select's order: Rush 2's, the 2049 cars, the arcade car mod's, then the Cal Speed
+    // cars and the other mods' (append_to_car_list, and the unlock system's list, src/unlocks.cpp).
+    std::vector<int> list_order();
     // Mod car n's name, empty when no mod fills the slot.
     std::string mod_car_name(int n);
     // Online races (src/car_mods.cpp lend_slot, docs/online.md#mod-cars): a mod car's type number is part of the race's

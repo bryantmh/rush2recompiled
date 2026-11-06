@@ -1505,6 +1505,7 @@ namespace {
     };
     ModSlot mod_slots[rush2::car_types::count_mod];
     std::atomic_bool mod_loaded[rush2::car_types::count_mod] = {};
+    std::atomic_bool mod_arcade[rush2::car_types::count_mod] = {};     // set_mod_car_from_2049
     std::atomic_int mod_schemes[rush2::car_types::count_mod] = {}; // ModCar::schemes, read by paint_jobs (any thread)
 
     // Mod car n's physics and per-type data, from its base Rush 2 car (the ROM's tables, which us.toml no longer points
@@ -1666,6 +1667,7 @@ void rush2::car2049::clear_mod_car(uint8_t* rdram, int n) {
         mod_slots[n] = ModSlot{};
     }
     mod_loaded[n] = false;
+    mod_arcade[n] = false;
     mod_schemes[n] = 0;
     bodies[type] = Paint{};
     dented.clear();
@@ -2244,11 +2246,36 @@ bool rush2::car2049::type_available(int type) {
     return is_2049(type) ? cars_available() : rush2::calspeed::cars_available();
 }
 
+void rush2::car2049::set_mod_car_from_2049(int n, bool from_2049) {
+    if (n >= 0 && n < rush2::car_types::count_mod) mod_arcade[n] = from_2049;
+}
+
+bool rush2::car2049::mod_car_from_2049(int type) {
+    return rush2::car_types::is_mod(type) && mod_arcade[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
+}
+
+std::vector<int> rush2::car2049::list_order() {
+    // Rush 2's cars, the 2049 cars, the arcade car mod's (2049's arcade cars), then the Cal Speed cars and the other
+    // mods' cars.
+    std::vector<int> order;
+    for (int type = 0; type < first_type; type++) order.push_back(type);
+    for (int type = first_type; type < types; type++) {
+        if (!rush2::car_types::is_mod(type) && is_2049(type)) order.push_back(type);
+    }
+    for (int type = rush2::car_types::first_mod; type < types; type++) {
+        if (mod_car_from_2049(type)) order.push_back(type);
+    }
+    for (int type = first_type; type < types; type++) {
+        if (rush2::car_types::is_mod(type) ? !mod_car_from_2049(type) : !is_2049(type)) order.push_back(type);
+    }
+    return order;
+}
+
 void rush2::car2049::append_to_car_list(uint8_t* rdram, int player) {
     uint32_t count_at = car_list_counts + player * 2;
     int count = (int16_t)MEM_H(0, (int32_t)count_at);
-    for (int type = first_type; type < types && count < types; type++) {
-        if (type_available(type)) {
+    for (int type : list_order()) {
+        if (type >= first_type && count < types && type_available(type)) {
             MEM_B(0, (int32_t)(car_list + count * 2 + player)) = (uint8_t)type;
             count++;
         }

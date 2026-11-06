@@ -68,6 +68,13 @@ track select read the new files without a restart; `mods_changed` also has the c
   `assets/arcade2049/<id>_logo.png` and `<id>_preview.png` (both part of the mod's key), all made by
   `tools/build_banners.py --arcade` (Alcatraz's logo with `banner_font.render_fit`). Regenerate them if a source
   changes.
+- **In the menus they count as Rush 2049's**, decided by the mod's id (`rush2049_arcade`, `rush2049_arcade_cars`),
+  which no track.toml or car file can claim. The game filter files the tracks and cars under Rush 2049, not Custom
+  (`rush2::track2049::mod_from_2049`, `rush2::car2049::mod_car_from_2049`). The cars list right after the 2049 cars
+  (`rush2::car2049::list_order`, used by the car select's list and the unlock system's). Alcatraz's `after =
+  "rush2049"` puts it after Presidio: the anchor skips a course's other versions (the Dreamcast ids 249-254).
+  The six ARCADE versions show the 2049 course's route tube and color in front of their own picture, with a red
+  version ring (docs/menus.md#track-versions).
 - **TRACK8** is SF Rush's Track 2, Embarcadero, left on the 2049 disk. It is The Rock's TRACK2 (same 200 textures,
   220 road segments) with checkpoints matching SF Rush 64's exactly, and it is already in the game from the N64 ROM.
   Its drone path is stale data from another track. `arcade.py` now reads its collision: its vertex lists follow the

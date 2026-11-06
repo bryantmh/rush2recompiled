@@ -223,7 +223,7 @@ void rush2::unlocks::filter_car_list(uint8_t* rdram, int player) {
     if (enabled()) {
         std::set<std::string> bought = collect::purchases(collect::player_name(rdram, player));
         std::vector<int> types;
-        for (int t = 0; t < rush2::car2049::types; t++) {
+        for (int t : rush2::car2049::list_order()) {
             // California Speed's cars have no shop items: they're offered from the start, as the ROM's tracks are.
             if (!rush2::car2049::type_available(t)) {
                 continue;

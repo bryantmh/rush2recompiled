@@ -838,8 +838,8 @@ namespace {
         return uint16_t(((r >> 3) << 11) | ((g >> 3) << 6) | ((b >> 3) << 1) | (a ? 1 : 0));
     }
 
-    // Median cut to at most 256 colours.
-    void quantize(const std::vector<std::array<uint8_t, 3>>& px, Texture& tex) {
+    // Median cut to at most `colors` (up to 256) colours.
+    void quantize(const std::vector<std::array<uint8_t, 3>>& px, Texture& tex, int colors = 256) {
         std::vector<std::vector<int>> boxes(1);
         for (int i = 0; i < int(px.size()); i++) boxes[0].push_back(i);
         auto range = [&](const std::vector<int>& box, int& axis) {
@@ -859,7 +859,7 @@ namespace {
             return Split{ r > 0 ? r * std::sqrt(float(box.size())) : 0.0f, axis };
         };
         splits.push_back(measure(boxes[0]));
-        while (boxes.size() < 256) {
+        while (boxes.size() < size_t(std::clamp(colors, 1, 256))) {
             int pick = -1;
             float score = 0;
             for (int b = 0; b < int(boxes.size()); b++) {
@@ -1983,14 +1983,93 @@ namespace {
         m.objects = m.objects_drawn = 1;
     }
 
-    bool build_tube(const rush2::rom2049::Source& rom, int k, TrackModel& m) {
+    // The circuit screen's version ring (rush2::track2049::version_ring_*): a flat band in the tube's floor plane
+    // around the turning route, so it reads as a circle in the circuit review's small window (the round picture's
+    // ring isn't drawn there). Between G_NOOPs tagged circuit_ring_start / _end: the circuit screen shows it for a
+    // course with another version, the track select branches over it (src/rush2049/track2049_menu.cpp).
+    constexpr int ground_ring_segments = 64;
+    constexpr float ground_ring_gap = 1.03f, ground_ring_width = 0.07f;    // radius over the route's, band / radius
+
+    template <typename ToModel>
+    void emit_ground_ring(const Tube& tube, uint32_t rgb, TrackModel& m, ToModel to_model) {
+        float radius = 0.0f, floor = 1e30f;
+        for (const auto& p : tube.ring) {
+            radius = std::max(radius, std::hypot(p[0], p[2]));
+            floor = std::min(floor, p[1]);
+        }
+        if (radius <= 0.0f) return;
+        const float inner = radius * ground_ring_gap, outer = inner * (1.0f + ground_ring_width);
+        Bytes& vertices = m.parts[vertices_part];
+        Bytes& list = m.parts[list_part];
+        auto command = [&](uint32_t w0, uint32_t w1, bool vertex_pointer) {
+            if (vertex_pointer) m.fixups.push_back({ list_part, uint32_t(list.size() + 4), vertices_part });
+            push32(list, w0);
+            push32(list, w1);
+        };
+        // Hidden as built: the start is a branch past the end marker (the loader relocates it as any branch), which
+        // the circuit screen turns into the G_NOOP to show it.
+        const uint32_t start = uint32_t(list.size());
+        command(0xDE010000, 0, false);
+        command(0xD7000000, 0xFFFFFFFF, false);     // G_TEXTURE off
+        command(0xE7000000, 0, false);
+        command(0xE200001C, 0x0C192230, false);     // z-buffered opaque surface without the fog (it washed the color out)
+        command(0xFCFFFFFF, 0xFFFE7C38, false);     // shade colour
+        // 15 segments (32 vertices: inner and outer at each edge) per load.
+        constexpr int per_load = 15;
+        for (int s0 = 0; s0 < ground_ring_segments; s0 += per_load) {
+            const int n = std::min(per_load, ground_ring_segments - s0);
+            const uint32_t base = uint32_t(vertices.size());
+            for (int e = 0; e <= n; e++) {
+                float a = float(s0 + e) * 6.2831853f / float(ground_ring_segments);
+                for (float r : { inner, outer }) {
+                    std::array<float, 3> p = { r * std::cos(a), floor, r * std::sin(a) };
+                    float mv[3];
+                    to_model(p, mv);
+                    for (int j = 0; j < 3; j++) {
+                        push16(vertices, uint16_t(int16_t(std::trunc(std::clamp(mv[j], -32767.0f, 32767.0f)))));
+                    }
+                    push16(vertices, 0x8000);
+                    push16(vertices, 0);
+                    push16(vertices, 0);
+                    vertices.push_back(uint8_t(rgb >> 16));
+                    vertices.push_back(uint8_t(rgb >> 8));
+                    vertices.push_back(uint8_t(rgb));
+                    vertices.push_back(0xFF);
+                    m.radius = std::max(m.radius, std::sqrt(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]));
+                    m.vertices++;
+                }
+            }
+            const uint32_t count = uint32_t(2 * (n + 1));
+            command(0x01000000 | (count << 12) | (count << 1), base, true);
+            auto tri = [](uint32_t a, uint32_t b, uint32_t c) { return (a * 2 << 16) | (b * 2 << 8) | (c * 2); };
+            for (int e = 0; e < n; e++) {
+                uint32_t i0 = uint32_t(2 * e), o0 = i0 + 1, i1 = i0 + 2, o1 = i0 + 3;
+                // Both windings, so it shows whatever the culling and mirror state.
+                command(0x06000000 | tri(i0, o0, o1), tri(i0, o1, i1), false);
+                command(0x06000000 | tri(i0, o1, o0), tri(i0, i1, o1), false);
+                m.triangles += 4;
+            }
+        }
+        command(0xD7000002, 0xFFFFFFFF, false);     // G_TEXTURE on, as 2049's lists end
+        command(0x00000000, rush2::track2049::circuit_ring_end, false);
+        put32(list, start + 4, uint32_t(list.size()));
+        m.fixups.push_back({ list_part, start + 4, list_part });
+    }
+
+    bool build_tube(const rush2::rom2049::Source& rom, int k, TrackModel& m, uint32_t ring = 0) {
         Tube tube;
         if (!tube_geometry(rom, k, tube)) return false;
         m.print.spine = tube.spine;
         const float scale = 2 * diorama_half_size / float(tube.extent);
-        emit_tube(tube, number_of(k), tube_highlight ? 0.0f : -1.0f, m, [&](const std::array<float, 3>& p, float* out) {
+        auto to_model = [&](const std::array<float, 3>& p, float* out) {
             for (int j = 0; j < 3; j++) out[j] = p[j] * scale;
-        });
+        };
+        emit_tube(tube, number_of(k), tube_highlight ? 0.0f : -1.0f, m, to_model);
+        // The race tracks' version ring for the circuit screen: the N64 ROM's or the disc's.
+        if (k >= 1 && k <= rush2::track2049::track_count) {
+            if (ring == 0) ring = rom.is_dreamcast() ? rush2::track2049::version_ring_dc : rush2::track2049::version_ring_n64;
+            emit_ground_ring(tube, ring, m, to_model);
+        }
         Bytes& vertices = m.parts[vertices_part];
         vertices[vertices.size() - 10] &= 0x7F;
         push32(m.parts[list_part], 0xDF000000);
@@ -2229,6 +2308,16 @@ namespace {
         });
     }
 
+    // The circuit screen's version ring (emit_ground_ring) in the preview's space, after the rest of its list (the
+    // circuit screen branches from the turning route past the screenshot to it).
+    void preview_ground_ring(const Tube& tube, uint32_t rgb, TrackModel& m) {
+        const float scale = 50.0f / float(tube.extent);
+        emit_ground_ring(tube, rgb, m, [&](const std::array<float, 3>& p, float* out) {
+            float q[3] = { p[0] * scale, p[1] * scale, p[2] * scale };
+            rush2::track2049::preview_place(q, 0.0f, out);
+        });
+    }
+
     // The screenshot: w (128) x h CI8 `indices` with `palette` in 128 x 16 strips, translucent (its corners are clear),
     // z-compared but not written, after the model so the model hides it.
     void preview_screenshot(Miniature& mini, TrackModel& m, const std::vector<uint8_t>& indices,
@@ -2287,14 +2376,71 @@ namespace {
         }
     }
 
+    // The version ring (rush2::track2049::version_ring_*): a thin band of color `rgb` around the round screenshot's
+    // opaque texels (w x h CI8 `indices`, opaque where the palette entry's alpha bit is set), drawn where
+    // preview_screenshot draws the picture, a little in front of it. Shade colored with alpha 1 in the screenshot's
+    // translucent z-compared mode, so the model in front still hides it.
+    constexpr float ring_inner = 1.0f, ring_outer = 1.5f;      // 2049 screen pixels inside and outside the picture's edge
+    constexpr int ring_segments = 96;
+
+    void preview_ring(Miniature& mini, const std::vector<uint8_t>& indices, const std::array<uint16_t, 256>& palette,
+                      int w, int h, uint32_t rgb) {
+        int x0 = w, x1 = -1, y0 = h, y1 = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (!(palette[indices[size_t(y * w + x)]] & 1)) continue;
+                x0 = std::min(x0, x); x1 = std::max(x1, x);
+                y0 = std::min(y0, y); y1 = std::max(y1, y);
+            }
+        }
+        if (x1 < x0 || y1 < y0) return;
+        // Texel column c shows at screen x preview_disc_x + w - c (preview_screenshot runs s against x), row r at
+        // preview_disc_y + r.
+        const float cx = preview_disc_x + float(w) - float(x0 + x1 + 1) * 0.5f;
+        const float cy = preview_disc_y + float(y0 + y1 + 1) * 0.5f;
+        const float r = float(std::max(x1 - x0 + 1, y1 - y0 + 1)) * 0.5f;
+        const float depth = preview_disc_depth - 0.5f;
+        const float d = depth / rush2::track2049::preview_focal;
+        const uint8_t cr = uint8_t(rgb >> 16), cg = uint8_t(rgb >> 8), cb = uint8_t(rgb);
+        Group band;
+        auto point = [&](float radius, float a) {
+            float sx = cx + radius * std::cos(a), sy = cy + radius * std::sin(a);
+            float x = (sx - rush2::track2049::preview_center_x) * d, y = (rush2::track2049::preview_center_y - sy) * d;
+            return band.add({ x * preview_units, y * preview_units, depth * preview_units, 0, 0, cr, cg, cb });
+        };
+        int first_in = point(r - ring_inner, 0.0f), first_out = point(r + ring_outer, 0.0f);
+        int in = first_in, out = first_out;
+        for (int s = 1; s <= ring_segments; s++) {
+            int next_in = first_in, next_out = first_out;
+            if (s < ring_segments) {
+                float a = float(s) * 6.2831853f / float(ring_segments);
+                next_in = point(r - ring_inner, a);
+                next_out = point(r + ring_outer, a);
+            }
+            band.quad(in, out, next_out, next_in);
+            in = next_in;
+            out = next_out;
+        }
+        // Between two G_NOOPs tagged version_ring_start / _end: the track select branches over it for a course with
+        // one version (src/rush2049/track2049_menu.cpp, show_ring).
+        mini.command(0x00000000, rush2::track2049::version_ring_start);
+        mini.command(0xE7000000, 0);
+        mini.command(0xE200001C, 0x0C184A50);    // the screenshot's mode: z-compared translucent surface
+        mini.command(0xFCFFFFFF, 0xFFFE7C38);    // shade colour, alpha 1
+        emit_group(mini, band);
+        mini.command(0x00000000, rush2::track2049::version_ring_end);
+    }
+
     // A Rush 2049 or Dreamcast RGBA picture as the screenshot's CI8: index 255 clear, the rest a median cut of the
     // opaque texels.
     void quantize_picture(const std::vector<std::array<uint8_t, 4>>& rgba, std::vector<uint8_t>& indices,
                           std::array<uint16_t, 256>& palette) {
         std::vector<std::array<uint8_t, 3>> px(rgba.size());
         for (size_t i = 0; i < rgba.size(); i++) px[i] = { rgba[i][0], rgba[i][1], rgba[i][2] };
+        // 255 colours: index 255 is the clear one. With 256 the last colour's texels were moved to 254, another
+        // colour, which showed as specks (the arcade pictures' light pavement).
         Texture t;
-        quantize(px, t);
+        quantize(px, t, 255);
         indices = t.texels;
         palette = t.palette;
         palette[255] = 0;
@@ -2302,6 +2448,19 @@ namespace {
             if (rgba[i][3] < 128) indices[i] = 255;
             else if (indices[i] == 255) indices[i] = 254;
         }
+    }
+
+    // Track k's round screenshot for its preview as CI8 (128 wide): the cartridge's own texels, or the disc's picture
+    // quantized. `ui` is file 60 (unused for a disc).
+    bool preview_thumbnail(const rush2::rom2049::Source& rom, const Bytes& ui, int k, std::vector<uint8_t>& indices,
+                           std::array<uint16_t, 256>& palette, int& w, int& h) {
+        std::vector<std::array<uint8_t, 4>> rgba;
+        indices.clear();
+        bool thumbnail = rom.is_dreamcast() ? disc_thumbnail(rom, k, rgba, w, h)
+                                            : read_thumbnail(ui, k, rgba, w, h, &indices, &palette);
+        if (!thumbnail || w != 128 || h <= 0) return false;
+        if (indices.empty()) quantize_picture(rgba, indices, palette);
+        return true;
     }
 
     // The model's part of a preview: how much of the list and the vertices so far is the tube's or the outline's.
@@ -2344,8 +2503,8 @@ namespace {
 
         // The model, with 2049's list state: textures off, fog and an opaque z-buffered surface, shade colour.
         bool race = k >= 1 && k <= rush2::track2049::track_count;
+        Tube tube;
         if (race) {
-            Tube tube;
             if (!tube_geometry(rom, k, tube)) return false;
             preview_tube(tube, number_of(k), m);
         }
@@ -2368,17 +2527,43 @@ namespace {
 
         const PreviewPart model(m);
 
-        std::vector<std::array<uint8_t, 4>> rgba;
         std::vector<uint8_t> indices;
         std::array<uint16_t, 256> palette{};
         int w = 0, h = 0;
-        bool thumbnail = rom.is_dreamcast() ? disc_thumbnail(rom, k, rgba, w, h)
-                                            : read_thumbnail(ui, k, rgba, w, h, &indices, &palette);
-        if (thumbnail && w == 128 && h > 0) {
-            if (indices.empty()) quantize_picture(rgba, indices, palette);
+        if (preview_thumbnail(rom, ui, k, indices, palette, w, h)) {
             preview_screenshot(mini, m, indices, palette, w, h);
+            // The version ring: the N64 ROM's or the disc's (the race tracks; the arenas have one version).
+            if (race) {
+                preview_ring(mini, indices, palette, w, h, rom.is_dreamcast() ? rush2::track2049::version_ring_dc
+                                                                              : rush2::track2049::version_ring_n64);
+            }
+        }
+        if (race) {
+            preview_ground_ring(tube, rom.is_dreamcast() ? rush2::track2049::version_ring_dc
+                                                         : rush2::track2049::version_ring_n64, m);
         }
         return preview_finish(mini, m, model);
+    }
+
+    // The screenshot in a route_preview blob (list at `list`): its 128 x 128 CI8 texels and palette, read back from
+    // the strips preview_screenshot laid out (the first SETTIMG of the palette, the first strip's texels with the
+    // picture's first row repeated before it). False when the blob has none.
+    bool blob_screenshot(const Bytes& blob, uint32_t list, std::vector<uint8_t>& indices,
+                         std::array<uint16_t, 256>& palette) {
+        constexpr int w = 128, h = 128;
+        uint32_t texels = 0, pal = 0;
+        bool have_texels = false, have_pal = false;
+        for (size_t at = list; at + 8 <= blob.size() && blob[at] != 0xDF && !(have_texels && have_pal); at += 8) {
+            uint32_t w0 = be32(blob, at), w1 = be32(blob, at + 4) & 0xFFFFFF;
+            if (w0 == 0xFD100000 && !have_pal) { pal = w1; have_pal = true; }
+            if (w0 == 0xFD500000 && !have_texels) { texels = w1; have_texels = true; }
+        }
+        if (!have_texels || !have_pal || size_t(texels) + size_t(w) * (h + 1) > blob.size() || size_t(pal) + 512 > blob.size()) {
+            return false;
+        }
+        indices.assign(blob.begin() + texels + w, blob.begin() + texels + w + w * h);
+        for (int c = 0; c < 256; c++) palette[size_t(c)] = be16(blob, pal + uint32_t(c) * 2);
+        return true;
     }
 
     // A model's parts as one blob: texels, vertices, then the list, with the list's pointers made blob offsets.
@@ -2426,6 +2611,55 @@ bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color
         preview_screenshot(mini, m, indices, palette, 128, 128);
     }
     if (!preview_finish(mini, m, model) || !flatten(m, blob, list, pointers)) return false;
+    radius = m.radius / 16.0f;
+    return true;
+}
+
+bool rush2::track2049::course_preview(const rush2::rom2049::Source& rom, int k, const std::vector<uint8_t>* picture_of,
+                                      uint32_t picture_list, uint32_t ring, std::vector<uint8_t>& blob, uint32_t& list,
+                                      std::vector<uint32_t>& pointers, float& radius) {
+    if (k < 1 || k > track_count) return false;
+    Tube tube;
+    if (!tube_geometry(rom, k, tube)) return false;
+    TrackModel m;
+    static const Bytes no_geometry;
+    Miniature mini(no_geometry, m);
+    preview_tube(tube, number_of(k), m);
+    const PreviewPart model(m);
+    std::vector<uint8_t> indices;
+    std::array<uint16_t, 256> palette{};
+    int w = 128, h = 128;
+    bool picture = false;
+    if (picture_of != nullptr) {
+        picture = blob_screenshot(*picture_of, picture_list, indices, palette);
+    }
+    else {
+        Bytes ui;
+        picture = (rom.is_dreamcast() || rom.read_file(ui_file, ui)) && preview_thumbnail(rom, ui, k, indices, palette, w, h);
+    }
+    if (picture) {
+        preview_screenshot(mini, m, indices, palette, w, h);
+        preview_ring(mini, indices, palette, w, h, ring);
+    }
+    preview_ground_ring(tube, ring, m);
+    if (!preview_finish(mini, m, model) || !flatten(m, blob, list, pointers)) return false;
+    radius = m.radius / 16.0f;
+    return true;
+}
+
+std::string rush2::track2049::disc_preview_name(int k) {
+    return "R49PDTRACK" + std::to_string(k);
+}
+
+std::string rush2::track2049::disc_model_name(int k) {
+    return "R49DTRACK" + std::to_string(k);
+}
+
+bool rush2::track2049::course_diorama(const rush2::rom2049::Source& rom, int k, uint32_t ring, std::vector<uint8_t>& blob,
+                                      uint32_t& list, std::vector<uint32_t>& pointers, float& radius) {
+    if (k < 1 || k > track_count) return false;
+    TrackModel m;
+    if (!build_tube(rom, k, m, ring) || !m.parts[loads_part].empty() || !flatten(m, blob, list, pointers)) return false;
     radius = m.radius / 16.0f;
     return true;
 }

@@ -58,6 +58,7 @@
 #include "recomp.h"
 #include "util/file.h"
 
+#include "arcade2049.h"
 #include "data_files.h"
 #include "game_filter.h"
 #include "rush2_hooks.h"
@@ -121,6 +122,9 @@ namespace {
     constexpr uint32_t battle_row_label = menu_data + 0xF60;      // "BATTLE", the race select's BATTLE row (16 bytes)
     constexpr uint32_t time_label = menu_data + 0xF70;            // "TIME LIMIT", the BATTLE select's CHECKPOINTS row
     constexpr uint32_t preview_strings = menu_data + 0x1000;      // 16 bytes per 2049 entry: its preview model's name
+    constexpr uint32_t disc_preview_strings = menu_data + 0x1200; // 16 bytes per Dreamcast version (249-254): the same
+    constexpr uint32_t disc_model_strings = menu_data + 0x1300;   // 16 bytes per Dreamcast version: its diorama's name
+    static_assert(preview_strings + 32 * 16 <= disc_preview_strings);
 
     // Unlock bytes of PIPE (9) and ATARI (10) (func_803AB01C).
     constexpr uint32_t pipe_unlocked = 0x800E7D50;
@@ -216,6 +220,9 @@ namespace {
     // The custom tracks the track select offers: whether each converted (its art built), and the enabled mods they came
     // from (rebuilt when those change).
     std::vector<bool> mod_ok;
+    // By custom track index: from the app's own Rush 2049 arcade mod (by its mod id, not anything a track.toml can
+    // say), which the game filter files under Rush 2049 (rush2::track2049::mod_from_2049).
+    std::array<std::atomic<bool>, rush2::track2049::mod_capacity> mod_arcade{};
     std::vector<rush2::track_mod::MenuArt> mod_arts;
     std::string mod_signature;
     std::atomic<bool> mods_reload = false;     // rush2::track2049::mods_changed
@@ -601,7 +608,27 @@ namespace {
     bool menu_has_rush1 = false;
     bool menu_has_mods = false;
     bool menu_has_cs = false;
+    bool menu_has_disc = false;           // the Dreamcast versions' own previews (disc_preview_name)
     std::string menu_container_mods;      // mod_signature the container was built with
+    std::shared_ptr<const rush2::rom2049::Source> menu_container_disc;
+
+    // The Dreamcast disc, for the Dreamcast versions' previews when they are offered beside the N64 ones; else null.
+    std::shared_ptr<const rush2::rom2049::Source> disc_versions_source() {
+        return disc_courses_available() ? rush2::wings::track_source(true) : nullptr;
+    }
+
+    // By custom track index: the Rush 2049 race track (1-6) it is a version of ([menu] variant_of, as the arcade
+    // mod's are), else 0. Its preview shows that course's route and color (build_menu).
+    std::vector<int> mod_courses() {
+        std::vector<int> out(mod_ok.size(), 0);
+        for (size_t i = 0; i < out.size(); i++) {
+            int g = group_of[size_t(mod_id(int(i)))];
+            if (g < 0) continue;
+            int course = version_groups[size_t(g)].members[0];
+            if (course >= first_menu_id && course < first_menu_id + track_count) out[i] = course - first_menu_id + 1;
+        }
+        return out;
+    }
 
     // Where a preview's spare buffer room starts in its model blob (just past its tag, preview_buffer_tag after the
     // list's end), or 0 when the blob has none.
@@ -653,8 +680,9 @@ namespace {
         std::shared_ptr<const rush2::rom2049::Source> rom;
         std::shared_ptr<const std::vector<uint8_t>> rom1, rom_cs;
         std::string mods;     // mod_signature
+        std::shared_ptr<const rush2::rom2049::Source> disc;     // disc_versions_source
         std::vector<uint8_t> container;
-        bool has_2049 = false, has_rush1 = false, has_mods = false, has_cs = false;
+        bool has_2049 = false, has_rush1 = false, has_mods = false, has_cs = false, has_disc = false;
     };
 
     // The container the background builds made for the track select's next visit (prepare_menu_container), and a
@@ -882,6 +910,15 @@ namespace {
                 MEM_W(0, (int32_t)(table + t * 4)) = MEM_W(0, (int32_t)(table + from * 4));
             }
             preview_names[t] = preview_names[from];
+            // Their own preview when the container has it: the disc's picture with the Dreamcast version ring.
+            if (menu_has_disc) {
+                uint32_t name = disc_preview_strings + uint32_t(k - 1) * 16;
+                write_string(rdram, name, disc_preview_name(k));
+                preview_names[t] = name;
+                uint32_t model = disc_model_strings + uint32_t(k - 1) * 16;
+                write_string(rdram, model, disc_model_name(k));
+                MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = model;
+            }
         }
     }
 
@@ -925,6 +962,10 @@ namespace {
                 int anchor = -1;
                 if (anchor_game(after, game)) {
                     for (int t : display_order) {
+                        // A course's other versions (the Dreamcast ones, 249-254) don't count: they move next to
+                        // their course below, so the last of the game is the last course (Presidio for "rush2049").
+                        int g = group_of[size_t(t)];
+                        if (g >= 0 && version_groups[size_t(g)].members[0] != t) continue;
                         if (!is_mod_track(t) && rush2::game_filter::track_game(t) == game && kind_of(t) == kind_of(self)) {
                             anchor = t;
                         }
@@ -987,6 +1028,9 @@ namespace {
         mod_ok.clear();
         mod_arts.clear();
         mod_types.clear();
+        for (size_t i = 0; i < size_t(mod_capacity); i++) {
+            mod_arcade[i] = i < entries.size() && entries[i].mod_id == rush2::arcade2049::track_mod_id;
+        }
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));
         }
@@ -1015,8 +1059,9 @@ namespace {
     // Builds it from the ROMs and the custom tracks' art (any thread: Rush 2's own asset 3 comes from the ROM).
     MenuBuild build_menu(std::shared_ptr<const rush2::rom2049::Source> rom, std::shared_ptr<const std::vector<uint8_t>> rom1,
                          std::shared_ptr<const std::vector<uint8_t>> rom_cs, const std::string& mods_signature,
-                         const std::vector<bool>& ok, const std::vector<rush2::track_mod::MenuArt>& arts) {
-        MenuBuild b{ rom, rom1, rom_cs, mods_signature };
+                         const std::vector<bool>& ok, const std::vector<rush2::track_mod::MenuArt>& arts,
+                         std::shared_ptr<const rush2::rom2049::Source> disc, const std::vector<int>& courses) {
+        MenuBuild b{ rom, rom1, rom_cs, mods_signature, disc };
         std::vector<uint8_t> asset3, with_2049, with_rush1;
         if (!rush2::assets::rom_original(3, asset3)) {
             printf("[2049] Failed to read the track select art\n");
@@ -1041,6 +1086,17 @@ namespace {
             const rush2::track_mod::MenuArt& art = arts[i];
             MenuModel model{ rush2::track_mod::diorama_model_name(int(i)), art.diorama, art.diorama_list,
                              art.diorama_pointers, std::max(art.diorama_radius, 1.0f) };
+            // A version of a Rush 2049 race track (the arcade mod's) shows the course's own route and color, as its
+            // N64 and Dreamcast versions do, with its own picture and the arcade's version ring; the route of its AI
+            // path stays for a course the 2049 source can't give.
+            if (rom != nullptr && art.route_preview && i < courses.size() && courses[i] > 0) {
+                MenuModel course{ model.name };
+                if (course_preview(*rom, courses[i], &art.diorama, art.diorama_list, version_ring_arcade, course.blob,
+                                   course.list, course.pointers, course.radius)) {
+                    course.radius = std::max(course.radius, 1.0f);
+                    model = std::move(course);
+                }
+            }
             // A route preview's spare buffers are lent from the pool on screen (lend_buffers), not kept here.
             if (size_t room = art.route_preview ? preview_room(model.blob, model.list) : 0; room != 0) {
                 model.blob.resize(room);
@@ -1063,6 +1119,40 @@ namespace {
             printf("[trackmod] The track select has room for the art of fewer custom tracks; %zu show no diorama\n",
                    left_out);
         }
+        // The Dreamcast versions' previews (the disc's picture and the Dreamcast ring), with their spare buffers lent
+        // from the pool as the custom tracks' are, so they cost the heap no more than the screenshot and the tube.
+        bool with_disc = false;
+        if (b.has_2049 && disc != nullptr) {
+            std::vector<MenuModel> disc_models;
+            for (int k = 1; k <= track_count; k++) {
+                MenuModel model{ disc_preview_name(k) };
+                if (!course_preview(*disc, k, nullptr, 0, version_ring_dc, model.blob, model.list, model.pointers,
+                                    model.radius)) {
+                    printf("[2049] The Dreamcast version of track %d has no track select preview of its own\n", k);
+                    disc_models.clear();
+                    break;
+                }
+                model.radius = std::max(model.radius, 1.0f);
+                // Its diorama (the circuit screen's): the disc's route with the Dreamcast ring.
+                MenuModel diorama{ disc_model_name(k) };
+                if (!course_diorama(*disc, k, version_ring_dc, diorama.blob, diorama.list, diorama.pointers,
+                                    diorama.radius)) {
+                    printf("[2049] The Dreamcast version of track %d has no diorama of its own\n", k);
+                    disc_models.clear();
+                    break;
+                }
+                diorama.radius = std::max(diorama.radius, 1.0f);
+                disc_models.push_back(std::move(diorama));
+                if (size_t room = preview_room(model.blob, model.list); room != 0) {
+                    model.blob.resize(room);
+                    uint32_t pooled = preview_pooled_tag;
+                    for (int i = 0; i < 4; i++) model.blob[room - 16 + size_t(i)] = uint8_t(pooled >> (24 - 8 * i));
+                }
+                disc_models.push_back(std::move(model));
+            }
+            with_disc = !disc_models.empty();
+            models.insert(models.end(), disc_models.begin(), disc_models.end());
+        }
         if (rom_cs != nullptr) {
             std::vector<MenuModel> cs_models;
             std::vector<MenuLogo> cs_logos;
@@ -1075,9 +1165,10 @@ namespace {
             if (extend_menu_container(base2, models, logos, b.container)) {
                 b.has_mods = with_mods;
                 b.has_cs = rom_cs != nullptr;
+                b.has_disc = with_disc;
             }
             else {
-                printf("[trackmod] Couldn't add the custom and Cal Speed tracks' track select art\n");
+                printf("[trackmod] Couldn't add the custom, Dreamcast version and Cal Speed tracks' track select art\n");
                 b.container.clear();
             }
         }
@@ -1093,14 +1184,16 @@ namespace {
         auto rom = available() ? rush2::wings::get_rom() : nullptr;
         auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
         auto rom_cs = rush2::calspeed::available() ? rush2::calspeed::get_rom() : nullptr;
+        auto disc = rom != nullptr ? disc_versions_source() : nullptr;
         bool mods = std::find(mod_ok.begin(), mod_ok.end(), true) != mod_ok.end();
         if (rom == nullptr && rom1 == nullptr && rom_cs == nullptr && !mods) {
             rush2::assets::restore(rdram, 3);
-            menu_has_2049 = menu_has_rush1 = menu_has_mods = menu_has_cs = false;
+            menu_has_2049 = menu_has_rush1 = menu_has_mods = menu_has_cs = menu_has_disc = false;
             return;
         }
         bool same = menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 &&
-                    menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature;
+                    menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature &&
+                    menu_container_disc == disc;
         if (same && !menu_container.empty() && rush2::assets::is_replaced(3)) {
             return;
         }
@@ -1109,6 +1202,7 @@ namespace {
             menu_container_rom1 = rom1;
             menu_container_rom_cs = rom_cs;
             menu_container_mods = mod_signature;
+            menu_container_disc = disc;
             menu_container_built = true;
             // Built ahead by the background builds (prepare_menu_container) when nothing changed since; built here
             // only after a change they haven't caught up with.
@@ -1116,21 +1210,23 @@ namespace {
             {
                 std::lock_guard lock{ prebuilt_mutex };
                 if (prebuilt && prebuilt->rom == rom && prebuilt->rom1 == rom1 && prebuilt->rom_cs == rom_cs &&
-                    prebuilt->mods == mod_signature) {
+                    prebuilt->mods == mod_signature && prebuilt->disc == disc) {
                     ready = std::move(prebuilt);
                     prebuilt.reset();
                 }
             }
-            MenuBuild build = ready ? std::move(*ready) : build_menu(rom, rom1, rom_cs, mod_signature, mod_ok, mod_arts);
+            MenuBuild build = ready ? std::move(*ready) : build_menu(rom, rom1, rom_cs, mod_signature, mod_ok, mod_arts,
+                                                                   disc, mod_courses());
             menu_container = std::move(build.container);
             menu_has_2049 = build.has_2049;
             menu_has_rush1 = build.has_rush1;
             menu_has_mods = build.has_mods;
             menu_has_cs = build.has_cs;
+            menu_has_disc = build.has_disc;
         }
         if (menu_container.empty()) {
             rush2::assets::restore(rdram, 3);
-            menu_has_2049 = menu_has_rush1 = menu_has_mods = menu_has_cs = false;
+            menu_has_2049 = menu_has_rush1 = menu_has_mods = menu_has_cs = menu_has_disc = false;
         }
         else {
             rush2::assets::replace(rdram, 3, menu_container);
@@ -1267,18 +1363,22 @@ void rush2::track2049::prepare_menu_container() {
     auto rom = available() ? rush2::wings::get_rom() : nullptr;
     auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
     auto rom_cs = rush2::calspeed::available() ? rush2::calspeed::get_rom() : nullptr;
+    auto disc = rom != nullptr ? disc_versions_source() : nullptr;
     std::vector<bool> ok;
     std::vector<rush2::track_mod::MenuArt> arts;
+    std::vector<int> courses;
     std::string signature;
     int reloads;
     {
         std::lock_guard lock{ menu_mutex };
         refresh_mods();
         bool same = menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 &&
-                    menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature;
+                    menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature &&
+                    menu_container_disc == disc;
         if (same) return;       // the game has this one
         ok = mod_ok;
         arts = mod_arts;
+        courses = mod_courses();
         signature = mod_signature;
         std::lock_guard pre_lock{ prebuilt_mutex };
         reloads = menu_reloads;
@@ -1286,11 +1386,11 @@ void rush2::track2049::prepare_menu_container() {
     {
         std::lock_guard lock{ prebuilt_mutex };
         if (prebuilt && prebuilt->rom == rom && prebuilt->rom1 == rom1 && prebuilt->rom_cs == rom_cs &&
-            prebuilt->mods == signature) {
+            prebuilt->mods == signature && prebuilt->disc == disc) {
             return;
         }
     }
-    MenuBuild b = build_menu(rom, rom1, rom_cs, signature, ok, arts);
+    MenuBuild b = build_menu(rom, rom1, rom_cs, signature, ok, arts, disc, courses);
     std::lock_guard lock{ prebuilt_mutex };
     if (reloads == menu_reloads) prebuilt = std::move(b);
 }
@@ -1300,6 +1400,11 @@ void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
     refresh_mods();
     serve_menu_container(rdram);
     write_tables(rdram);
+}
+
+bool rush2::track2049::mod_from_2049(int t) {
+    int i = mod_index(t);
+    return i >= 0 && i < mod_capacity && mod_arcade[size_t(i)].load();
 }
 
 uint32_t rush2::track2049::diorama_name(uint8_t* rdram, int t) {
@@ -1572,8 +1677,15 @@ namespace {
         // screen (lend_buffers), pool slot `slot`; without them it is turned in place.
         bool pooled = false;
         int slot = -1;
+        // The version ring's G_NOOP (track2049.h version_ring_start) and the command after its end marker, in the
+        // rest of the list (0: none); ring_shown is what the start command holds now.
+        uint32_t ring = 0, ring_after = 0;
+        bool ring_shown = true;
     };
     PreviewModel preview_models[menu_tracks];
+    bool has_other_version(int t);
+    bool find_circuit_ring(uint8_t* rdram, uint32_t list, uint32_t& start, uint32_t& after);
+    void show_circuit_ring(uint8_t* rdram, uint32_t start, uint32_t after, bool show);
 
     // The custom tracks' previews' spare buffers: up to 201 previews with two each would take 4 MB of the game heap
     // the track select's container is loaded into (as the stock 2049 previews' are), so the container leaves them out
@@ -1758,6 +1870,29 @@ namespace {
                 }
                 break;
             }
+            for (uint32_t at = out.rest, i = 0; i < 4096 && (at >> 24) == 0x80; i++, at += 8) {
+                uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+                if ((w0 >> 24) == 0xDF) break;
+                if (out.ring == 0 && (w0 >> 16) == 0xDE01) {
+                    // The start, branched over on an earlier visit: its branch goes just past the end marker.
+                    uint32_t end = (0x80000000 | (w1 & 0x00FFFFFF)) - 8;
+                    if ((uint32_t)MEM_W(0, (int32_t)end) == 0 && (uint32_t)MEM_W(4, (int32_t)end) == version_ring_end) {
+                        out.ring = at;
+                        out.ring_after = end + 8;
+                        out.ring_shown = false;
+                        break;
+                    }
+                }
+                if (w0 != 0) continue;
+                if (w1 == version_ring_start) out.ring = at;
+                if (w1 == version_ring_end && out.ring != 0) { out.ring_after = at + 8; break; }
+            }
+            if (out.ring_after == 0) out.ring = 0;
+            // The circuit screen's version ring stays off here (a circuit screen may have shown it in this container).
+            uint32_t circuit_start = 0, circuit_after = 0;
+            if (find_circuit_ring(rdram, out.rest, circuit_start, circuit_after)) {
+                show_circuit_ring(rdram, circuit_start, circuit_after, false);
+            }
         }
         // The own-space positions: read while the vertices are as loaded, and kept across lookups from then on (the
         // model's own vertices are a buffer too, left turned).
@@ -1841,9 +1976,14 @@ namespace {
                 MEM_H(i * 2, (int32_t)at) = (int16_t)std::clamp(std::lround(placed[i]), -32767L, 32767L);
             }
         }
-        // The tube's color: race track k's, or race track 4's red for a custom track's route (src/track_mod/track_mod_menu.cpp).
+        // The tube's color: race track k's; a custom track's route race track 4's red (src/track_mod/track_mod_menu.cpp),
+        // or its course's color when it is a version of a 2049 race track (the arcade mod's, mod_courses).
         int k = course_id(t) - first_menu_id + 1;
-        if (is_mod_track(t)) k = 4;
+        if (is_mod_track(t)) {
+            int g = group_of[size_t(t)];
+            int course = g >= 0 ? version_groups[size_t(g)].members[0] : -1;
+            k = course >= first_menu_id && course < first_menu_id + track_count ? course - first_menu_id + 1 : 4;
+        }
         else if (k < 1 || k > track_count) return;
         if (model.local.size() < size_t(preview_tube_rings) * 4) return;
         for (int ring = 0; ring < preview_tube_rings; ring++) {
@@ -1856,6 +1996,18 @@ namespace {
                 MEM_B(2, (int32_t)at) = rgb[2];
             }
         }
+    }
+
+    // The version ring shows only on a course with another version, as the X prompt naming the version does
+    // (other_version): the ring's start is a G_NOOP, or a branch past its end.
+    void show_ring(uint8_t* rdram, int t, PreviewModel& model) {
+        if (model.ring == 0) return;
+        // A circuit's select (the circuit picked the version, no X prompt) shows it too when the course has another.
+        bool show = versions_apply(rdram) ? other_version(rdram, t) : has_other_version(t);
+        if (show == model.ring_shown) return;
+        model.ring_shown = show;
+        MEM_W(0, (int32_t)model.ring) = show ? 0 : (int32_t)0xDE010000;
+        MEM_W(4, (int32_t)model.ring) = (int32_t)(show ? rush2::track2049::version_ring_start : model.ring_after);
     }
 
     // Poses entry t's preview model (node `node`) for the track select: the screenshot's middle (240, 96 on 2049's
@@ -1881,6 +2033,7 @@ namespace {
         PreviewModel& model = preview_models[t];
         if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
         if (model.buffers == 0) return;
+        show_ring(rdram, t, model);
         if (on_screen) lend_buffers(rdram, t, model);
         model.turn = (model.turn + 1) % model.buffers;
         if (model.buffers > 1) {
@@ -1956,8 +2109,84 @@ extern "C" void rush2_track49_circuit_entries(uint8_t* rdram, recomp_context* ct
 }
 
 // func_803B6260 at 0x803B6AFC, each frame: the shown diorama's node (0x80312C00 + track * 4, +2) was just placed.
+namespace {
+    // The circuit screen's version ring (track2049.h circuit_ring_start) in the list from `list` up to its end: its
+    // start command (a G_NOOP when shown, a branch past its end marker when not) and the command after the end; false
+    // when the model has none.
+    bool find_circuit_ring(uint8_t* rdram, uint32_t list, uint32_t& start, uint32_t& after) {
+        using namespace rush2::track2049;
+        for (uint32_t at = list, i = 0; i < 8192 && (at >> 24) == 0x80; i++, at += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+            if ((w0 >> 24) == 0xDF) return false;
+            if ((w0 >> 16) == 0xDE01) {
+                uint32_t end = (0x80000000 | (w1 & 0x00FFFFFF)) - 8;
+                if ((end >> 24) == 0x80 && (uint32_t)MEM_W(0, (int32_t)end) == 0 &&
+                    (uint32_t)MEM_W(4, (int32_t)end) == circuit_ring_end) {
+                    start = at;
+                    after = end + 8;
+                    return true;
+                }
+            }
+            if (w0 == 0 && w1 == circuit_ring_start) {
+                for (uint32_t e = at + 8, j = 0; j < 8192 && (e >> 24) == 0x80; j++, e += 8) {
+                    uint32_t v0 = (uint32_t)MEM_W(0, (int32_t)e), v1 = (uint32_t)MEM_W(4, (int32_t)e);
+                    if ((v0 >> 24) == 0xDF) return false;
+                    if (v0 == 0 && v1 == circuit_ring_end) {
+                        start = at;
+                        after = e + 8;
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+
+    void show_circuit_ring(uint8_t* rdram, uint32_t start, uint32_t after, bool show) {
+        MEM_W(0, (int32_t)start) = show ? 0 : (int32_t)0xDE010000;
+        MEM_W(4, (int32_t)start) = (int32_t)(show ? rush2::track2049::circuit_ring_start : after);
+    }
+
+    // Whether t's course has another version installed (the circuit may race any of them; locked ones count, as the
+    // track select's prompt counts them).
+    bool has_other_version(int t) {
+        int g = t >= 0 && t < menu_tracks ? group_of[size_t(t)] : -1;
+        if (g < 0) return false;
+        for (int other : version_groups[size_t(g)].members) {
+            if (other != t && entry_available(other)) return true;
+        }
+        return false;
+    }
+
+    // A 2049 race track's diorama on the circuit screen: its version ring shown when the course has another version.
+    void circuit_diorama_ring(uint8_t* rdram, recomp_context* ctx, int t) {
+        uint32_t name = (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4));
+        if (name == 0) return;
+        recomp_context saved = *ctx;
+        ctx->r4 = (int32_t)name;
+        ctx->r5 = 0;
+        ctx->r6 = MEM_BU(0, (int32_t)model_slots) - 1;
+        ctx->r7 = 1;
+        model_find_by_name_8005BE3C(rdram, ctx);
+        int32_t handle = (int32_t)ctx->r2;
+        *ctx = saved;
+        if (handle < 0 || (handle & 0xFFFF) == 0xFFFF) return;
+        uint32_t table = (uint32_t)MEM_W(0, (int32_t)(model_tables + (uint32_t)(handle >> 10) * 8));
+        uint32_t record = table + (uint32_t)(handle & 0x3FF) * 0x34;
+        uint32_t list = (uint32_t)MEM_W(0xC, (int32_t)record);
+        uint32_t start = 0, after = 0;
+        if (find_circuit_ring(rdram, list, start, after)) show_circuit_ring(rdram, start, after, has_other_version(t));
+    }
+}
+
 extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) {
     int t = (int32_t)MEM_W(0, (int32_t)circuit_shown);
+    if (t >= 0 && t < menu_tracks && !is_mod_track(t) && course_id(t) >= first_menu_id &&
+        course_id(t) < first_menu_id + track_count) {
+        circuit_diorama_ring(rdram, ctx, t);
+        return;
+    }
     if (!is_mod_track(t) || preview_names[t] == 0 ||
         (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4)) != preview_names[t]) {
         return;
@@ -2007,7 +2236,13 @@ extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) 
         write_route(rdram, t, model, model.vertices[1], 0.0f, -1.0f);
         model.still = true;
     }
-    MEM_W(4, (int32_t)(model.lists[1] + model.commands * 8)) = (int32_t)model.finish;
+    // Past the screenshot to the version ring (shown for a course with another version), else to the end state.
+    uint32_t target = model.finish, start = 0, after = 0;
+    if (find_circuit_ring(rdram, model.rest, start, after) && after <= model.finish) {
+        show_circuit_ring(rdram, start, after, has_other_version(t));
+        target = start;
+    }
+    MEM_W(4, (int32_t)(model.lists[1] + model.commands * 8)) = (int32_t)target;
     MEM_W(0xC, (int32_t)model.record) = (int32_t)model.lists[1];
 }
 
