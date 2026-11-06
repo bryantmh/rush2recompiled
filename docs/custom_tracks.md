@@ -815,7 +815,10 @@ merges and renames as needed.
   track cache key 1000 + a hash of the folder), with track select ids 38-63 and 80-254 (`include/track2049.h`
   `mod_id`/`mod_index`; `src/rush2049/track2049_menu.cpp`, the tables moved to 0x80310000 with room for 256; the
   circuit review screen's diorama instances at 0x80312C00). The game reads the id byte 0x8010C3F0 unsigned (us.toml
-  turns its lb into lbu, listed by `tools/byte_reads.py 8010C3F0`), so ids past 127 work in its menu code. The route
+  turns its lb into lbu, listed by `tools/byte_reads.py 8010C3F0`), so ids past 127 work in its menu code. The carousel's entries keep their place relative to the shown track
+  in a byte too (entry +0x14, up to 254 with more than 128 tracks on one select): its loads at 0x803AB718, 0x803ABB30
+  and 0x803ABB38 are lbu as well, and `rush2_track49_carousel_place` wraps the place the setup stores before reading it
+  (it relied on a signed read going negative). The route
   previews' spare animation buffers aren't kept in the track select's art (asset 3): the previews on screen borrow them
   from a pool at 0x80320000 (`lend_buffers`), so 201 previews fit the game heap (`mod_art_room`). Circuits choose custom
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started

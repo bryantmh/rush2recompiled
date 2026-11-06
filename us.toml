@@ -1031,6 +1031,30 @@ func = "trackselect_init_draw_803AB294"
 before_vram = 0x803ABB58
 text = "    rush2_track49_carousel_slide(rdram, ctx);"
 
+# Carousel entries' places (+0x14, 0 to count - 1) read unsigned, as the track id is: a carousel of more than 128
+# tracks (custom tracks 80-254) read places past 127 as negative, so the init put those entries in the wrong place and
+# every frame took the mismatch for a step and slid them on (src/rush2049/track2049_menu.cpp, carousel_place). The
+# init stores the place before wrapping it and tests its sign, so the hook wraps it first.
+[[patches.hook]]
+func = "trackselect_init_draw_803AB294"
+before_vram = 0x803AB718
+text = "    rush2_track49_carousel_place(rdram, ctx);"
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB718
+value = 0x92030014 # lbu    $v1, 0x14($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803ABB30
+value = 0x92030014 # lbu    $v1, 0x14($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803ABB38
+value = 0x92030014 # lbu    $v1, 0x14($s0)
+
 # Rush 2049 entries show 2049's own track select preview (src/rush2049/track2049_menu.cpp): the camera-space model replaces the
 # diorama when the carousel instances it, and its pose replaces the carousel's spin each frame.
 [[patches.hook]]

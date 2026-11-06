@@ -1209,6 +1209,17 @@ extern "C" void rush2_track49_carousel_slide(uint8_t* rdram, recomp_context* ctx
     ctx->r5 = last_step_direction < 0 ? (uint64_t)(int64_t)old_slot : (uint64_t)(int64_t)(old_slot + 1);
 }
 
+// func_803AB294 at 0x803AB718, building the carousel: entry $s0's place (index $s3 - position, $t6) was just stored at
+// +0x14 unwrapped; the game then read it back signed (lb) and added the count ($s5) when negative. Places are read
+// unsigned now (us.toml: lbu here and at 0x803ABB30/0x803ABB38), as a carousel of more than 128 tracks has places past
+// 127, so the place is wrapped to [0, count) here and the game's own wrap is skipped.
+extern "C" void rush2_track49_carousel_place(uint8_t* rdram, recomp_context* ctx) {
+    int place = (int32_t)ctx->r14;
+    int count = (int16_t)MEM_H(0, (int32_t)ctx->r21);
+    if (place < 0 && count > 0) place += count;
+    MEM_B(0x14, (int32_t)ctx->r16) = (int8_t)place;
+}
+
 // Rush 2049's own preview for the 2049 entries (docs/rush2049_research/menus.md §7.5): the carousel instances the
 // track's preview model (src/rush2049/track2049_art.cpp, menu_preview_name) in place of its diorama, and each frame the preview
 // is posed so its model space, Rush 2049's track select camera space, lands in front of Rush 2's camera with 2049's
@@ -1598,7 +1609,7 @@ extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
     float place[3] = { rdram_float(rdram, entry + 4), rdram_float(rdram, entry + 8), rdram_float(rdram, entry + 12) };
     const float centre[3] = { 0.0f, place[1], place[2] };
     int16_t node = (int16_t)MEM_H(0, (int32_t)(entry + 0x1A));
-    int slot = (int8_t)MEM_B(0, (int32_t)(entry + 0x14));
+    int slot = MEM_BU(0, (int32_t)(entry + 0x14));   // 0 to count - 1 (us.toml reads it unsigned)
     int count = MEM_H(0, (int32_t)carousel_count);
     bool shown = slot == 0;
     if (shown) pool_frame++;
