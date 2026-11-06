@@ -129,6 +129,24 @@ Two copied tables keep the disc's meaning, so their consumers convert:
   textures). `convert_tex_anims` (src/rush2049/track2049_convert.cpp) negates a disc speed. Unnegated, the Haight
   arrows ran backwards.
 
+### Car lighting tables [V]
+
+The road colors that tint a car (docs/rush2049_research/collision.md "Car lighting") are on the disc in the N64's
+layout: per track id a pointer to its color table at 0x8C0C3F94 (N64 0x8011AF90), the three 26-color tables at
+0x8C0C3E5C / 0x8C0C3EC4 / 0x8C0C3F2C, and the in-the-air index at 0x8C0C43B8 (N64 0x8011B468, same values). The
+disc's car lighting reads them at 0x8C060A24 and 0x8C060B1C. Colors are ARGB words (bytes B, G, R, A); the `c` schema
+token turns them into the N64's RGBA. The only value difference: track 4's table (N64 0x8011AEC0) has greys 0-8 one
+step darker (0xC8C8C8 first, where the N64 has 0xDCDCDC). Until 2026-11-06 the program didn't copy them, so a disc
+source read zeros there: no road tint on the cars and no painted colors in the light probes.
+
+### Audit of the copied tables (2026-11-06)
+
+Every 2049 code-segment address the port reads (src/rush2049, include) was checked against the program's copies.
+Besides the lighting tables, the uncopied ones are fine: the drone setup rows B / C / D (0x8011103C, 0x80111080,
+0x8011119C, row 0) are all zero on the N64 too; per-car colors (0x80111604) and the paint shades (0x801226C0) don't
+apply to disc cars, which paint with their palettes and paint jobs (`paint_colors::load_2049` falls back to the N64's
+shades); the file table (0x8011B5BC) is the N64 ROM's own (the disc has its file system). The rest are Rush 2 RAM.
+
 ## Audio [V]
 
 The disc has no MusyX. `src/rush2049dc/audio2049_dc.cpp` plays it behind the same `audio2049` calls (N64 effect ids and songs).

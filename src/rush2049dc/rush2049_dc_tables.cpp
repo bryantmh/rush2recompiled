@@ -110,7 +110,7 @@ namespace {
             for (const char* p = layout; *p; p++) {
                 if (p != layout && p[-1] != ' ') continue;
                 switch (*p) {
-                case 'w': case 'r': case 's': case 'f': case 'P': case 'Q': case 'F': case 'V': dc += 4; n64 += 4; break;
+                case 'w': case 'r': case 'c': case 's': case 'f': case 'P': case 'Q': case 'F': case 'V': dc += 4; n64 += 4; break;
                 case 'h': case 'H': dc += 2; n64 += 2; break;
                 case 'b': dc += 1; n64 += 1; break;
                 case 'X': dc += 4; break;
@@ -215,6 +215,10 @@ namespace {
                 case 'r': {
                     uint32_t v = dw(dc);
                     put32(n64, (v >> 16) | (v << 16)); n64 += 4; dc += 4; break;
+                }
+                case 'c': {    // The disc's ARGB color word as the N64's RGBA.
+                    uint32_t v = dw(dc);
+                    put32(n64, (v << 8) | (v >> 24)); n64 += 4; dc += 4; break;
                 }
                 case 'h':
                     put16(n64, dh(dc)); n64 += 2; dc += 2; break;

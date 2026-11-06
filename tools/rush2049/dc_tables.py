@@ -11,6 +11,7 @@ with the N64 segments field by field (--report), which shows where the versions 
 
 Schemas (layout tokens, space separated; DC bytes read -> N64 bytes written):
   w  4->4 32-bit value          r  4->4 32-bit value stored as two swapped halfwords on the disc
+  c  4->4 color: the disc's ARGB word (bytes B, G, R, A) as the N64's RGBA
   h  2->2 16-bit value          b  1->1 byte
   s  4->4 string pointer: the string goes to the heap after the segment, renamed to the N64's object name
   f  4->4 function or data pointer, through the function map (code compares a few type-table callbacks and the
@@ -64,10 +65,13 @@ SCHEMAS = {
     'desc_ptr': ('P12,1', None),
     # Engine sound layers (N64 0x20 bytes, disc 0x1C): sound, base rpm, span, rpm points[3], pad, volumes[3].
     'engine_layer': ('V1 h h h h h h w w w z', None),
+    # Car lighting colors: one color table per track (2049 reads 32 entries; the tables hold 26 and run into the next).
+    'color': ('c', None),
+    'light_list': ('P15,32', None),
 }
 # Numeric references in layouts (P2, F4, Q5, Q7, P3, P12) name schemas by index in this order:
 ORDER = ['type', 'string', 'word', 'half', 'frame', 'flip', 'byte', 'scroll', 'kind_params', 'flip_list',
-         'scroll_list', 'demo_list', 'desc', 'desc_ptr', 'engine_layer']
+         'scroll_list', 'demo_list', 'desc', 'desc_ptr', 'engine_layer', 'color', 'light_list']
 assert sorted(ORDER) == sorted(SCHEMAS)
 
 
@@ -75,7 +79,7 @@ def sizes(layout):
     dc = n64 = 0
     for t in layout.split():
         c = t[0]
-        if c in 'wrsfPQFV':
+        if c in 'wrcsfPQFV':
             dc += 4
             n64 += 4
         elif c in 'hH':
@@ -207,6 +211,12 @@ def build_program(exe, seg):
     copy(MAIN, 0x8011A31C, 0x8C0C3170, 'flip_list', 19)
     copy(MAIN, 0x8011A840, 0x8C0C38C4, 'scroll_list', 19)
 
+    # Car lighting (docs/rush2049_research/dreamcast.md "Tables with disc units"): per track id a pointer to its color
+    # table (N64 0x8011AF90, disc 0x8C0C3F94; the disc's colors are ARGB words) and the table index used in the air
+    # (0x8011B468, disc 0x8C0C43B8).
+    copy(MAIN, 0x8011AF90, 0x8C0C3F94, 'light_list', 19)
+    copy(MAIN, 0x8011B468, 0x8C0C43B8, 'word', 19)
+
     # Demo starts: lists (0x801173D8, disc 0x8C0BFC94) and counts (0x80117408, disc 0x8C0BFCC4).
     copy(MAIN, 0x801173D8, 0x8C0BFC94, 'demo_list', 12)
     copy(MAIN, 0x80117408, 0x8C0BFCC4, 'half', 12)
@@ -311,6 +321,9 @@ class Builder:
             elif c == 'r':
                 v = e.w(dc)
                 self.put(s, n64, struct.pack('>I', ((v >> 16) | (v << 16)) & 0xFFFFFFFF)); n64 += 4; dc += 4
+            elif c == 'c':
+                v = e.w(dc)
+                self.put(s, n64, struct.pack('>I', ((v << 8) | (v >> 24)) & 0xFFFFFFFF)); n64 += 4; dc += 4
             elif c == 'h':
                 self.put(s, n64, struct.pack('>H', e.h(dc))); n64 += 2; dc += 2
             elif c == 'H':
