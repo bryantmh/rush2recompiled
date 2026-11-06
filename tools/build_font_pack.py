@@ -33,7 +33,8 @@ Fonts with "style": "drawn" are hand-drawn outlines (tools/font_pack/<"design">.
 Drawn fonts): Rush 2's own lettering (rush2_glyphs.py: Small, Medium, Large and Large digits) and Rush 2049's AERO menu
 lettering (aero_glyphs.py). A drawing's hard shapes (Rush 2's lowercase, digits and rounder symbols) can come from a
 reference font instead (tools/font_pack/reference/Arimo.ttf, SIL Open Font License, the metric twin of Helvetica, whose
-bold Rush 2's lettering is), fitted the same way. The sheets are plain anti-aliased coverage, no outline. Text is drawn
+bold Rush 2's lettering is), fitted the same way. Capitals and digits are then stretched onto the font's cap lines,
+measured from its H (on_cap_lines), so every one's top and bottom line up as the original's do. The sheets are plain anti-aliased coverage, no outline. Text is drawn
 in copy mode, whose rectangles include their lower right texel, so a glyph shows one column and row past the cell its
 table lists: each redraw is clipped to that full region, or round bottoms and right edges are cut flat.
 
@@ -770,6 +771,28 @@ def drawn_levels(font, cells, full, cap):
     sys.exit(f'{font["name"]}: no H, I or 1 to measure the caps from')
 
 
+def on_cap_lines(glyph, p, transform, levels):
+    """A fitted capital or digit stretched vertically so its ink runs exactly from the font's cap top to its baseline
+    (drawn_levels, from its H), as every capital in the original fills the same texel rows of its cell. The game's
+    sheets anti-aliased each sheet row at its own fraction of a texel (Medium's A-E row a quarter texel below its F-N
+    row, its digits half a texel), invisible at the original resolution, but a fit to each cell's texels turned it into
+    letters of one word at different heights once drawn sharp (the pause menu's song title). Round letters lose their
+    overshoot so tops and bottoms all line up. One that hangs below the baseline (Q's tail) has its top put on the cap
+    line and its height kept."""
+    sy, oy = levels
+    cap_top, cap_bottom = DRAWN_CAP[0]
+    top, bottom = sy * cap_top + oy, sy * cap_bottom + oy
+    design = np.concatenate([pts for pts, _ in glyph.outline(glyph.initial, (1.0, 0.0, 1.0, 0.0))])
+    placed = np.concatenate([pts for pts, _ in glyph.outline(p, transform)])
+    have_top, have_bottom = placed[:, 1].min(), placed[:, 1].max()
+    sx, ox, gy, goy = transform
+    if design[:, 1].max() > cap_bottom + 0.05 * (cap_bottom - cap_top):
+        return np.array([sx, ox, gy, goy + top - have_top])
+    k = (bottom - top) / (have_bottom - have_top)
+    # y -> top + k * (y - have_top), after the glyph's own transform.
+    return np.array([sx, ox, k * gy, top + k * (goy - have_top)])
+
+
 def drawn_region(page, font, rect):
     """A glyph cell grown by the texel column right of it and the row below it where no other character's cell takes
     them. The game draws them (text is drawn in copy mode, whose rectangles include their lower right texel, so a
@@ -1035,6 +1058,8 @@ def drawn_elements(font_id, font, sheet_list, only=None):
                 continue
             glyph = DrawnGlyph(natives.get(char) or glyphs[char])
             p, transform, rms = fit_drawn_glyph(glyph, cell, levels, pull, char in natives)
+            if char not in natives and ('A' <= char <= 'Z' or '0' <= char <= '9'):
+                transform = on_cap_lines(glyph, p, transform, levels)
             errors.append((rms, char))
             fitted[char] = (glyph, p, transform, cell)
             d = re.sub(r'(-?[\d.]+),(-?[\d.]+)', lambda m: fmt((float(m.group(1)) + x0, float(m.group(2)) + y0)),
