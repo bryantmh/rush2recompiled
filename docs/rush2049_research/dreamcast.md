@@ -338,6 +338,19 @@ vertex colors (0xFF0000D7 and the like), so it doesn't look like the N64's sky. 
 `00504240` (1-cycle G_RM_XLU_SURF, no z) for its moon's two triangles after the opaque panels; the converted sky does
 the same for any sky texture that isn't opaque (only `AL_MOON` in TRACK4), whose clear corners showed as a box before.
 
+**Sky size.** The disc draws SKYSKY **2.5x** the model's size. 0x8C04F43C (sky setup) looks the model up and builds one
+matrix per view (0x8C06872E) with 2.5 (the float at 0x8C04F508) on the diagonal and no translation; 0x8C04F4C8 copies
+the camera's x and z (camera +36, +44) into it each frame, never y. So the dome is centered on the world origin at
+2.5x: track 1's horizon ring (radius 1,800, the disc's units) is 4,500 out, its apex 2,872 up. The vertex colors are
+plain ARGB8888: the renderer (stream walk 0x8C06FFD0) caches the word as is and 0x8C06EF10 writes it unchanged as the
+TA vertex's base color. A real disc capture of Marina matches ARGB (the dome's top is DC_DOMEBLUE x the lavender ring
+color). Drawn at 1x at world height, the dome was 2.5x too small, so seen from the track its sunset band (the
+DC_SUNSET panels' lower half) sat below the treeline and only its blue top showed. The N64's own sky is a different
+model (horizon at y 6,400, top 24,000), drawn at 1x. 2.5x doesn't fit the s16 vertices (the top would be 45,950), so the
+converted sky is drawn at its own size and placed as custom tracks' big skies are: `track.sky_scale` = 1/2.5 for a disc
+track (src/rush2049/track2049.cpp `convert`), and `rush2_track49_sky_height` sets its height to (1 - sky_scale) x the
+camera's, which looks the same as the disc's 2.5x dome about the origin.
+
 ## Car unlocks [V]
 
 The disc locks its cars as the N64 does. 0x8C02D434 is the N64's func_800F2A28 (docs/unlocks_plan.md §1.3): the car

@@ -270,6 +270,12 @@ namespace {
         }
         std::set<std::string> names = rush2::track2049::model_names(track.geometry);
         track_has_sky = names.contains("SKYO1");
+        // The disc draws its SKYSKY 2.5 times the model's size about the world origin (0x8C04F43C builds the sky
+        // matrix with the scale 2.5 at 0x8C04F508; 0x8C04F4C8 copies only the camera's x and z into it each frame).
+        // At 2.5x the model's top (18,380) doesn't fit the s16 vertices, so it is drawn at its own size and placed at
+        // (1 - 1/2.5) x the camera's height (rush2_track49_sky_height), which looks the same. At its own size at world
+        // height the dome was 2.5x too small: its sunset band sat below the treeline and only its blue top showed.
+        track.sky_scale = rom->is_dreamcast() ? 1.0f / 2.5f : 1.0f;
         rush2::track2049::set_mover_data(k, geometry_2049, collision_2049, track.path_records, track.spin_records,
                                          std::vector<std::string>(names.begin(), names.end()));
         rush2::track2049::set_texanim_data(track.tex_anims);
@@ -799,11 +805,15 @@ extern "C" void rush2_track49_sky_players(uint8_t* rdram, recomp_context* ctx) {
 // (docs/custom_tracks.md#sky): at world height a big dome (Alcatraz's arcade sky, 27,600 ft, drawn 2,048) ended below
 // the track's top. Shrunk about the camera instead, it looks as it would at full size: its height is (1 - sky_scale) x
 // the camera's, which also keeps distant land and water in the sky at their true angles below the horizon. A stock sky
-// model named in track.toml is used only when there is no SKY mesh.
+// model named in track.toml is used only when there is no SKY mesh. A Dreamcast track's sky is placed the same way
+// (sky_scale 1/2.5, set in convert: the disc draws its sky 2.5x the model's size).
 extern "C" void rush2_track49_sky_height(uint8_t* rdram, recomp_context* ctx) {
-    if (!hosting_mod(rdram) || !track_has_sky) return;
-    const rush2::track_mod::StockSky* k = rush2::track_mod::stock_sky(mod_settings.sky);
-    if (k && k->model[0]) return;
+    if (!hosting(rdram) || !track_has_sky) return;
+    if (!hosting_mod(rdram) && track.sky_scale == 1.0f) return;   // the stock N64 and California Speed skies
+    if (hosting_mod(rdram)) {
+        const rush2::track_mod::StockSky* k = rush2::track_mod::stock_sky(mod_settings.sky);
+        if (k && k->model[0]) return;
+    }
     uint32_t bits = (uint32_t)MEM_W(0x28, (int32_t)ctx->r3);
     float y;
     memcpy(&y, &bits, 4);
