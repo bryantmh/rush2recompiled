@@ -542,13 +542,19 @@ extern "C" void rush2_fix_formula_rear_wheels(uint8_t* rdram, recomp_context* ct
     }
 }
 
+uint32_t rush2::car_types::part_record(uint8_t* rdram, int id, int part) {
+    constexpr uint32_t model_slots = 0x80118D78;    // per model slot: its records (8 bytes each)
+    constexpr uint32_t model_record_size = 0x34;
+    uint16_t h = MEM_HU(0, (int32_t)(part_handles + uint32_t(id) * 0x4E + uint32_t(part) * 2));
+    if (h == 0) return 0;
+    uint32_t base = (uint32_t)MEM_W(0, (int32_t)(model_slots + uint32_t(h >> 10) * 8));
+    return base == 0 ? 0 : base + uint32_t(h & 0x3FF) * model_record_size;
+}
+
 namespace {
     constexpr int type_formula = 18, type_formula1 = rush2::car_types::first_2049; // type_dew: above
     constexpr int hood_camera = 1;
     constexpr uint32_t player_count = 0x8010C3E2;   // s16; the hood is drawn with one player
-    constexpr uint32_t model_slots = 0x80118D78;    // per model slot: its records (8 bytes each)
-    constexpr uint32_t model_record_size = 0x34;
-    constexpr uint32_t car_part_handles = rush2::car_types::part_handles; // + car * 0x4E: u16 per part
     constexpr int hood_parts[2] = { 31, 32 };      // H0_L, H2_L (car_hood_update_8005BFD8 swaps by damage)
 
     // How far the hood camera's hood is modeled from the body's middle, in model units (1/16 ft): the camera sits
@@ -569,13 +575,6 @@ namespace {
         uint32_t original = 0;  // the record's own list it calls
     };
     ArmsList arms_lists[8][2];
-
-    uint32_t record_of(uint8_t* rdram, int car, int part) {
-        uint16_t h = MEM_HU(0, (int32_t)(car_part_handles + uint32_t(car) * 0x4E + part * 2));
-        if (h == 0) return 0;
-        uint32_t base = (uint32_t)MEM_W(0, (int32_t)(model_slots + uint32_t(h >> 10) * 8));
-        return base == 0 ? 0 : base + uint32_t(h & 0x3FF) * model_record_size;
-    }
 
     // Builds car's wrapper for hood part i over list (the record's relocated LOD 0 list, at the hood list's file
     // offset): G_DL list, then the arms: G_VTX of their vertices (moved by the hood's shift), G_TEXTURE on, G_DL to the
@@ -619,7 +618,7 @@ namespace {
         if (car < 0 || car >= 8 || !formula_arms.ok) return;
         bool want = hood_front_wheels.load(std::memory_order_relaxed) && type == type_formula;
         for (int i = 0; i < 2; i++) {
-            uint32_t record = record_of(rdram, car, hood_parts[i]);
+            uint32_t record = rush2::car_types::part_record(rdram, car, hood_parts[i]);
             if (record == 0) continue;
             uint32_t list = (uint32_t)MEM_W(0xC, (int32_t)record);
             ArmsList& a = arms_lists[car][i];

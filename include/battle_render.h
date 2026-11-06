@@ -1,8 +1,10 @@
 #ifndef __BATTLE_RENDER_H__
 #define __BATTLE_RENDER_H__
 
+#include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // Draws Rush 2049's battle models (weapons, projectiles, effects, the HUD's models) on any track (src/rush2049/battle_render.cpp):
 // Rush 2049's model files are copied into spare RDRAM as they are, and the models placed here are drawn at the end of
@@ -23,6 +25,11 @@ namespace rush2::battle_render {
     // The middle of a model's bounding box, in its own axes (world feet before the axes' scale): the vertices its
     // display list loads (G_VTX, through the lists it calls). False if the model isn't there.
     bool model_center(uint8_t* rdram, const char* name, float out[3]);
+    // Every vertex a model's display list loads, in its own axes (feet). False if the model isn't there.
+    bool model_vertices(uint8_t* rdram, const char* name, std::vector<std::array<float, 3>>& out);
+    // The dropped mine as Rush 2049 draws it: WPR_MINEBASE with the WPR_MINECAP dome on it in team 0-3's color
+    // (MINE_CAP_B, _R, _Y, _G). "" if the models aren't there.
+    std::string team_mine_model(uint8_t* rdram, int team);
     // Shows `model` in a slot: m's rows are its axes (right, up, forward, with its scale), pos its place in the world.
     // view: the one view it is drawn in, or -1 for all. attached: it rides with that view's camera (a HUD model) and
     // is drawn in view space, so it holds still on screen between game frames (src/interpolation.cpp explains).

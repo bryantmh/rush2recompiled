@@ -2325,8 +2325,8 @@ name = "race_countdown_update"
 desc = "Rush 2049's race countdown (Rush 2's race_countdown_update): CNTDWNn sign per view; digit 0x80152032; plays 0x4B on 3, 0x4C on 2, 0x4D on 1 via sfx_play_msg(id, 0, 1, 0) when the sound flag 0x8010FFC0 is set."
 status = "verified"
 rush2 = 0x80088DF0
-link = "role"
 rush1 = [0x80097618]
+link = "role"
 area = "race"
 ref = "docs/announcer.md#how-each-game-calls-the-start"
 
@@ -4063,6 +4063,16 @@ area = "menu"
 ref = "docs/rush2049_research/menus.md#72-builder-func_8038cd14-race-tracks-0x8038d0580x8038de08"
 
 [[func]]
+vram = 0x8038D328
+name = "battle_node_create"
+sig = "Object *battle_node_create(void)"
+desc = "Battle overlay node helper (register args): $s1 model index into the handles at 0x80399B18, $s2 parent node (-1 none), $s3 node flags, $s4 nonzero = no own matrix; takes an object from the pool 0x80394F70 (func_8008E3C0) and makes its node (func_8008E398), stored at object +4."
+consts = "0x2000 = mine base node flags; 0x2080 = mine cap child flags"
+status = "verified"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
 vram = 0x8038D3A4
 name = "battle_damage"
 sig = "void battle_damage(CarState *attacker, CarState *victim, s32 amount)"
@@ -4129,6 +4139,14 @@ area = "battle"
 ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 
 [[func]]
+vram = 0x8038E124
+name = "battle_fire_update"
+desc = "Battle overlay: per-car weapon firing / shot update; for a mine (0x8038E3F4) makes the WPR_MINEBASE node and a WPR_MINECAP child whose texture is MINE_CAP_<team color> (0x8012E67C[shot +4] indexes the handles at 0x80399AF8)."
+status = "inferred"
+area = "battle"
+ref = "docs/rush2049_research/battle.md#70-roof-mounts-and-the-mines-model"
+
+[[func]]
 vram = 0x8038F568
 name = "battle_aim"
 sig = "void battle_aim(CarState *car)"
@@ -4158,6 +4176,15 @@ desc = "Battle overlay. Once a step: gatling casings, then per car the power-ups
 consts = "1/6 (0x80394EB8) = cooldown of cannon, grenade, rocket, gun; 1/15 (0x80394EE4) = gatling; 3.1667 (0x80394EE0) = grenade life; 165 = missile launch speed; 75 / 50 = grenade / rocket launch speed"
 status = "verified"
 ported = true
+area = "battle"
+ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
+
+[[func]]
+vram = 0x803908D0
+name = "battle_load_models"
+sig = "void battle_load_models(void)"
+desc = "Battle overlay setup: looks up the model names at 0x803942EC into handles 0x80399B18 (4 WPR_MINEBASE, 5 WPR_MINECAP, 6 WPR_MINEGLOW) and the textures at 0x80394330 (MINE_CAP_B/R/Y/G, MINE_CAP) into u16 handles 0x80399AF8."
+status = "inferred"
 area = "battle"
 ref = "docs/rush2049_research/battle.md#1-where-the-code-is"
 

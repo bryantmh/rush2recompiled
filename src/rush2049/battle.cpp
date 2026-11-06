@@ -542,8 +542,125 @@ namespace {
         return player_of(rdram, car);
     }
 
-    // Where car i carries `weapon` (0-7), in its own frame. Rush 2049's cars (types 23-35) use 2049's table; Rush 2's
-    // cars carry the roof weapons where 2049's second car does, at their own roof's height [I].
+    // The roof of a car that isn't one of Rush 2049's (Rush 2's, Rush 1's, California Speed's, the mods'): the triangles
+    // of its intact body as the race draws it, the LOD 0 lists of its frame and undamaged panels (part records,
+    // rush2::car_types::part_record), in its body node's axes (feet). The weapon heights measured on it are kept.
+    struct Roof {
+        uint64_t key = 0;
+        std::vector<std::array<float, 9>> triangles;
+        bool measured[8] = {};
+        float height[8] = {};
+    };
+    Roof roofs[max_cars];
+
+    // Adds the triangles list `dl` (and the lists it calls) draws to out, through the RSP's 64 vertex slots. Inside a
+    // loaded model's lists addresses are physical.
+    void body_triangles(uint8_t* rdram, uint32_t dl, std::array<uint32_t, 64>& slots, std::vector<std::array<float, 9>>& out, int depth) {
+        auto plain = [](uint32_t w) { return (w >> 24) == 0x00 || (w >> 24) == 0x80; };   // KSEG0 or physical
+        uint32_t at = 0x80000000u | (dl & 0xFFFFFF);
+        if (depth > 8 || !plain(dl)) return;
+        auto triangle = [&](uint32_t a, uint32_t b, uint32_t c) {
+            std::array<float, 9> t;
+            uint32_t v[3] = { slots[(a / 2) & 63], slots[(b / 2) & 63], slots[(c / 2) & 63] };
+            for (int k = 0; k < 3; k++) {
+                if (v[k] == 0) return;
+                for (int j = 0; j < 3; j++) t[k * 3 + j] = (float)(int16_t)MEM_H(0, (int32_t)(v[k] + j * 2)) / 16.0f;
+            }
+            out.push_back(t);
+        };
+        for (int n = 0; n < 8192; n++, at += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+            uint32_t op = w0 >> 24;
+            if (op == 0x01) {   // G_VTX
+                uint32_t count = (w0 >> 12) & 0xFF, end = (w0 >> 1) & 0x7F;
+                uint32_t a = 0x80000000u | (w1 & 0xFFFFFF);
+                bool ok = plain(w1) && rush2::in_game_ram(a + count * 16);
+                for (uint32_t k = 0; k < count; k++) slots[(end - count + k) & 63] = ok ? a + k * 16 : 0;
+            }
+            else if (op == 0x05) {
+                triangle((w0 >> 16) & 0xFF, (w0 >> 8) & 0xFF, w0 & 0xFF);
+            }
+            else if (op == 0x06 || op == 0x07) {
+                triangle((w0 >> 16) & 0xFF, (w0 >> 8) & 0xFF, w0 & 0xFF);
+                triangle((w1 >> 16) & 0xFF, (w1 >> 8) & 0xFF, w1 & 0xFF);
+            }
+            else if (op == 0xDE || (op == 0xE0 && ((w0 >> 16) & 0xFF) == 1)) {   // G_DL, the 2049 conversion's call
+                body_triangles(rdram, w1, slots, out, depth + 1);
+                if (op == 0xDE && ((w0 >> 16) & 0xFF) != 0) return;
+            }
+            else if (op == 0xDF) {
+                return;
+            }
+        }
+    }
+
+    // The highest point of the triangles over (x, z), or false if none is.
+    bool surface_top(const std::vector<std::array<float, 9>>& triangles, float x, float z, float& top) {
+        bool hit = false;
+        for (const auto& t : triangles) {
+            float d = (t[5] - t[8]) * (t[0] - t[6]) + (t[6] - t[3]) * (t[2] - t[8]);
+            if (std::fabs(d) < 1e-6f) continue;
+            float a = ((t[5] - t[8]) * (x - t[6]) + (t[6] - t[3]) * (z - t[8])) / d;
+            float b = ((t[8] - t[2]) * (x - t[6]) + (t[0] - t[6]) * (z - t[8])) / d;
+            float c = 1.0f - a - b;
+            constexpr float edge = -1e-4f;
+            if (a < edge || b < edge || c < edge) continue;
+            float y = a * t[1] + b * t[4] + c * t[7];
+            if (!hit || y > top) top = y;
+            hit = true;
+        }
+        return hit;
+    }
+
+    // How high a roof weapon sits on car i (its origin's y in the body's axes) when Rush 2049's offset (x, z) places
+    // it: its base, the model's lowest vertices (within 0.3 ft of its least y), rests on the highest point of the body
+    // under it, so it neither floats over a low roof nor sinks into a raised one. False without the car's geometry.
+    bool roof_height(uint8_t* rdram, int i, int weapon, float x, float z, float& out) {
+        int type = MEM_BU(0, (int32_t)(car_at(i) + car_type));
+        static constexpr int parts[] = { rush2::car_types::part_frame, rush2::car_types::part_front_right, rush2::car_types::part_front_left,
+                                         rush2::car_types::part_rear_right, rush2::car_types::part_rear_left, rush2::car_types::part_top };
+        uint32_t lists[std::size(parts)] = {};
+        uint64_t key = 0xCBF29CE484222325ull ^ uint64_t(type + 1);
+        for (size_t k = 0; k < std::size(parts); k++) {
+            uint32_t record = rush2::car_types::part_record(rdram, i, parts[k]);
+            lists[k] = record != 0 && rush2::in_game_ram(record) ? (uint32_t)MEM_W(0xC, (int32_t)record) : 0;
+            key = (key ^ lists[k]) * 0x100000001B3ull;
+        }
+        Roof& roof = roofs[i];
+        if (roof.key != key) {
+            roof = Roof{};
+            roof.key = key;
+            std::array<uint32_t, 64> slots{};
+            for (uint32_t list : lists) {
+                if (list != 0) body_triangles(rdram, list, slots, roof.triangles, 0);
+            }
+        }
+        if (!roof.measured[weapon]) {
+            std::vector<std::array<float, 3>> v;
+            if (roof.triangles.empty() || !rush2::battle_render::model_vertices(rdram, mount_models[weapon], v)) return false;
+            roof.measured[weapon] = true;
+            roof.height[weapon] = NAN;
+            {
+                float least = v[0][1];
+                for (const auto& p : v) least = std::min(least, p[1]);
+                float top = 0.0f, best = -1e9f;
+                bool hit = surface_top(roof.triangles, x, z, top);
+                if (hit) best = top;
+                for (const auto& p : v) {
+                    if (p[1] > least + 0.3f || !surface_top(roof.triangles, x + p[0], z + p[2], top)) continue;
+                    best = std::max(best, top);
+                    hit = true;
+                }
+                if (hit) roof.height[weapon] = best - least;
+            }
+        }
+        out = roof.height[weapon];
+        return !std::isnan(out);
+    }
+
+    // Where car i carries `weapon` (0-7), in its own frame. Rush 2049's cars (types 23-35) use 2049's table; the
+    // others carry the roof weapons where 2049's second car does (x, z), resting on their own roof (roof_height), and
+    // the mine and the ram where it does.
     void mount_offset(uint8_t* rdram, int i, int weapon, float out[3]) {
         int type = MEM_BU(0, (int32_t)(car_at(i) + car_type));
         int type49 = type - rush2::car2049::first_type;
@@ -552,16 +669,16 @@ namespace {
             return;
         }
         constexpr int like = 1;
-        constexpr float roof_sink = -0.35f;  // negative: the weapon's base sits above the roof, not inside it
         const float* base = tuning.mount[weapon][like];
         float fallback[3] = { 0.0f, 3.0f, 0.0f };
         if (!tuning.loaded) base = fallback;
         out[0] = base[0];
         out[1] = base[1];
         out[2] = base[2];
-        if (weapon != mine && weapon != ram) {
+        if (weapon != mine && weapon != ram && !roof_height(rdram, i, weapon, out[0], out[2], out[1])) {
+            // No geometry to measure: the model's height, the base 0.35 ft over it [I].
             float cannon_y = tuning.loaded ? tuning.mount[cannon][like][1] : fallback[1];
-            out[1] = rush2::wings::body_height(type) - roof_sink + (base[1] - cannon_y);
+            out[1] = rush2::wings::body_height(type) + 0.35f + (base[1] - cannon_y);
         }
     }
 
@@ -1760,8 +1877,18 @@ namespace {
     // length the tail is cut to the way gone. The first time it is drawn it stretches from the muzzle instead, so a
     // bullet (2000 a second, 66 a tick, longer than its tracer) is seen leaving the barrel rather than appearing
     // ahead of it.
+    // The model a shot is drawn with. A mine is the base with its dome in its owner's team's color, as 2049 draws it
+    // (rush2::battle_render::team_mine_model; the base alone is an open bowl, see-through from above and behind).
+    std::string shot_model(uint8_t* rdram, const Shot& s) {
+        if (s.weapon == mine) {
+            int player = team_of_car(rdram, s.owner);
+            std::string model = rush2::battle_render::team_mine_model(rdram, rush2::battle::team_of(player >= 0 ? player : s.owner));
+            if (!model.empty()) return model;
+        }
+        return weapons[s.weapon].model;
+    }
+
     void place_shot(uint8_t* rdram, Shot& s) {
-        const WeaponInfo& w = weapons[s.weapon];
         float tail = shot_tail(s.weapon);
         float m[9];
         memcpy(m, s.m, sizeof(m));
@@ -1772,7 +1899,7 @@ namespace {
             for (int i = 6; i < 9; i++) m[i] *= k;
         }
         s.drawn = true;
-        place_slot(rdram, s.slot, w.model, m, s.pos);
+        place_slot(rdram, s.slot, shot_model(rdram, s).c_str(), m, s.pos);
     }
 
     // func_8038E114: one step of every shot.
@@ -1795,7 +1922,7 @@ namespace {
             }
             if (s.placed) {
                 update_placed_mine(rdram, s);
-                if (s.live) place_slot(rdram, s.slot, w.model, s.m, s.pos);
+                if (s.live) place_slot(rdram, s.slot, shot_model(rdram, s).c_str(), s.m, s.pos);
                 continue;
             }
             memcpy(s.prev, s.pos, sizeof(s.prev));

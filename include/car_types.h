@@ -125,6 +125,13 @@ namespace rush2::car_types {
     }
     static_assert(id_array(0) <= id_window2 + 0xE000, "the second preview id window needs one lui value");
     constexpr uint32_t part_handles = id_array(0x8010C480);  // + id * 0x4E: the 39 part model handles
+    // Part indices (func_80086700's suffixes, 0x800C6180): the frame and the intact body panels, four corners and the
+    // roof; the hood-camera hood halves are 31-34.
+    constexpr int part_frame = 0, part_front_right = 1, part_front_left = 3, part_rear_right = 5, part_rear_left = 7,
+                  part_top = 9;
+    // The model record (0x34 bytes: +0xC the LOD 0 display list, KSEG0) of part `part` of preview id / race car `id`,
+    // or 0 if it has none (src/game_fixes.cpp).
+    uint32_t part_record(uint8_t* rdram, int id, int part);
     constexpr uint32_t car_states = id_array(0x80113F90);    // + car * 0x134: +0 the car's body scene node index
     constexpr uint32_t car_previews = id_array(0x801174F8);  // + id * 0x7C
     constexpr uint32_t car_banks = id_array(0x800D9D40);     // s16 per id: the car's texture bank

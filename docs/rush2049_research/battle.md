@@ -238,7 +238,33 @@ Main code. **[V]** unless marked.
 - Arenas are hosted in STUNT1 (stunt mode). 2049's battle was multiplayer only; the port's computer opponents are
   section 9.
 - `src/rush2049/battle.cpp` reads the mount, muzzle and shield tables from the player's ROM (the overlay is inflated at load).
-  Rush 2's own cars (types 0-21) carry roof weapons where 2049's second car does, at their body's height **[I]**.
+  See 7.0 for where the cars that aren't 2049's carry their weapons.
+
+### 7.0 Roof mounts and the mine's model
+
+**Roof weapons on the other cars.** 2049's mount table (`0x803943A4`, [weapon][2049 car][x, y, z]) only covers its own
+13 cars. Every other car (Rush 2's, Rush 1's, California Speed's, the mods') takes 2049's second car's x and z, and its
+height is measured on the car itself (`roof_height` in battle.cpp): the triangles of its intact body as the race draws
+it (the LOD 0 lists of parts FRAME1, D0_FR1, D0_FL1, D0_RR1, D0_RL1 and D0_TOP1, part indices 0, 1, 3, 5, 7, 9 of
+`func_80086700`'s suffix table 0x800C6180, through `rush2::car_types::part_record`), in the body node's axes. The
+weapon model's base (its vertices within 0.3 ft of its lowest) is set on the highest point of the body under it, so it
+neither floats nor sinks. Kept per car until its type or part lists change; the weapon model must be loaded first.
+The old rule (each model's highest point anywhere + 0.35 ft, `rush2::wings::body_height`, Rush 2's 22 cars only, 3.5
+ft for the rest) is the fallback when no geometry is found. It put the base 0.3-0.5 ft over most roofs at the
+Gatling's spot and about 3 ft over the ROCKET's and DEW's (their highest points are a fin and a wing; their roofs are
+2.56 and 1.6-2.6 ft up), and gave every non-Rush 2 car the same 3.5 ft.
+
+**The dropped mine is two models.** The battle overlay's model loader (function at `0x803908D0`, loop at 0x8039098C)
+looks up the names at `0x803942EC` into handles at `0x80399B18` (index 4 `WPR_MINEBASE`, 5 `WPR_MINECAP`, 6
+`WPR_MINEGLOW`) and the textures `MINE_CAP_B`, `_R`, `_Y`, `_G`, `MINE_CAP` (names `0x80394330`) into u16 handles at
+`0x80399AF8`. Firing a mine (in the function at `0x8038E124`, 0x8038E3F4-0x8038E488) makes a node with WPR_MINEBASE
+through the node helper `func_8038D328` ($s1 model index, $s2 parent, $s3 flags; 0x2000), then a child node with
+WPR_MINECAP (flags 0x2080) whose texture `func_8008D870` sets to `MINE_CAP_<team color>` (index from `0x8012E67C[shot
++4]`). WPR_MINEBASE alone is an open bowl (y 0 to 1.31 ft); the cap is the dome on it (1.31 to 2.44), and its list
+loads no texture of its own. The port once drew only the base, so a mine looked hollow and see-through from above and
+from the far side. `rush2::battle_render::team_mine_model` now builds one list per team: the base, a copy of
+MINE_CAP's TXLD load list with the team texture's image and palette (all 32 x 32 CI8, 256 colors), the cap. The
+color is the owner's team (`rush2::battle::team_of`). The glow (index 6) is not made in this path.
 - **Models** (`src/rush2049/battle_render.cpp`): 2049's files 76 (weapons, projectiles, effects), 63 (coins) and 61 (the
   explosion's frames) are copied as they are into spare RDRAM (0x80E20000 - 0x80E80000) and rebased as 2049's loader
   does, like the wings (src/rush2049/wings_render.cpp). What the battle places (60 slots: 0-31 shots and effects, 32-39 mounts,
