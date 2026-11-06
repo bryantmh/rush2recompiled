@@ -320,6 +320,10 @@ namespace {
     // texture (1-cycle takes the second cycle, which only passes the first on) and, depth tested, hid the far scenery
     // (the Golden Gate) behind it.
     constexpr uint32_t rm_sky = 0x0F0A4000;
+    // A see-through texture in the sky (the Metro moon, AL_MOON in TRACK4, the only disc sky texture with clear
+    // texels) is blended over the panels drawn before it: the N64's track 4 SKYSKY switches to 0x00504240 (1-cycle
+    // G_RM_XLU_SURF, no z) for its moon's two triangles. Drawn with rm_sky the moon's clear corners showed as a box.
+    constexpr uint32_t rm_sky_translucent = 0x00504240;
     constexpr uint32_t cc_sky[2] = { 0xFC121824, 0xFF33FFFF };
     constexpr uint32_t sky_begin[][2] = { { 0xE3000A01, 0x00000000 }, { 0xD9FEFFFE, 0x00000000 } };
     constexpr uint32_t sky_end[][2] = { { 0xD9FFFFFF, 0x00010001 }, { 0xE3000A01, 0x00100000 } };
@@ -535,7 +539,7 @@ namespace {
             else {
                 mode = tex >= 0 ? textures[tex].mode : rm_opaque;
             }
-            if (sky) mode = rm_sky;
+            if (sky) mode = textured && mode != rm_opaque ? rm_sky_translucent : rm_sky;
             cc = textured ? (sky ? cc_sky : cc_textured) : cc_shade;
             if (!(flags & 1) && tex >= 0 && tex != list_texture) {
                 cmds.push_back({ 0xDE000000, txld_base + textures[tex].list, Fix::None });

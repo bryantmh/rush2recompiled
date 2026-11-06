@@ -334,7 +334,9 @@ cleared (`D9FEFFFE 00000000`), and put both back after (`D9FFFFFF 00010001`, `E3
 converted disc sky now does the same (`LodBuilder::sky`, objects ending in SKYSKY). Before, it was depth tested with the
 track's fogged modes and hid the distant scenery behind it: the Golden Gate (TRACK1L54015) never showed. The disc's
 sky is its own model (`DC_DOMEBLUE` top, `DC_SUNSET1-4` panels with v 0 at the horizon), tinted blue at the top by its
-vertex colors (0xFF0000D7 and the like), so it doesn't look like the N64's sky.
+vertex colors (0xFF0000D7 and the like), so it doesn't look like the N64's sky. The N64's track 4 sky switches to
+`00504240` (1-cycle G_RM_XLU_SURF, no z) for its moon's two triangles after the opaque panels; the converted sky does
+the same for any sky texture that isn't opaque (only `AL_MOON` in TRACK4), whose clear corners showed as a box before.
 
 ## Car unlocks [V]
 
