@@ -14821,3 +14821,22 @@ text = "    if (rush2_csphys_shift(rdram, ctx)) return;"
 func = "car_wreck_trigger_8006E1A8"
 before_vram = 0x8006E1A8
 text = "    rush2_csphys_wreck_log(rdram, ctx);"
+
+# No Damage's cars (src/cheats.cpp, rush2_cheats_no_damage): the three places a crash raises a panel's damage
+# (car + 0x7F4) skip it for a human car with Invincible or No Damage on (car + 0x7E8 == 2, then 0x80119634, then
+# 0x8011CDB0). Each hook, after the car's kind is loaded, leaves that test to the game (-1), skips the damage (1) or
+# applies it as for a computer car (0, $at = level < 2 as the game sets it).
+[[patches.hook]]
+func = "car_collision_damage_8006B730"
+before_vram = 0x8006B918
+text = "    { int nd = rush2_cheats_no_damage(rdram, (uint32_t)ctx->r6); if (nd == 1) goto L_8006B964; if (nd == 0) { ctx->r1 = SIGNED(ctx->r2) < 0X2 ? 1 : 0; goto L_8006B944; } }"
+
+[[patches.hook]]
+func = "car_crash_damage_stage_800715E8"
+before_vram = 0x800718A0
+text = "    { int nd = rush2_cheats_no_damage(rdram, (uint32_t)ctx->r5); if (nd == 1) goto L_800718E8; if (nd == 0) { ctx->r1 = SIGNED(ctx->r3) < 0X2 ? 1 : 0; goto L_800718C8; } }"
+
+[[patches.hook]]
+func = "car_race_start_pose_setup_8009A264"
+before_vram = 0x8009AA6C
+text = "    { int nd = rush2_cheats_no_damage(rdram, (uint32_t)ctx->r18); if (nd == 1) goto L_8009AAB0; if (nd == 0) { ctx->r1 = SIGNED(ctx->r3) < 0X2 ? 1 : 0; goto L_8009AA98; } }"

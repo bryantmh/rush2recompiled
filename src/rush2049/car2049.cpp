@@ -3270,6 +3270,15 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// The same test rush2_car49_dent makes before denting a car.
+bool rush2::car2049::generated_damage(uint8_t* rdram, int car) {
+    if (car < 0 || car >= 8) return false;
+    uint32_t base = 0;
+    const Paint* p = car_instance(rdram, car, base);
+    if (p != nullptr && !p->vertices.empty()) return true;
+    return rush2::car_mods::livery_body(rdram, car, base) >= 0;
+}
+
 // Start of func_80097F8C ($a0 = the record's selected-type byte, $a1 = type): the byte keeps the low 5 bits.
 extern "C" void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx) {
     uint32_t at = (uint32_t)ctx->r4;

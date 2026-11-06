@@ -13511,12 +13511,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x80119634
-name = "cheat_damage_flag"
+name = "cheat_invincible"
 type = "u8"
-desc = "Cheat menu byte read by collision and crash damage code, likely invulnerability or damage cheat (low confidence)."
+desc = "Invincible cheat (item 10): nonzero keeps a human car from being destroyed and, like No Damage, spares its panel damage."
 area = "unlocks"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/cheats.md#no-damage"
 
 [[var]]
 vram = 0x80119635
@@ -13718,12 +13718,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x8011CDB0
-name = "cheat_race_start_flag"
+name = "cheat_no_damage"
 type = "u8"
-desc = "Cheat menu byte read by collision damage, crash damage and race start pose (low confidence)."
+desc = "No Damage cheat (item 9): nonzero spares a human car's panel damage in car_collision_damage, car_crash_damage_stage and car_race_start_pose_setup."
 area = "unlocks"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/cheats.md#no-damage"
 
 [[var]]
 vram = 0x8011CDB2

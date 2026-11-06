@@ -26,6 +26,14 @@
 // Otherwise the unlock system decides what each player's car list holds (src/unlocks.cpp). Its own option, Unlock
 // System, is kept in this tab's config but shown on the Progress tab.
 //
+// No Damage's Cars (a select beside No Damage) widens the game's No Damage, which only spares human cars: the three
+// places a crash raises a car's panel damage (car_collision_damage, func_8006B730; car_crash_damage_stage,
+// func_800715E8; func_8009A264) skip it when the car's kind (+0x7E8) is 2 (human) and Invincible (0x80119634) or No
+// Damage (0x8011CDB0) is on. Hooks after the kind load (us.toml) let rush2_cheats_no_damage decide instead: Player
+// leaves the game's test, All Cars spares every car, New Cars only the cars whose damage is the port's generated dents
+// (rush2::car2049::generated_damage: Rush 2049, California Speed and mod cars, mod liveries). Invincible still spares
+// a human car in every mode.
+//
 // Two cheats aren't the game's own:
 // - No Out-of-Bounds Wreck: the wheel probe (collision_poly_extract, func_8006F704) wrecks a car whose wheel is within
 //   0.25 of a surface type 7 polygon (car_wreck_trigger, func_8006E1A8, no sound). Type 7 is the floor under the
@@ -252,6 +260,15 @@ namespace {
     const std::string no_trains_id = "cheat_no_trains";
     std::atomic<bool> trains_disabled = false;
 
+    // Which cars No Damage spares (see the top of the file).
+    const std::string no_damage_cars_id = "cheat_no_damage_cars";
+    enum class NoDamageCars : uint32_t { Player, All, New };
+    std::atomic<uint32_t> no_damage_cars = (uint32_t)NoDamageCars::Player;
+    // Options drawn in the same row as another (option, the one whose row it joins), grayed out while that one is off.
+    const std::vector<std::pair<std::string, std::string>> row_companions = {
+        { no_damage_cars_id, "cheat_no_damage" },
+    };
+
     const std::string unlock_system_id = "unlock_system";
     std::atomic<bool> unlock_system_enabled = true;
 
@@ -303,6 +320,14 @@ namespace {
         if (id == weapons_id) return rush2::track2049::available();
         if (id == unlock_parts_id) return rush2::car2049::available();
         return true;
+    }
+
+    // The option whose row `id` is drawn in, or empty if it has its own.
+    std::string row_owner(const std::string& id) {
+        for (const auto& [companion, owner] : row_companions) {
+            if (companion == id) return owner;
+        }
+        return {};
     }
 
     // The tab's page: every option at once, in groups over three columns, with the hovered or focused option's
@@ -458,6 +483,10 @@ namespace {
                 for (Row& row : rows) {
                     // Cheats that need another game's ROM are grayed out without it.
                     bool enabled = option_available(row.id);
+                    // A row's second option only matters with its first on.
+                    if (std::string owner = row_owner(row.id); !owner.empty()) {
+                        enabled = enabled && std::get<bool>(config.get_option_value(owner));
+                    }
                     if (enabled != row.enabled) {
                         row.enabled = enabled;
                         if (row.toggle != nullptr) row.toggle->set_enabled(enabled);
@@ -512,6 +541,17 @@ namespace {
             name->set_flex_grow(1.0f);
             name->set_white_space(WhiteSpace::Nowrap);
 
+            // Options sharing the row go before the row's own, so its toggle lines up with the column's others.
+            for (const auto& [companion, owner] : row_companions) {
+                if (owner == id) add_control(row, config, companion);
+            }
+            add_control(row, config, id);
+        }
+
+        void add_control(recompui::Element* row, recomp::config::Config& config, const std::string& id) {
+            using namespace recompui;
+            ContextId context = get_current_context();
+            const recomp::config::ConfigOption& option = config.get_option(id);
             std::function<void()> on_focus = [this, &config, id]() {
                 description->set_text_unsafe(config.get_option(id).description);
             };
@@ -557,6 +597,7 @@ namespace {
             }
             // Shown with the cheats but not the game's.
             config.set_option_value(weapons_id, 0u);
+            config.set_option_value(no_damage_cars_id, (uint32_t)NoDamageCars::Player);
             config.set_option_value(kill_floor_id, false);
             config.set_option_value(no_trains_id, false);
             config.save_config();
@@ -677,6 +718,26 @@ void rush2::cheats::create_tab() {
     config.add_option_change_callback(weapons_id,
         [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
             rush2::battle::set_weapons_cheat((int)std::get<uint32_t>(cur_value));
+        });
+
+    config.add_enum_option(
+        no_damage_cars_id,
+        "No Damage's Cars",
+        "Which cars <recomp-color primary>No Damage</recomp-color> keeps from being damaged. "
+        "<recomp-color primary>Player</recomp-color>: human players' cars, as in the original. "
+        "<recomp-color primary>All Cars</recomp-color>: every car, computer cars too. "
+        "<recomp-color primary>New Cars</recomp-color>: only cars from other games and mods, whose dents are generated; "
+        "Rush 2's own cars, yours included, are damaged as normal.",
+        {
+            { (uint32_t)NoDamageCars::Player, "Player", "Player" },
+            { (uint32_t)NoDamageCars::All, "All", "All Cars" },
+            { (uint32_t)NoDamageCars::New, "New", "New Cars" },
+        },
+        (uint32_t)NoDamageCars::Player
+    );
+    config.add_option_change_callback(no_damage_cars_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            no_damage_cars = std::get<uint32_t>(cur_value);
         });
 
     config.add_bool_option(
@@ -814,6 +875,30 @@ extern "C" void rush2_cheats_kill_floor(uint8_t* rdram, recomp_context* ctx) {
     if (MEM_BU(car_kind, car) == 2) {
         ctx->r3 = 0;
     }
+}
+
+// The damage sites' hooks (see the top of the file), after the car's kind is loaded ($a2, $a1 or $s2 = the car's
+// physics struct, 0x800F5470 + car * 0x81C). -1: the game's own test decides, 0: damage the car, 1: spare it.
+extern "C" int rush2_cheats_no_damage(uint8_t* rdram, uint32_t car) {
+    constexpr uint32_t car_physics = 0x800F5470, car_physics_size = 0x81C;
+    constexpr uint32_t car_kind = 0x7E8;              // u8: 1 drone, 2 human
+    constexpr uint32_t invincible = 0x80119634, no_damage = 0x8011CDB0;
+    auto mode = (NoDamageCars)no_damage_cars.load(std::memory_order_relaxed);
+    if (mode == NoDamageCars::Player || car < car_physics) {
+        return -1;
+    }
+    uint32_t offset = car - car_physics;
+    int index = int(offset / car_physics_size);
+    if (index >= 8 || offset % car_physics_size != 0) {
+        return -1;
+    }
+    if (MEM_B(car_kind, (int32_t)car) == 2 && MEM_B(0, (int32_t)invincible) != 0) {
+        return 1;
+    }
+    if (MEM_B(0, (int32_t)no_damage) == 0) {
+        return 0;
+    }
+    return mode == NoDamageCars::All || rush2::car2049::generated_damage(rdram, index) ? 1 : 0;
 }
 
 bool rush2::cheats::unlock_system() {

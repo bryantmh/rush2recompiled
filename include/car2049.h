@@ -80,6 +80,9 @@ namespace rush2::car2049 {
     void set_body_car(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
                       const std::map<uint32_t, std::vector<uint8_t>>& scuffed);
     void clear_body_car(uint8_t* rdram, int type, const std::vector<uint8_t>& own);
+    // Whether race car `car` (0-7) shows its damage as the port's generated dents (rush2_car49_dent): a one-body car
+    // (Rush 2049, California Speed, a mod car) or a car mod livery's body. False for Rush 2's panel cars. Game thread.
+    bool generated_damage(uint8_t* rdram, int car);
     // A car mod livery's body (src/car_mods.cpp, docs/car_mods.md#liveries): model `prefix`FRAME1 of car container
     // `car` and its sheen layers, damaged as a one-body car's (set_body_car) by the panels of a car showing it (the copy
     // rush2::car_mods::livery_body names): dented, and each texture load of the body (lists at loads_start..loads_end,

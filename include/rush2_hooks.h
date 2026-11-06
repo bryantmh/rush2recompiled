@@ -139,6 +139,7 @@ int rush2_draw_distance_matrix_cols(uint8_t* rdram, recomp_context* ctx);
 void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx);
 void rush2_cheats_kill_floor(uint8_t* rdram, recomp_context* ctx);
+int rush2_cheats_no_damage(uint8_t* rdram, uint32_t car);
 
 // High-resolution font tile clamping around the 2D image loader (src/fonts.cpp).
 void rush2_font_load_begin(uint8_t* rdram, recomp_context* ctx);

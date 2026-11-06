@@ -46,3 +46,24 @@ hidden or knocked away, so it stays on the road.
 So with the cheat: the rats on the two Manhattan tracks are giant pale rats, and any car, human or computer, that
 touches one is wrecked. Nothing makes the rats move. Because the spawner reads the byte at track load, turning it on
 or off mid-race only toggles the camera-facing flag; the full effect starts with the next race.
+
+## No Damage
+
+Cheat item 9, state byte `0x8011CDB0` (`cheat_no_damage`); Invincible is item 10, `0x80119634` (`cheat_invincible`).
+Three places raise a car's panel damage bits (physics car +0x7F4, 2 bits per panel): `car_collision_damage`
+(0x8006B730, at 0x8006B914), `car_crash_damage_stage` (0x800715E8, at 0x8007189C) and `car_race_start_pose_setup`
+(0x8009A264, at 0x8009AA68). Each makes the same test: if the car's kind (+0x7E8) is 2 (human) and Invincible or No
+Damage is nonzero, the damage write is skipped; a computer car (kind 1) is always damaged. So the original No Damage
+only spares the players' cars.
+
+Invincible also keeps a human car from being wrecked by a crash: where `car_car_collision_response` (0x8006E2A8, at
+0x8006EA4C and 0x8006EB94) and `car_crash_damage_stage` (at 0x80071750 and 0x800717A0) wreck a car (+0x648 = 1),
+a human car gets `Invincible ^ 1` instead. Nothing else reads it, so water and the out-of-bounds floor (the wheel
+probe's `car_wreck_trigger`) and the Killer Rats still wreck an Invincible car.
+
+The recomp's **No Damage's Cars** select (beside No Damage on the Cheats tab) widens it. A hook after each kind load
+(us.toml) calls `rush2_cheats_no_damage` (src/cheats.cpp) with the physics car (0x800F5470 + car * 0x81C):
+**Player** leaves the game's test; **All Cars** spares every car while No Damage is on; **New Cars** spares only the
+cars whose damage is drawn as the port's generated dents (`rush2::car2049::generated_damage`: Rush 2049, California
+Speed and mod cars, and mod liveries), so Rush 2's own cars, the player's included, take damage. Invincible still
+spares a human car in every mode.
