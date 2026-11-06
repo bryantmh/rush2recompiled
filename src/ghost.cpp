@@ -372,7 +372,7 @@ namespace {
 
     // The race's track select id (0-79): the host slots stand for the added track they hold.
     int menu_track(uint8_t* rdram) {
-        int t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int t = MEM_BU(0, (int32_t)track_id);
         if (t == rush2::track2049::host_slot) {
             int k = rush2::track2049::race_track();
             if (k >= 1 && k <= rush2::track2049::track_count) return rush2::track2049::first_menu_id + k - 1;
@@ -392,12 +392,11 @@ namespace {
         Key k;
         k.track = menu_track(rdram);
         if (k.track == rush2::track2049::host_slot) k.mod = rush2::track_mod::race_folder();
-        else if (k.track >= rush2::track2049::mod_menu_id &&
-                 k.track < rush2::track2049::mod_menu_id + rush2::track2049::mod_capacity) {
+        else if (rush2::track2049::is_mod_id(k.track)) {
             // In the menus a custom track is still its track select id; the race (enter_race in
             // src/rush2049/track2049_menu.cpp) moves it to its host slot, so key it as the race will: a race track in
             // HAWAII's slot under its folder (an arena in STUNT1's, which records no ghosts).
-            int index = k.track - rush2::track2049::mod_menu_id;
+            int index = rush2::track2049::mod_index(k.track);
             bool arena = rush2::track_mod::type_of(index) != rush2::track_mod::race_race;
             k.track = arena ? rush2::track2049::stunt_host_slot : rush2::track2049::host_slot;
             if (!arena) k.mod = rush2::track_mod::folder(index);

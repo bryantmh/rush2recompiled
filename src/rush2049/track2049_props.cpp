@@ -415,7 +415,7 @@ namespace {
 
     bool racing(uint8_t* rdram) {
         int slot = rush2::track2049::loaded_slot();
-        return slot >= 0 && MEM_B(0, (int32_t)track_id) == slot;
+        return slot >= 0 && MEM_BU(0, (int32_t)track_id) == slot;
     }
 }
 

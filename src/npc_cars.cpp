@@ -174,7 +174,7 @@ extern "C" void rush2_npc_cars_apply(uint8_t* rdram, recomp_context* ctx) {
     if (MEM_BU(0, (int32_t)attract_mode) != 0 || MEM_BU(0, (int32_t)(cars + slot * car_size + car_kind)) != 1) {
         return;
     }
-    int8_t cabs_select = MEM_B(0, (int32_t)cabs_track_select);
+    int cabs_select = MEM_BU(0, (int32_t)cabs_track_select);
     if (MEM_BU(0, (int32_t)cabs_cheat) != 0 && (cabs_select == 1 || cabs_select == 3)) {
         return;
     }

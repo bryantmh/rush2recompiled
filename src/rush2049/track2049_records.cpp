@@ -202,13 +202,13 @@ namespace {
     // The stunt arena hosted by the current session in STUNT1, as an added track number, or 0.
     int hosted_stunt(uint8_t* rdram) {
         int n = rush2::track2049::stunt_arena();
-        return MEM_B(0, (int32_t)track_id) == stunt_host && n >= 1 && n <= stunt_count ? stunt_track + n - 1 : 0;
+        return MEM_BU(0, (int32_t)track_id) == stunt_host && n >= 1 && n <= stunt_count ? stunt_track + n - 1 : 0;
     }
 
     // The added track hosted by the current race (1-6 Rush 2049, 7-13 SF Rush, 14 the obstacle course, 15 the custom
     // track, 20-35 Cal Speed), or 0.
     int hosted(uint8_t* rdram) {
-        if (MEM_B(0, (int32_t)track_id) != host_slot) {
+        if (MEM_BU(0, (int32_t)track_id) != host_slot) {
             return 0;
         }
         int k = rush2::track2049::race_track();

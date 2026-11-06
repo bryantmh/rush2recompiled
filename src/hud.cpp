@@ -1220,7 +1220,7 @@ namespace {
         c.odometer_w = rush2::odometer2049::width;
         c.odometer_gap = rush2::odometer2049::gap;
         c.small_scale = fitting_scale();
-        c.stunt_arena = MEM_B(0, (int32_t)stunt_track_id) == stunt_track;
+        c.stunt_arena = MEM_BU(0, (int32_t)stunt_track_id) == stunt_track;
         c.race_type = MEM_W(0, (int32_t)race_type_word);
         c.battle = rush2::track2049::battle_race(rdram);
         c.battle_hud = rush2::battle::hud_mode();
@@ -1513,7 +1513,7 @@ namespace {
                       c.odometer_w, c.odometer_h, c.odometer_gap, c.small_scale, c.stunt_arena, c.manual[0], c.manual[1],
                       c.manual[2], c.manual[3], c.race_type, c.battle, c.stunts_all_tracks, c.deaths, c.mode_option, c.attract, c.battle_hud, c.battle_time_limit,
                       c.shown.time, c.shown.speed, c.shown.position, c.shown.radar, c.shown.map, c.shown.time_left, c.shown.tach,
-                      c.shown.lap_banner, c.shown.gear, MEM_B(0, (int32_t)stunt_track_id));
+                      c.shown.lap_banner, c.shown.gear, MEM_BU(0, (int32_t)stunt_track_id));
         o += b;
         bool first = true;
         uint32_t count = std::min<uint32_t>((uint32_t)MEM_W(0, (int32_t)widget_count), max_widgets);

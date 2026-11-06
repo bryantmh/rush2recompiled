@@ -31,7 +31,7 @@ namespace rush2::ui {
 
 namespace rush2::calspeed {
     constexpr int track_count = 16;
-    constexpr int first_menu_id = 64;   // Track select id of track 0 (after the custom tracks, 38-63).
+    constexpr int first_menu_id = 64;   // Track select id of track 0 (after the custom tracks 38-63; more custom tracks follow as 80-254).
     constexpr int calspeed_k = 2000;    // rush2::track2049's track number of track 0 (k = calspeed_k + t).
     // California Speed's own names for its tracks (0x8008A588, 20 bytes each; "Cal" is shown as California).
     constexpr const char* track_names[track_count] = { "Monterey", "Silicon Valley", "Highway 1", "San Francisco",

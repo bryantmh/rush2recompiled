@@ -394,7 +394,7 @@ namespace {
         std::string lacking_mod = lacking_track(r, me, s, &unchecked);
         // A custom track goes by its key (the machines number their custom tracks in their own mod order): one whose
         // files haven't been read and hashed yet has none, and the others would race whatever their own id names.
-        bool keyless_mod = s.track >= rush2::track2049::mod_menu_id && s.track < rush2::calspeed::first_menu_id &&
+        bool keyless_mod = rush2::track2049::is_mod_id(s.track) &&
             s.mod_track.empty();
         bool can_confirm = !unsupported && all_on_track && lacking.empty() && lacking_mod.empty() && !unchecked &&
             !keyless_mod && frames_in_state >= settle_frames;

@@ -193,7 +193,7 @@ extern "C" int rush2_track1_buses_init(uint8_t* rdram, recomp_context* ctx) {
         MEM_W(0, (int32_t)subway_bodies) = 0;
         return 1;
     }
-    if (rush2::track1::race_track() != bus_track || MEM_B(0, (int32_t)track_id) != rush2::track2049::host_slot) {
+    if (rush2::track1::race_track() != bus_track || MEM_BU(0, (int32_t)track_id) != rush2::track2049::host_slot) {
         return 0;
     }
     std::string error;

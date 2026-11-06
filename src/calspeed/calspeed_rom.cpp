@@ -697,7 +697,7 @@ namespace {
     constexpr uint32_t attract_demo = 0x800FAE6C; // u8, nonzero while the attract demo runs
     constexpr uint32_t game_state = 0x8010C0D0;   // 3 racing, 6 the records screen after it
     bool on_calspeed_track(uint8_t* rdram) {
-        return raced_track > 0 && MEM_B(0, (int32_t)0x8010C3F0) == rush2::track2049::host_slot &&
+        return raced_track > 0 && MEM_BU(0, (int32_t)0x8010C3F0) == rush2::track2049::host_slot &&
                (MEM_BU(0, (int32_t)attract_demo) == 0 || MEM_W(0, (int32_t)game_state) == 6);
     }
 

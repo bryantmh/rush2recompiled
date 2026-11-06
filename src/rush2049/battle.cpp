@@ -995,7 +995,7 @@ namespace {
 
     bool battle_race(uint8_t* rdram) {
         int slot = rush2::track2049::loaded_slot();
-        return slot >= 0 && MEM_B(0, (int32_t)track_id) == slot && rush2::track2049::battle_arena_race(rdram);
+        return slot >= 0 && MEM_BU(0, (int32_t)track_id) == slot && rush2::track2049::battle_arena_race(rdram);
     }
 
     void set_faded(int car, int view) {
@@ -1463,7 +1463,7 @@ namespace {
         }
         // The track's collision is this file's only for a converted Rush 2049 track that is the one loaded.
         int slot49 = rush2::track2049::loaded_slot();
-        flat_ground = !arena_solid || slot49 < 0 || MEM_B(0, (int32_t)track_id) != slot49;
+        flat_ground = !arena_solid || slot49 < 0 || MEM_BU(0, (int32_t)track_id) != slot49;
         if (m == Mode::arena) {
             int count = (int)MEM_W(0, (int32_t)node_count);
             std::map<uint32_t, uint32_t> node_of_matrix;
@@ -3149,7 +3149,7 @@ void rush2::battle::hud_built(uint8_t* rdram, recomp_context* ctx) {
     for (HudWidgets& w : hud_widgets) w = HudWidgets{};
     hud_players = 0;
     int slot = rush2::track2049::loaded_slot();
-    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot || !rush2::track2049::battle_arena_race(rdram)) return;
+    if (slot < 0 || MEM_BU(0, (int32_t)track_id) != slot || !rush2::track2049::battle_arena_race(rdram)) return;
     int players = local_players(rdram);
     static const char frame_name[] = "HEALTHBG";
     for (int c = 0; c < (int)sizeof(frame_name); c++) MEM_B(c, (int32_t)hud_names) = (int8_t)frame_name[c];

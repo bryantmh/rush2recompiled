@@ -418,7 +418,7 @@ namespace {
 
     // The game whose tracks the race is on, and the track's own song (catalog index, -1 if none).
     Game race_game(uint8_t* rdram, int& original) {
-        int8_t t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int t = MEM_BU(0, (int32_t)track_id);
         bool host = t == rush2::track2049::host_slot;
         Game g = Game::Rush2;
         original = -1;

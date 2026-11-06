@@ -308,7 +308,7 @@ void rush2::prewarm::frame(uint8_t* rdram) {
         preloaded = -1;
         return;
     }
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     if (t == preloaded) return;
     preloaded = t;
     std::thread([t] {
@@ -316,8 +316,8 @@ void rush2::prewarm::frame(uint8_t* rdram) {
         if (t >= rush2::track1::first_menu_id && t < rush2::track1::first_menu_id + rush2::track1::track_count) {
             rush2::track1::preload(t - rush2::track1::first_menu_id + 1);
         }
-        else if (t >= rush2::track2049::mod_menu_id && t < rush2::track2049::mod_menu_id + rush2::track2049::mod_capacity) {
-            rush2::track_mod::preload(t - rush2::track2049::mod_menu_id);
+        else if (rush2::track2049::is_mod_id(t)) {
+            rush2::track_mod::preload(rush2::track2049::mod_index(t));
         }
         else {
             rush2::track2049::preload(t);

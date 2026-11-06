@@ -29,8 +29,27 @@ namespace rush2::track2049 {
     constexpr int stunt_host_slot = 11; // STUNT1: Rush 2's stunt track.
     constexpr int obstacle_menu_id = 29; // Track select id of the obstacle course.
     constexpr int battle_menu_id = 30;   // Track select id of battle arena DM1 (30-37).
-    constexpr int mod_menu_id = 38;      // Track select id of the first custom track (src/track_mod/), up to 63.
-    constexpr int mod_capacity = 26;     // Custom tracks the track select (and circuits) can offer.
+    // Custom tracks (src/track_mod/) take two ranges of track select ids: 38-63 between the battle arenas and California
+    // Speed (64-79), then 80-254 after it. The game keeps the id in one byte (0x8010C3F0, read unsigned: us.toml turns
+    // the game's lb of it into lbu), so 254 is the last; 255 stays free, as the -1 a signed read would make of it.
+    constexpr int mod_menu_id = 38;      // Track select id of the first custom track.
+    constexpr int mod_low_count = 26;    // Custom tracks in the first range (38-63).
+    constexpr int mod_high_menu_id = 80; // Track select id of custom track 26, the first of the second range.
+    constexpr int menu_id_limit = 255;   // Track select ids are 0-254.
+    constexpr int mod_capacity = mod_low_count + (menu_id_limit - mod_high_menu_id);   // 201
+    // Custom track `index`'s track select id (index < mod_capacity).
+    constexpr int mod_id(int index) {
+        return index < mod_low_count ? mod_menu_id + index : mod_high_menu_id + (index - mod_low_count);
+    }
+    // The custom track index of track select id t, or -1 when t isn't a custom track's id.
+    constexpr int mod_index(int t) {
+        if (t >= mod_menu_id && t < mod_menu_id + mod_low_count) return t - mod_menu_id;
+        if (t >= mod_high_menu_id && t < menu_id_limit) return mod_low_count + (t - mod_high_menu_id);
+        return -1;
+    }
+    constexpr bool is_mod_id(int t) {
+        return mod_index(t) >= 0;
+    }
     constexpr float obstacle_time = 300.0f; // The obstacle course's clock in seconds, no checkpoint extensions.
 
     // The Rush 2049 Tracks option (Games tab). Tracks are offered when it is on and the 2049 ROM is present.
@@ -194,6 +213,9 @@ namespace rush2::track2049 {
     // after the list's end, {u32 preview_buffer_tag, u32 the model's commands (the list's first), u32 its vertices
     // (the first in memory), u32 0}, then per spare buffer 16 bytes per vertex and 8 per command and two more.
     constexpr uint32_t preview_buffer_tag = 0x52343942;    // "R49B"
+    // The same tag on a preview whose spare buffers aren't in the container: the custom tracks', whose room the track
+    // select's container drops (up to 201 of them would fill the game heap) and lends from a pool while on screen.
+    constexpr uint32_t preview_pooled_tag = 0x52343950;    // "R49P"
     constexpr int preview_spare_buffers = 2;
     // 2049's track select camera, fitted to a capture of it (§7.5): focal length and center in screen pixels.
     constexpr float preview_focal = 167.0f, preview_center_x = 162.0f, preview_center_y = 116.0f;

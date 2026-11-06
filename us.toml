@@ -999,10 +999,10 @@ before_vram = 0x80089274
 text = "    rush2_players4_sky_fade(rdram, ctx);"
 
 # Rush 2049 track select entries (src/rush2049/track2049_menu.cpp). The track select is func_803AB294 (init and draw) and
-# func_803ABE0C (per frame); its tables and carousel array are repointed to 128-entry copies at 0x80310000 (Rush 2's 12
+# func_803ABE0C (per frame); its tables and carousel array are repointed to 256-entry copies at 0x80310000 (Rush 2's 12
 # tracks, Rush 2049's 6 at 12-17, SF Rush's 7 at 18-24, Rush 2049's 4 stunt arenas at 25-28 and obstacle course at 29, Rush 2049 battle arenas at 30-37,
-# custom tracks at 38-63, California Speed's 16 at 64-79; names +0, scales +0x200, cloud heights +0x400, logos +0x600,
-# carousel +0x800).
+# custom tracks at 38-63, California Speed's 16 at 64-79, more custom tracks at 80-254; names +0, scales +0x400, cloud
+# heights +0x800, logos +0xC00, carousel +0x1000). The id loops run to 255 and the logo callback masks the id with 0xFF.
 [[patches.hook]]
 func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB5C0
@@ -1212,6 +1212,13 @@ text = "    rush2_track49_battle_rearm(rdram, ctx);"
 func = "minimap_draw_800B8188"
 before_vram = 0x800B81D8
 text = "    rush2_track49_map_s4(rdram, ctx);"
+
+# The map's scale divides by the path's x and z extents ($s6, $s7: the bounds 0x8010D394 - 0x8010D3A0); a custom
+# track whose path has no width in x or z made a division by zero (src/rush2049/track2049.cpp).
+[[patches.hook]]
+func = "minimap_draw_800B8188"
+before_vram = 0x800B8270
+text = "    rush2_map_extent(rdram, ctx);"
 
 [[patches.hook]]
 func = "hud_widget_cb_map_dots_800B8900"
@@ -1437,7 +1444,7 @@ value = 0x3C038031 # lui     $v1, 0x8031
 [[patches.instruction]]
 func = "trackselect_setup_carousel_rows_803AB0E4"
 vram = 0x803AB104
-value = 0x80630800 # lb     $v1, 0x800($v1)
+value = 0x90631000 # lbu    $v1, 0x1000($v1)
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1447,7 +1454,7 @@ value = 0x3C198031 # lui     $t9, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6F4
-value = 0x27390800 # addiu    $t9, $t9, 0x800
+value = 0x27391000 # addiu    $t9, $t9, 0x1000
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1457,7 +1464,7 @@ value = 0x3C0F8031 # lui     $t7, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8A4
-value = 0x81EF0800 # lb     $t7, 0x800($t7)
+value = 0x91EF1000 # lbu    $t7, 0x1000($t7)
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1467,7 +1474,7 @@ value = 0x3C0E8031 # lui     $t6, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABAC8
-value = 0x25CE0800 # addiu    $t6, $t6, 0x800
+value = 0x25CE1000 # addiu    $t6, $t6, 0x1000
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1477,7 +1484,7 @@ value = 0x3C0E8031 # lui     $t6, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABCD4
-value = 0x25CE0800 # addiu    $t6, $t6, 0x800
+value = 0x25CE1000 # addiu    $t6, $t6, 0x1000
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1497,7 +1504,7 @@ value = 0x3C128031 # lui     $s2, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABB14
-value = 0x26520200 # addiu    $s2, $s2, 0x200
+value = 0x26520400 # addiu    $s2, $s2, 0x400
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1507,7 +1514,7 @@ value = 0x3C018031 # lui     $at, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB8B0
-value = 0xC42A0400 # lwc1    $f10, 0x400($at)
+value = 0xC42A0800 # lwc1    $f10, 0x800($at)
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
@@ -1517,7 +1524,7 @@ value = 0x3C018031 # lui     $at, 0x8031
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803ABD00
-value = 0xC4260400 # lwc1    $f6, 0x400($at)
+value = 0xC4260800 # lwc1    $f6, 0x800($at)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
@@ -1527,27 +1534,622 @@ value = 0x3C058031 # lui     $a1, 0x8031
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6248
-value = 0x8CA50600 # lw     $a1, 0x600($a1)
+value = 0x8CA50C00 # lw     $a1, 0xC00($a1)
 
 [[patches.instruction]]
 func = "trackselect_logo_callback_803C6208"
 vram = 0x803C6220
-value = 0x304E007F # andi    $t6, $v0, 0x7F
+value = 0x304E00FF # andi    $t6, $v0, 0xFF
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB67C
-value = 0x2A210050 # slti    $at, $s1, 0x50
+value = 0x2A2100FF # slti    $at, $s1, 0xFF
 
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB6D0
-value = 0x241E0050 # addiu    $fp, $zero, 0x50
+value = 0x241E00FF # addiu    $fp, $zero, 0xFF
 
 [[patches.instruction]]
 func = "trackselect_frame_803ABE0C"
 vram = 0x803AC0FC
-value = 0x28C10050 # slti    $at, $a2, 0x50
+value = 0x28C100FF # slti    $at, $a2, 0xFF
+
+# Track select ids past 127 (custom tracks 80-254, include/track2049.h): the game reads the track id byte 0x8010C3F0
+# signed (lb), which made them negative. Every lb of it, and of the track select carousel's copy (entry +0), loads it
+# unsigned (lbu) instead (generated by tools/byte_reads.py 8010C3F0 --lbu --also 803AB7B0,803ABB08,803ABC4C,803ABC64,
+# 803ABCEC,803AC128; the --also ones are loads through registers the scan loses track of). In a race the id is a Rush 2
+# slot (0-11), so the race code reads the same either way.
+[[patches.instruction]]
+func = "car_update_draw_nodes_8005CFB0"
+vram = 0x8005D890
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "race_key_all_racers_have_8005F00C"
+vram = 0x8005F044
+value = 0x90A5C3F0 # lbu $a1, -0x3C10($a1)
+
+[[patches.instruction]]
+func = "track_key_object_update_8005F118"
+vram = 0x8005F23C
+value = 0x916BC3F0 # lbu $t3, -0x3C10($t3)
+
+[[patches.instruction]]
+func = "race_collect_key_8005F418"
+vram = 0x8005F480
+value = 0x90F90000 # lbu $t9, 0x0($a3)
+
+[[patches.instruction]]
+func = "race_collect_key_8005F418"
+vram = 0x8005F4B4
+value = 0x90F80000 # lbu $t8, 0x0($a3)
+
+[[patches.instruction]]
+func = "race_collect_key_8005F418"
+vram = 0x8005F4DC
+value = 0x90EF0000 # lbu $t7, 0x0($a3)
+
+[[patches.instruction]]
+func = "highscore_screen_800606A8"
+vram = 0x80060728
+value = 0x9339C3F0 # lbu $t9, -0x3C10($t9)
+
+[[patches.instruction]]
+func = "highscore_screen_800606A8"
+vram = 0x800607A0
+value = 0x90A5C3F0 # lbu $a1, -0x3C10($a1)
+
+[[patches.instruction]]
+func = "hud_stunt_box_visible_80060E34"
+vram = 0x80060E8C
+value = 0x90A5C3F0 # lbu $a1, -0x3C10($a1)
+
+[[patches.instruction]]
+func = "record_stat_stunt_max_80065360"
+vram = 0x800653A0
+value = 0x9318C3F0 # lbu $t8, -0x3C10($t8)
+
+[[patches.instruction]]
+func = "record_stat_stunt_count_8006544C"
+vram = 0x8006548C
+value = 0x9318C3F0 # lbu $t8, -0x3C10($t8)
+
+[[patches.instruction]]
+func = "pvs_apply_8007C27C"
+vram = 0x8007C304
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "pvs_apply_8007C27C"
+vram = 0x8007C308
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "race_fog_zone_setup_80081074"
+vram = 0x8008108C
+value = 0x91230000 # lbu $v1, 0x0($t1)
+
+[[patches.instruction]]
+func = "race_fog_zone_setup_80081074"
+vram = 0x800810E4
+value = 0x912B0000 # lbu $t3, 0x0($t1)
+
+[[patches.instruction]]
+func = "race_fog_zone_setup_80081074"
+vram = 0x800811A0
+value = 0x912D0000 # lbu $t5, 0x0($t1)
+
+[[patches.instruction]]
+func = "render_sky_cloud_scroll_8008918C"
+vram = 0x8008928C
+value = 0x9063C3F0 # lbu $v1, -0x3C10($v1)
+
+[[patches.instruction]]
+func = "track_prop_anim_update_8008A9C8"
+vram = 0x8008A9D0
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "track_prop_anim_setup_8008AF48"
+vram = 0x8008AF4C
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "music_pick_race_song_8008C370"
+vram = 0x8008C3DC
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "demo_start_pick_8008E6B4"
+vram = 0x8008E6D0
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "demo_start_pick_8008E6B4"
+vram = 0x8008E6E0
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "track_finish_line_setup_8008F080"
+vram = 0x8008F09C
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "track_finish_line_setup_8008F080"
+vram = 0x8008F0F8
+value = 0x916BC3F0 # lbu $t3, -0x3C10($t3)
+
+[[patches.instruction]]
+func = "respawn_place_car_80090A40"
+vram = 0x800913A4
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "respawn_place_car_80090A40"
+vram = 0x800918F8
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x80094744
+value = 0x91780000 # lbu $t8, 0x0($t3)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x800947D8
+value = 0x916E0000 # lbu $t6, 0x0($t3)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x800947E8
+value = 0x916E0000 # lbu $t6, 0x0($t3)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x80094830
+value = 0x91790000 # lbu $t9, 0x0($t3)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x80094840
+value = 0x91790000 # lbu $t9, 0x0($t3)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x80094880
+value = 0x916E0000 # lbu $t6, 0x0($t3)
+
+[[patches.instruction]]
+func = "menu_settings_to_race_globals_80094698"
+vram = 0x80094890
+value = 0x916E0000 # lbu $t6, 0x0($t3)
+
+[[patches.instruction]]
+func = "cam_update_all_players_8009D9F4"
+vram = 0x8009DD1C
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "race_setup_player_slot_8009E45C"
+vram = 0x8009E538
+value = 0x90F90000 # lbu $t9, 0x0($a3)
+
+[[patches.instruction]]
+func = "rubber_band_800A1A98"
+vram = 0x800A225C
+value = 0x90A5C3F0 # lbu $a1, -0x3C10($a1)
+
+[[patches.instruction]]
+func = "race_stunt_start_cars_on_spine_800A34A8"
+vram = 0x800A34AC
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "race_preload_car_assets_800A37F4"
+vram = 0x800A3AC0
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "race_preload_car_assets_800A37F4"
+vram = 0x800A3BE0
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "subway_init_800A4210"
+vram = 0x800A4218
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "sky_setup_800A45A8"
+vram = 0x800A460C
+value = 0x9042C3F0 # lbu $v0, -0x3C10($v0)
+
+[[patches.instruction]]
+func = "track_assets_queue_800A4C98"
+vram = 0x800A4CBC
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "track_assets_queue_800A4C98"
+vram = 0x800A4EA8
+value = 0x916BC3F0 # lbu $t3, -0x3C10($t3)
+
+[[patches.instruction]]
+func = "track_assets_queue_800A4C98"
+vram = 0x800A4F2C
+value = 0x91ADC3F0 # lbu $t5, -0x3C10($t5)
+
+[[patches.instruction]]
+func = "track_assets_queue_800A4C98"
+vram = 0x800A4FB0
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "track_assets_queue_800A4C98"
+vram = 0x800A5068
+value = 0x9108C3F0 # lbu $t0, -0x3C10($t0)
+
+[[patches.instruction]]
+func = "race_load_track_800A5110"
+vram = 0x800A55B8
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_load_track_800A5110"
+vram = 0x800A568C
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_load_track_800A5110"
+vram = 0x800A569C
+value = 0x9339C3F0 # lbu $t9, -0x3C10($t9)
+
+[[patches.instruction]]
+func = "race_assign_cars_to_players_800A580C"
+vram = 0x800A5A9C
+value = 0x92B90000 # lbu $t9, 0x0($s5)
+
+[[patches.instruction]]
+func = "race_setup_800A5ADC"
+vram = 0x800A5F98
+value = 0x91ADC3F0 # lbu $t5, -0x3C10($t5)
+
+[[patches.instruction]]
+func = "race_setup_800A5ADC"
+vram = 0x800A6060
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "race_run_full_800A63A0"
+vram = 0x800A6458
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_run_full_800A63A0"
+vram = 0x800A6468
+value = 0x90640000 # lbu $a0, 0x0($v1)
+
+[[patches.instruction]]
+func = "race_run_full_800A63A0"
+vram = 0x800A64D8
+value = 0x9318C3F0 # lbu $t8, -0x3C10($t8)
+
+[[patches.instruction]]
+func = "record_stats_average_lap_800A7804"
+vram = 0x800A784C
+value = 0x9318C3F0 # lbu $t8, -0x3C10($t8)
+
+[[patches.instruction]]
+func = "record_stat_max_0x1e_800A9164"
+vram = 0x800A91A4
+value = 0x9318C3F0 # lbu $t8, -0x3C10($t8)
+
+[[patches.instruction]]
+func = "record_stats_race_end_800A9250"
+vram = 0x800A92A0
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "postrace_records_update_800A952C"
+vram = 0x800A98A0
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "postrace_records_update_800A952C"
+vram = 0x800A9F58
+value = 0x90C6C3F0 # lbu $a2, -0x3C10($a2)
+
+[[patches.instruction]]
+func = "postrace_records_update_800A952C"
+vram = 0x800AA910
+value = 0x90C6C3F0 # lbu $a2, -0x3C10($a2)
+
+[[patches.instruction]]
+func = "race_next_attract_track_800AB824"
+vram = 0x800AB828
+value = 0x9063C3F0 # lbu $v1, -0x3C10($v1)
+
+[[patches.instruction]]
+func = "race_asset_slots_init_for_track_800AB878"
+vram = 0x800AB8AC
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_asset_slots_init_for_track_800AB878"
+vram = 0x800AB8BC
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_asset_slots_init_for_track_800AB878"
+vram = 0x800AB8CC
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_asset_slots_init_for_track_800AB878"
+vram = 0x800AB8DC
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_attract_run_800AB91C"
+vram = 0x800AB9F4
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "menu_title_screen_run_800ABE7C"
+vram = 0x800AC02C
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "menu_title_screen_run_800ABE7C"
+vram = 0x800AC0D4
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "menu_title_screen_run_800ABE7C"
+vram = 0x800ACE98
+value = 0x9084C3F0 # lbu $a0, -0x3C10($a0)
+
+[[patches.instruction]]
+func = "race_start_timer_800AE670"
+vram = 0x800AE780
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+vram = 0x800B76C0
+value = 0x90A5C3F0 # lbu $a1, -0x3C10($a1)
+
+[[patches.instruction]]
+func = "minimap_draw_800B8188"
+vram = 0x800B81D4
+value = 0x9294C3F0 # lbu $s4, -0x3C10($s4)
+
+[[patches.instruction]]
+func = "hud_widget_cb_map_dots_800B8900"
+vram = 0x800B894C
+value = 0x90A5C3F0 # lbu $a1, -0x3C10($a1)
+
+[[patches.instruction]]
+func = "hud_widget_cb_radar_dots_800B8CC8"
+vram = 0x800B8D20
+value = 0x914AC3F0 # lbu $t2, -0x3C10($t2)
+
+[[patches.instruction]]
+func = "hud_widget_cb_radar_800B920C"
+vram = 0x800B925C
+value = 0x9108C3F0 # lbu $t0, -0x3C10($t0)
+
+[[patches.instruction]]
+func = "hud_widget_cb_race_time_800B9754"
+vram = 0x800B978C
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "hud_sprite_cb_laps_left_800B9D48"
+vram = 0x800B9D6C
+value = 0x9108C3F0 # lbu $t0, -0x3C10($t0)
+
+[[patches.instruction]]
+func = "hud_sprite_cb_laps_left_800B9D48"
+vram = 0x800B9D9C
+value = 0x93FFC3F0 # lbu $ra, -0x3C10($ra)
+
+[[patches.instruction]]
+func = "breakable_alloc_800BB27C"
+vram = 0x800BB564
+value = 0x92EF0000 # lbu $t7, 0x0($s7)
+
+[[patches.instruction]]
+func = "breakable_alloc_800BB27C"
+vram = 0x800BB72C
+value = 0x92F90000 # lbu $t9, 0x0($s7)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB3EC
+value = 0x920F0000 # lbu $t7, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB420
+value = 0x92030000 # lbu $v1, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB4A4
+value = 0x92030000 # lbu $v1, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB514
+value = 0x92030000 # lbu $v1, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB544
+value = 0x92040000 # lbu $a0, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB554
+value = 0x92030000 # lbu $v1, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB594
+value = 0x92030000 # lbu $v1, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB658
+value = 0x920F0000 # lbu $t7, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803AB7B0
+value = 0x92190000 # lbu $t9, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803ABB08
+value = 0x904F0000 # lbu $t7, 0x0($v0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803ABC4C
+value = 0x92190000 # lbu $t9, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803ABC64
+value = 0x92190000 # lbu $t9, 0x0($s0)
+
+[[patches.instruction]]
+func = "trackselect_init_draw_803AB294"
+vram = 0x803ABCEC
+value = 0x904F0000 # lbu $t7, 0x0($v0)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803ABF7C
+value = 0x90E60000 # lbu $a2, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC020
+value = 0x90E60000 # lbu $a2, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC0E0
+value = 0x90EF0000 # lbu $t7, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC0E8
+value = 0x90EF0000 # lbu $t7, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC0F4
+value = 0x90E60000 # lbu $a2, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC108
+value = 0x90E60000 # lbu $a2, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC118
+value = 0x90E60000 # lbu $a2, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC128
+value = 0x90EF0000 # lbu $t7, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC550
+value = 0x90E60000 # lbu $a2, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_frame_803ABE0C"
+vram = 0x803AC6A0
+value = 0x90F90000 # lbu $t9, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_compute_unlock_mask_803B1AB0"
+vram = 0x803B1AF8
+value = 0x916BC3F0 # lbu $t3, -0x3C10($t3)
+
+[[patches.instruction]]
+func = "trackselect_compute_unlock_mask_803B1AB0"
+vram = 0x803B1B14
+value = 0x91CEC3F0 # lbu $t6, -0x3C10($t6)
+
+[[patches.instruction]]
+func = "options_widget_cb_slider_803C5798"
+vram = 0x803C5924
+value = 0x9339C3F0 # lbu $t9, -0x3C10($t9)
+
+[[patches.instruction]]
+func = "options_widget_cb_slider_803C5798"
+vram = 0x803C5970
+value = 0x9318C3F0 # lbu $t8, -0x3C10($t8)
+
+[[patches.instruction]]
+func = "options_widget_cb_option_arrow_803C59A0"
+vram = 0x803C5BC0
+value = 0x91EFC3F0 # lbu $t7, -0x3C10($t7)
+
+[[patches.instruction]]
+func = "trackselect_logo_callback_803C6208"
+vram = 0x803C621C
+value = 0x90E30000 # lbu $v1, 0x0($a3)
+
+[[patches.instruction]]
+func = "trackselect_logo_callback_803C6208"
+vram = 0x803C6230
+value = 0x90EF0000 # lbu $t7, 0x0($a3)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C63C0
+value = 0x92990000 # lbu $t9, 0x0($s4)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C669C
+value = 0x92880000 # lbu $t0, 0x0($s4)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C671C
+value = 0x928C0000 # lbu $t4, 0x0($s4)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C6780
+value = 0x92980000 # lbu $t8, 0x0($s4)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C67D8
+value = 0x928C0000 # lbu $t4, 0x0($s4)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C6850
+value = 0x928C0000 # lbu $t4, 0x0($s4)
+
+[[patches.instruction]]
+func = "options_text_cb_names_values_803C6268"
+vram = 0x803C68A8
+value = 0x92880000 # lbu $t0, 0x0($s4)
 
 # Rush 2049 track records (src/rush2049/track2049_records.cpp): while a 2049 track is hosted, the stats slot and best-times
 # list addresses of the host slot are redirected to side buffers, and the high-score rows are swapped while the
@@ -1934,7 +2536,8 @@ text = "    rush2_track1_gate(rdram, ctx);"
 
 # Circuits with the Rush 2049 tracks (src/rush2049/track2049_menu.cpp): func_800A7DCC picks the races' tracks again from
 # Rush 2's 0-6, the 2049, SF Rush, custom and California Speed tracks, and the circuit screen (func_803B6260) instances
-# its dioramas from the first 80 entries of the name table into an 80-entry array at 0x80311600 (was 7 at 0x803C7A44), with the
+# its dioramas from the name table's entries in use (rush2_track49_circuit_entries: up to 255) into a 255-entry array at
+# 0x80312C00 (was 7 at 0x803C7A44), with the
 # scale, cloud height and logo tables (the logo callback is func_803BE528).
 [[patches.hook]]
 func = "circuit_generate_800A7DCC"
@@ -2096,12 +2699,12 @@ value = 0x3C118031 # lui $s1, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62AC
-value = 0x26311740 # addiu $s1, $s1, 0x1740
+value = 0x26312FFC # addiu $s1, $s1, 0x2FFC
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B62B0
-value = 0x26101600 # addiu $s0, $s0, 0x1600
+value = 0x26102C00 # addiu $s0, $s0, 0x2C00
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -2121,7 +2724,13 @@ value = 0x26310000 # addiu $s1, $s1, 0
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B642C
-value = 0x26101600 # addiu $s0, $s0, 0x1600
+value = 0x26102C00 # addiu $s0, $s0, 0x2C00
+
+# The instancing loop's end ($t8, the name table's end): only the entries in use (src/rush2049/track2049_menu.cpp).
+[[patches.hook]]
+func = "menu_screen_circuit_803B6260"
+before_vram = 0x803B64B4
+text = "    rush2_track49_circuit_entries(rdram, ctx);"
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -2131,7 +2740,7 @@ value = 0x3C188031 # lui $t8, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64B0
-value = 0x27180140 # addiu $t8, $t8, 0x140
+value = 0x271803FC # addiu $t8, $t8, 0x3FC
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -2141,7 +2750,7 @@ value = 0x3C018031 # lui $at, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B64EC
-value = 0xC4260400 # lwc1 $f6, 0x400($at)
+value = 0xC4260800 # lwc1 $f6, 0x800($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -2151,7 +2760,7 @@ value = 0x3C118031 # lui $s1, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A14
-value = 0x26311600 # addiu $s1, $s1, 0x1600
+value = 0x26312C00 # addiu $s1, $s1, 0x2C00
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -2161,7 +2770,7 @@ value = 0x3C018031 # lui $at, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6A8C
-value = 0xC4240400 # lwc1 $f4, 0x400($at)
+value = 0xC4240800 # lwc1 $f4, 0x800($at)
 
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
@@ -2171,7 +2780,7 @@ value = 0x3C068031 # lui $a2, 0x8031
 [[patches.instruction]]
 func = "menu_screen_circuit_803B6260"
 vram = 0x803B6ABC
-value = 0x8CC60200 # lw $a2, 0x200($a2)
+value = 0x8CC60400 # lw $a2, 0x400($a2)
 
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
@@ -2181,7 +2790,7 @@ value = 0x3C058031 # lui $a1, 0x8031
 [[patches.instruction]]
 func = "circuit_widget_cb_logo_803BE528"
 vram = 0x803BE598
-value = 0x8CA50600 # lw $a1, 0x600($a1)
+value = 0x8CA50C00 # lw $a1, 0xC00($a1)
 
 # Car Speeds: map the path's AI lane speeds before the race time is worked out from them (src/rush2049/track2049.cpp).
 [[patches.hook]]

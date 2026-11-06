@@ -223,7 +223,7 @@ void rush2::draw_distance_pvs(uint8_t* rdram, uint32_t sp, uint32_t table) {
     if (widened == 0) {
         widened = (uint32_t)((uint8_t*)recomp::alloc(rdram, 16) - rdram) + 0x80000000;
     }
-    int slot = MEM_B(0, (int32_t)track_id);
+    int slot = MEM_BU(0, (int32_t)track_id);
     int count = slot >= 0 ? std::min<int>(MEM_BU(0, (int32_t)(pvs_counts + slot)), 128) : 0;
     uint32_t chosen = (uint32_t)MEM_W(0, (int32_t)(sp + 0x5C));
     for (int b = 0; b < 16; b++) {

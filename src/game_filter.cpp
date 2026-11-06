@@ -315,7 +315,7 @@ Game rush2::game_filter::track_game(int t) {
     using namespace rush2::track2049;
     if (t < first_menu_id) return Game::Rush2;
     if (t >= rush2::track1::first_menu_id && t < rush2::track1::first_menu_id + rush2::track1::track_count) return Game::SFRush;
-    if (t >= mod_menu_id && t < mod_menu_id + mod_capacity) return Game::Custom;
+    if (is_mod_id(t)) return Game::Custom;     // 38-63 and 80-254
     if (t >= rush2::calspeed::first_menu_id) return Game::CalSpeed;
     return Game::Rush2049;      // 12-17 and the stunt arenas, obstacle course and battle arenas, 25-37
 }

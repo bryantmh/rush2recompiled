@@ -10,7 +10,7 @@ got past the race (test aid; docs/menus.md#starting-a-race-without-the-menus).
 
 TRACK `menus` sets no race up: the game boots to the title and the --script drives the menus (as JUST PLAY: the
 data folder has no saved players). Otherwise TRACK is a track select id (0-11 Rush 2, 12-17 Rush 2049, 18-24 SF Rush, 25-28 stunt arenas, 29 obstacle course,
-30-37 battle arenas, 38-63 custom tracks, 64-79 California Speed) or a custom track's folder name. --cars gives one
+30-37 battle arenas, 38-63 and 80-254 custom tracks, 64-79 California Speed) or a custom track's folder name. --cars gives one
 car type per player (1-4 players; Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-72). --script is the
 --input-script (default: gas held from 1 s), counted from launch: the race is up about 5 s in.
 

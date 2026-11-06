@@ -614,7 +614,7 @@ Custom tracks come after the stock and added tracks, in the mod order. `after` i
 Several tracks after the same one keep the mod order. A name that matches nothing leaves the track at the end (the log
 says so). Only the order changes: records, ghosts and saved choices are kept under the track's folder name as before.
 
-For developers: the ids stay 38-63; `build_order` in src/rush2049/track2049_menu.cpp makes the display order, the
+For developers: the ids stay 38-63 and 80-254 (`mod_id`); `build_order` in src/rush2049/track2049_menu.cpp makes the display order, the
 carousel is put in that order once built (0x803AB878) and TRACK left / right takes the track at the new carousel
 position (0x803AC12C).
 
@@ -782,7 +782,8 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | Track size | about 10 km (32,000 ft) from the origin in any direction | Positions are stored as 16-bit numbers. |
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
 | Custom surfaces | 12 | The collision format's surface slots. |
-| Custom tracks | 26 across all enabled mods | Track select slots. |
+| Custom tracks | 201 across all enabled mods (in mod order; the rest are left out, the log says how many) | The game keeps the track select id in one byte: ids 0-254, and the stock and other games' tracks take 54 of them. |
+| Track select art | about 3.3 MB for all custom tracks' logos and dioramas | The art is loaded into the game's memory with the track select. A logo takes 4.5 KB and a route preview about 10 KB, so 201 tracks fit; authored dioramas can be much larger. Past the room, the later tracks (in mod order) show their logo with no diorama, and the log says how many. |
 
 Vertex counts per object, the number of objects or materials, and name lengths don't matter: the converter splits,
 merges and renames as needed.
@@ -811,8 +812,12 @@ merges and renames as needed.
   `track_mod.cpp` (finding the tracks, the disk cache, full-size textures). `include/track_mod.h` and
   `include/track_mod_runtime.h` hold the interfaces.
 - **Hosting:** a custom track is raced in the HAWAII slot like a Rush 2049 track (`src/rush2049/track2049.cpp`,
-  track cache key 1000 + a hash of the folder), with track select ids 38-63 (`src/rush2049/track2049_menu.cpp`, the
-  tables moved to 0x80310000; the circuit review screen's diorama instances at 0x80311600). Circuits choose custom
+  track cache key 1000 + a hash of the folder), with track select ids 38-63 and 80-254 (`include/track2049.h`
+  `mod_id`/`mod_index`; `src/rush2049/track2049_menu.cpp`, the tables moved to 0x80310000 with room for 256; the
+  circuit review screen's diorama instances at 0x80312C00). The game reads the id byte 0x8010C3F0 unsigned (us.toml
+  turns its lb into lbu, listed by `tools/byte_reads.py 8010C3F0`), so ids past 127 work in its menu code. The route
+  previews' spare animation buffers aren't kept in the track select's art (asset 3): the previews on screen borrow them
+  from a pool at 0x80320000 (`lend_buffers`), so 201 previews fit the game heap (`mod_art_room`). Circuits choose custom
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
   with, and the races it generated, custom tracks by folder, so they stay put while the enabled mods change:
   docs/rush2049_research/menus.md#circuit-races-kept-with-the-circuit). Without an authored diorama, the circuit

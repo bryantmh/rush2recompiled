@@ -22,7 +22,7 @@
 // existed, or entered as a code) is 28 races over every course but California Speed's, CRASH and PIPE (added later: a
 // circuit in progress keeps its races).
 //
-// Custom tracks (src/track_mod/, track select ids 38-63) are chosen by their folder, since their ids follow the enabled
+// Custom tracks (src/track_mod/, track select ids 38-63 and 80-254) are chosen by their folder, since their ids follow the enabled
 // mods: the choices keep the folders turned off (so a newly installed track is in), and a circuit records the folders it
 // started with. A circuit recorded before custom tracks could be chosen has none.
 
@@ -112,7 +112,7 @@ namespace {
         return rush2::track1::track_names[t - rush2::track1::first_menu_id];
     }
 
-    // The enabled custom tracks' folders by track select id - mod_menu_id (the ones the track select has room for).
+    // The enabled custom tracks' folders by custom track index (rush2::track2049::mod_index; the ones the track select has room for).
     std::vector<std::string> mod_folders() {
         std::vector<std::string> folders;
         for (const rush2::track_mod::Entry& e : rush2::track_mod::tracks()) {
@@ -319,8 +319,8 @@ int rush2::circuit::length(uint8_t* rdram) {
 }
 
 bool rush2::circuit::course_chosen(uint8_t* rdram, int t) {
-    int m = t - rush2::track2049::mod_menu_id;
-    if (m >= 0 && m < rush2::track2049::mod_capacity) {
+    int m = rush2::track2049::mod_index(t);
+    if (m >= 0) {
         std::vector<std::string> folders = mod_folders();
         return m < (int)folders.size() && current_setup(rdram).mods.contains(folders[m]);
     }
@@ -341,7 +341,7 @@ bool rush2::circuit::recorded_race(uint8_t* rdram, int race, int& track, int& di
     std::vector<std::string> folders = mod_folders();
     auto it = std::find(folders.begin(), folders.end(), rt.mod);
     if (it == folders.end()) return false;
-    track = rush2::track2049::mod_menu_id + int(it - folders.begin());
+    track = rush2::track2049::mod_id(int(it - folders.begin()));
     return true;
 }
 
@@ -355,8 +355,8 @@ void rush2::circuit::record_races(uint8_t* rdram, const std::vector<std::pair<in
     for (int race = 0; race < (int)races.size(); race++) {
         auto [track, direction] = races[race];
         RaceTrack rt;
-        int m = track - rush2::track2049::mod_menu_id;
-        if (m >= 0 && m < rush2::track2049::mod_capacity) {
+        int m = rush2::track2049::mod_index(track);
+        if (m >= 0) {
             if (m >= (int)folders.size()) continue;
             rt.mod = folders[m];
         }
@@ -705,7 +705,7 @@ extern "C" void rush2_circuit_review_snapshot(uint8_t* rdram, recomp_context* ct
             race.car = c->second;
         }
         uint32_t entry = circuit_races + r * 4;
-        race.track = (int8_t)MEM_B(0, (int32_t)entry);
+        race.track = MEM_BU(0, (int32_t)entry);
         race.place = 0;
         for (int k = 0; k < 3; k++) {
             int bit = r * 3 + k;
@@ -729,7 +729,7 @@ extern "C" void rush2_circuit_review_title(uint8_t* rdram, recomp_context* ctx) 
     }
     else if (review_hosted) {
         // Not left hosted for the title's own demos.
-        rush2::track2049::host_menu_track(rdram, (int8_t)MEM_B(0, (int32_t)menu_track));
+        rush2::track2049::host_menu_track(rdram, MEM_BU(0, (int32_t)menu_track));
         review_hosted = false;
     }
     completed.clear();

@@ -258,7 +258,7 @@ void rush2::arcade2049::checkpoints_frame(uint8_t* rdram, recomp_context* ctx) {
     int state = MEM_W(0, (int32_t)game_state);
     bool racing = state == 3 || state == 4 || state == 5 || state == 9 || state == 0xA;
     int k = rush2::track2049::race_track();
-    bool on_2049 = (int8_t)MEM_B(0, (int32_t)track_id) == rush2::track2049::host_slot && rush2::track1::race_track() == 0 &&
+    bool on_2049 = MEM_BU(0, (int32_t)track_id) == rush2::track2049::host_slot && rush2::track1::race_track() == 0 &&
                    k >= 1 && k <= rush2::track2049::track_count;
     std::vector<uint8_t> texels;
     int generation = image_generation;

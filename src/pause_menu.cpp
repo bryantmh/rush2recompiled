@@ -474,7 +474,7 @@ namespace {
     std::vector<Count> counts(uint8_t* rdram) {
         using namespace rush2::collectibles;
         std::vector<Count> out;
-        int8_t t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int t = MEM_BU(0, (int32_t)track_id);
         bool host = t == rush2::track2049::host_slot;
         Progress p = player_progress(rdram, 0);
         auto bits = [](unsigned m) { return std::popcount(m); };

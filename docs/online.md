@@ -72,7 +72,7 @@ who backs out or joins late is waited for, and nobody waits on a step that alrea
 - **Track select**: the host's. It browses freely but its A and START only work once every player is on their track
   select, every player has the game ROM the track needs, and it has been up 20 frames. The others' track selects show
   the host's every frame with their controllers off: the track (0x8010C3F0), the carousel entry showing it (s16
-  0x803D05B4, found in the carousel at 0x80310800 by `carousel_index`), the settings (0x800D5760), the option cursor
+  0x803D05B4, found in the carousel at 0x80311000 by `carousel_index`), the settings (0x800D5760), the option cursor
   (0x803D05BC) and top row (0x803D05C4), and the BATTLE row and battle rules (put back after). The carousel moves
   one place per change of the shown entry: each frame `trackselect_init_draw_803AB294` (0x803ABB1C-0x803ABCC4) shifts
   an entry's target by 100 when its place relative to the shown one (+0x14) changed, whatever the change, so a jump of

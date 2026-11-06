@@ -3,13 +3,15 @@
 // Rush 2's track select (menu overlay: func_803AB294 init and draw, func_803ABE0C per frame) cycles the track id byte
 // through 0-11 and shows a carousel of dioramas built from 12-entry tables. With Rush 2049 tracks available it
 // offers ids 12-17 after them, Rush 2049's stunt arenas as ids 25-28, its obstacle course as id 29 and its battle
-// arenas DM1-DM8 as ids 30-37, with SF Rush (Rush 1) tracks available ids 18-24, then the custom tracks as 38-63 and
-// California Speed's tracks as 64-79 (src/calspeed/). The carousel lists them in display order (build_order: custom
-// tracks can be listed after another game's with track.toml [menu] after):
+// arenas DM1-DM8 as ids 30-37, with SF Rush (Rush 1) tracks available ids 18-24, then the custom tracks as 38-63,
+// California Speed's tracks as 64-79 (src/calspeed/) and the custom tracks past the 26th as 80-254 (include/track2049.h,
+// mod_id). The game keeps the id in a signed byte; us.toml turns every load of it (and of the carousel's copy) into an
+// unsigned one, so ids past 127 read as themselves (tools/byte_reads.py lists them). The carousel lists them in display
+// order (build_order: custom tracks can be listed after another game's with track.toml [menu] after):
 // - The per-track tables the screen reads (diorama names 0x803C91E0, scales 0x803C9180, cloud heights 0x803C91B0,
 //   logo names 0x803C9668) and its carousel array (0x803D0698, 0x1C bytes per entry) only have room for 12. Copies
-//   with room for 128 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml
-//   repoints the instructions that address them. The loop bounds and wraps go from 12 to 80; func_803AB01C, which says
+//   with room for 256 entries live in the memory the game heap used before it moved (src/assets.cpp), and us.toml
+//   repoints the instructions that address them. The loop bounds and wraps go from 12 to 255; func_803AB01C, which says
 //   whether a track is unlocked, offers the added tracks only while they are available.
 // - The menus test for the stunt track (11) by id: its options other than TRACK, FOG and WIND are greyed and
 //   func_80094698 turns backward and mirror off. Hooks make those tests treat the stunt arenas' and the obstacle
@@ -82,19 +84,20 @@ namespace {
     constexpr uint32_t cloud_heights = 0x803C91B0;
     constexpr uint32_t logo_names = 0x803C9668;
 
-    // Their copies, with room for 128 entries (us.toml points the screen at these, by these offsets).
+    // Their copies, with room for 256 entries (us.toml points the screen at these, by these offsets).
     constexpr uint32_t table_data = 0x80310000;
     constexpr uint32_t new_diorama_names = table_data + 0x000;
-    constexpr uint32_t new_diorama_scales = table_data + 0x200;
-    constexpr uint32_t new_cloud_heights = table_data + 0x400;
-    constexpr uint32_t new_logo_names = table_data + 0x600;
-    constexpr uint32_t new_carousel = table_data + 0x800;          // 128 x 0x1C
+    constexpr uint32_t new_diorama_scales = table_data + 0x400;
+    constexpr uint32_t new_cloud_heights = table_data + 0x800;
+    constexpr uint32_t new_logo_names = table_data + 0xC00;
+    constexpr uint32_t new_carousel = table_data + 0x1000;         // 256 x 0x1C
     constexpr uint32_t carousel_entry = 0x1C;
     constexpr uint32_t carousel_count = 0x803D05AE;                 // s16: its entries
     constexpr uint32_t carousel_position = 0x803D05B4;              // s16: the entry shown
-    constexpr uint32_t new_circuit_instances = table_data + 0x1600; // 80 x s32, the circuit screen's dioramas
-    constexpr uint32_t mod_strings = table_data + 0x1800;          // 32 bytes per custom track: its model and logo names
-    constexpr uint32_t calspeed_strings = table_data + 0x1C00;     // 32 bytes per Cal Speed track: the same
+    constexpr uint32_t new_circuit_instances = table_data + 0x2C00; // 256 x s32, the circuit screen's dioramas
+    constexpr uint32_t mod_strings = table_data + 0x3000;          // 32 bytes per custom track: its model and logo names
+    constexpr uint32_t calspeed_strings = table_data + 0x5000;     // 32 bytes per Cal Speed track: the same
+    static_assert(new_carousel + 256 * carousel_entry <= new_circuit_instances);
     static_assert(mod_strings + rush2::track2049::mod_capacity * 32 <= calspeed_strings);
     constexpr uint32_t menu_data = 0x80300000;
     constexpr uint32_t new_strings = menu_data + 0x900;           // 32 bytes per added track
@@ -129,12 +132,13 @@ namespace {
     constexpr int r1_end = r1_first + rush2::track1::track_count;       // 25
     constexpr int cs_first = rush2::calspeed::first_menu_id;            // 64
     constexpr int cs_end = cs_first + rush2::calspeed::track_count;     // 80
-    constexpr int menu_tracks = cs_end;                                 // entries (the tables have room for 128)
-    // Circuits pick from every entry but arenas (the circuit screen's arrays hold 80: us.toml).
-    constexpr int circuit_tracks = cs_end;
+    constexpr int menu_tracks = menu_id_limit;                          // ids 0-254 (the tables have room for 256)
+    // Circuits pick from every entry but arenas (the circuit screen's instance array holds 256: us.toml).
+    constexpr int circuit_tracks = menu_id_limit;
     static_assert(mod_menu_id == battle_menu_id + battle_count);        // the custom tracks (src/track_mod/) follow
-    static_assert(mod_menu_id + mod_capacity == cs_first);              // then the Cal Speed tracks
-    static_assert(menu_tracks <= 128);
+    static_assert(mod_menu_id + mod_low_count == cs_first);             // then the Cal Speed tracks
+    static_assert(cs_end == mod_high_menu_id);                          // then the rest of the custom tracks
+    static_assert(menu_tracks <= 256);
     constexpr int added_tracks = menu_tracks - first_menu_id;           // 2049, Rush 1, stunt, obstacle, battle, custom, Cal Speed
     static_assert(first_menu_id + track_count == r1_first);
     static_assert(r1_end == stunt_menu_id);
@@ -144,12 +148,12 @@ namespace {
     // Track select entry t's preview model name (in RDRAM; 2049 entries), or 0 for its diorama.
     uint32_t preview_names[menu_tracks] = {};
 
-    // The custom tracks' types (rush2::track_mod::RaceType) by track select id - mod_menu_id, from refresh_mods.
+    // The custom tracks' types (rush2::track_mod::RaceType) by custom track index (mod_index), from refresh_mods.
     std::vector<int> mod_types;
 
     int mod_type(int t) {
-        size_t i = size_t(t - mod_menu_id);
-        return t >= mod_menu_id && i < mod_types.size() ? mod_types[i] : rush2::track_mod::race_race;
+        int i = mod_index(t);
+        return i >= 0 && size_t(i) < mod_types.size() ? mod_types[size_t(i)] : rush2::track_mod::race_race;
     }
 
     // Rush 2049's battle arenas and the custom ones (track.toml type = "battle").
@@ -211,14 +215,14 @@ namespace {
     std::atomic<bool> mods_reload = false;     // rush2::track2049::mods_changed
 
     bool is_mod_track(int t) {
-        return t >= mod_menu_id && t < mod_menu_id + mod_capacity;
+        return is_mod_id(t);
     }
 
-    // Whether added track select entry t (12-79) can be chosen.
+    // Whether added track select entry t (12-254) can be chosen.
     bool entry_available(int t) {
         if (is_mod_track(t)) {
             // A custom battle arena needs the Rush 2049 ROM as the battle does (its weapons, pickups and HUD).
-            bool ok = size_t(t - mod_menu_id) < mod_ok.size() && mod_ok[size_t(t - mod_menu_id)];
+            bool ok = size_t(mod_index(t)) < mod_ok.size() && mod_ok[size_t(mod_index(t))];
             return ok && (mod_type(t) != rush2::track_mod::race_battle || available());
         }
         if (t >= first_menu_id && t < r1_first) return available();
@@ -256,7 +260,7 @@ namespace {
     // stops at WIND, so the BATTLE select lists its own: TRACK, FOG, WIND, POINTS (LAPS), TIME LIMIT (CHECKPOINTS),
     // DRONES, DIFFICULTY.
     void filter_options(uint8_t* rdram) {
-        int t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int t = MEM_BU(0, (int32_t)track_id);
         std::vector<int> ids = stock_options;
         if (select_kind == select_battle) {
             ids = { option_track, option_fog, option_wind, option_laps, option_checkpoints, option_drones,
@@ -281,10 +285,10 @@ namespace {
             }
             // A point-to-point custom track is raced one way over one lap, as California Speed's; a run-in one forwards.
             if (is_mod_track(t) && (id == option_backward || id == option_laps) &&
-                rush2::track_mod::point_to_point(t - mod_menu_id)) {
+                rush2::track_mod::point_to_point(mod_index(t))) {
                 continue;
             }
-            if (is_mod_track(t) && id == option_backward && rush2::track_mod::run_in(t - mod_menu_id)) {
+            if (is_mod_track(t) && id == option_backward && rush2::track_mod::run_in(mod_index(t))) {
                 continue;
             }
             MEM_W(0, (int32_t)(option_rows + n++ * 4)) = id;
@@ -311,7 +315,7 @@ namespace {
     std::array<bool, 3> offered_kinds{};    // by SelectKind: the set has a track of that kind
     bool offered_rebuild = false;
 
-    // Whether the track select would offer track t (0-79) without the game filter: func_803AB01C's unlocks, the added
+    // Whether the track select would offer track t (0-254) without the game filter: func_803AB01C's unlocks, the added
     // tracks, and the stunt and battle filter.
     bool base_selectable(uint8_t* rdram, int t) {
         bool unlocked;
@@ -335,7 +339,7 @@ namespace {
     bool filter_leaves_none = false;
     int filter_keep_track = -1;     // The track shown when a changed filter rebuilt the screen.
 
-    // Whether the track select offers track t (0-79): base_selectable and the game filter.
+    // Whether the track select offers track t (0-254): base_selectable and the game filter.
     bool track_selectable(uint8_t* rdram, int t) {
         using namespace rush2::game_filter;
         return base_selectable(rdram, t) &&
@@ -386,6 +390,51 @@ namespace {
     bool menu_has_mods = false;
     bool menu_has_cs = false;
     std::string menu_container_mods;      // mod_signature the container was built with
+
+    // Where a preview's spare buffer room starts in its model blob (just past its tag, preview_buffer_tag after the
+    // list's end), or 0 when the blob has none.
+    size_t preview_room(const std::vector<uint8_t>& blob, uint32_t list) {
+        auto be32 = [&](size_t o) {
+            return uint32_t(blob[o] << 24 | blob[o + 1] << 16 | blob[o + 2] << 8 | blob[o + 3]);
+        };
+        for (size_t at = list; at + 8 <= blob.size(); at += 8) {
+            if (blob[at] != 0xDF) continue;
+            size_t tag = at + 8;
+            return tag + 16 <= blob.size() && be32(tag) == preview_buffer_tag ? tag + 16 : 0;
+        }
+        return 0;
+    }
+
+    // The game heap's room for the custom tracks' art in the track select's container (asset 3, src/assets.cpp): with
+    // Rush 2's, the 2049, SF Rush and Cal Speed tracks' art loaded the heap had about 3.8 MB left at the track select.
+    // Each custom track takes its logo (4.5 KB) and its diorama, about 10 KB for a route preview without its spare
+    // buffers (lent from the pool on screen instead), so 201 of them fit; authored dioramas can be much bigger. The
+    // dioramas past the room are left out, in mod order: those tracks show their logo and an empty diorama.
+    constexpr size_t mod_art_room = 3300 * 1024;
+    constexpr size_t mod_logo_bytes = 128 * 32 + 512;
+
+    // The size a custom track's diorama takes in the container (a route preview without its spare buffer room).
+    size_t mod_diorama_bytes(const rush2::track_mod::MenuArt& art) {
+        size_t room = art.route_preview ? preview_room(art.diorama, art.diorama_list) : 0;
+        return room != 0 ? room : art.diorama.size();
+    }
+
+    // Which custom tracks' dioramas the container holds (mod_art_room).
+    std::vector<bool> mod_dioramas_kept(const std::vector<bool>& ok, const std::vector<rush2::track_mod::MenuArt>& arts) {
+        size_t n = std::min(ok.size(), arts.size());
+        size_t used = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (ok[i]) used += mod_logo_bytes;
+        }
+        std::vector<bool> kept(n);
+        for (size_t i = 0; i < n; i++) {
+            if (!ok[i]) continue;
+            size_t bytes = mod_diorama_bytes(arts[i]);
+            kept[i] = used + bytes <= mod_art_room;
+            if (kept[i]) used += bytes;
+        }
+        return kept;
+    }
 
     // Asset 3 with the 2049, Rush 1, custom and Cal Speed tracks' dioramas and logos, and what it holds.
     struct MenuBuild {
@@ -495,9 +544,15 @@ namespace {
         }
     }
 
-    // Fills the 38-entry tables: Rush 2's 12 entries, then the 2049 tracks', the Rush 1 tracks', the stunt arenas', the
-    // obstacle course's and the battle arenas'.
+    // The track select ids in use, 0 to this (the circuit screen instances these entries' dioramas): up to the Cal
+    // Speed tracks, or the last custom track's past them. Set by write_tables.
+    std::atomic<int> table_entries = cs_end;
+
+    // Fills the 255-entry tables: Rush 2's 12 entries, then the 2049 tracks', the Rush 1 tracks', the stunt arenas', the
+    // obstacle course's, the battle arenas', the custom tracks' and the Cal Speed tracks'.
     void write_tables(uint8_t* rdram) {
+        size_t mods = std::min(mod_ok.size(), size_t(mod_capacity));
+        table_entries = mods > size_t(mod_low_count) ? mod_id(int(mods) - 1) + 1 : cs_end;
         for (int t = 0; t < rush2_tracks; t++) {
             MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = MEM_W(0, (int32_t)(diorama_names + t * 4));
             MEM_W(0, (int32_t)(new_diorama_scales + t * 4)) = MEM_W(0, (int32_t)(diorama_scales + t * 4));
@@ -548,14 +603,15 @@ namespace {
         }
         if (menu_has_mods) {
             uint32_t m = mod_strings;
+            std::vector<bool> kept = mod_dioramas_kept(mod_ok, mod_arts);
             for (size_t i = 0; i < mod_ok.size(); i++, m += 32) {
                 if (!mod_ok[i]) continue;
-                int t = mod_menu_id + int(i);
+                int t = mod_id(int(i));
                 // The author's diorama, or Rush 2049's preview of the route, posed and animated as the 2049 tracks'
                 // previews are (rush2_track49_select_pose).
                 write_string(rdram, m, rush2::track_mod::diorama_model_name(int(i)));
                 MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = m;
-                if (mod_arts[i].route_preview) preview_names[t] = m;
+                if (mod_arts[i].route_preview && kept[i]) preview_names[t] = m;
                 // The stock dioramas show about 800 model units on their longer side (VEGASTRACK 1000 x 0.8,
                 // HAWAIITRACK 1161 x 0.7, CRASHTRACK 1283 x 0.6); the converter makes an authored one 1200.
                 MEM_W(0, (int32_t)(new_diorama_scales + t * 4)) = 0x3F2AAAAB;    // 0.667
@@ -589,10 +645,11 @@ namespace {
         }
     }
 
-    // The order the track select lists its entries in: every id 0-79 once. Ids stay what saves and races use; only the
+    // The order the track select lists its entries in: every id 0-254 once. Ids stay what saves and races use; only the
     // carousel follows this order (rush2_track49_select_count, _carousel_order, _step). Custom tracks with a track.toml
     // [menu] after are moved behind the last entry of that game on their own select (race, stunt or battle), or behind
-    // the custom track of that folder; several behind one anchor keep the mod order. The others stay at 38-63.
+    // the custom track of that folder; several behind one anchor keep the mod order. The others stay in id order
+    // (38-63 before the Cal Speed tracks, 80-254 after them).
     std::vector<int> display_order;
 
     bool anchor_game(const std::string& name, rush2::game_filter::Game& out) {
@@ -623,7 +680,7 @@ namespace {
             for (size_t i = 0; i < n; i++) {
                 if (placed[i]) continue;
                 const std::string& after = entries[i].settings.menu_after;
-                int self = mod_menu_id + int(i);
+                int self = mod_id(int(i));
                 rush2::game_filter::Game game;
                 int anchor = -1;
                 if (anchor_game(after, game)) {
@@ -637,7 +694,7 @@ namespace {
                     size_t j = 0;
                     while (j < n && entries[j].folder != after) j++;
                     if (j < n && j != i && !placed[j]) continue;
-                    if (j < n && j != i) anchor = mod_menu_id + int(j);
+                    if (j < n && j != i) anchor = mod_id(int(j));
                 }
                 placed[i] = true;
                 if (anchor < 0) {
@@ -723,16 +780,35 @@ namespace {
         const std::vector<uint8_t>& base2 = b.has_rush1 ? with_rush1 : base;
         std::vector<MenuModel> models;
         std::vector<MenuLogo> logos;
+        std::vector<bool> kept = mod_dioramas_kept(ok, arts);
+        size_t left_out = 0;
         for (size_t i = 0; i < ok.size() && i < arts.size(); i++) {
             if (!ok[i]) continue;
             const rush2::track_mod::MenuArt& art = arts[i];
             MenuModel model{ rush2::track_mod::diorama_model_name(int(i)), art.diorama, art.diorama_list,
                              art.diorama_pointers, std::max(art.diorama_radius, 1.0f) };
+            // A route preview's spare buffers are lent from the pool on screen (lend_buffers), not kept here.
+            if (size_t room = art.route_preview ? preview_room(model.blob, model.list) : 0; room != 0) {
+                model.blob.resize(room);
+                size_t tag = room - 16;
+                uint32_t pooled = preview_pooled_tag;
+                for (int b = 0; b < 4; b++) model.blob[tag + size_t(b)] = uint8_t(pooled >> (24 - 8 * b));
+            }
+            if (!kept[i]) {
+                model.blob.clear();
+                model.list = 0;
+                model.pointers.clear();
+                left_out++;
+            }
             if (model.blob.empty()) model.blob = { 0xDF, 0, 0, 0, 0, 0, 0, 0 };   // draws nothing
             models.push_back(std::move(model));
             logos.push_back({ rush2::track_mod::logo_texture_name(int(i)), art.logo, art.logo_palette });
         }
         bool with_mods = !models.empty();
+        if (left_out != 0) {
+            printf("[trackmod] The track select has room for the art of fewer custom tracks; %zu show no diorama\n",
+                   left_out);
+        }
         if (rom_cs != nullptr) {
             std::vector<MenuModel> cs_models;
             std::vector<MenuLogo> cs_logos;
@@ -815,7 +891,7 @@ namespace {
 
     // Turns an added track's menu id into its host slot for the race.
     void enter_race(uint8_t* rdram) {
-        int t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int t = MEM_BU(0, (int32_t)track_id);
         if (t >= first_menu_id && t < mod_menu_id) {
             rush2::track_mod::set_race_track(-1);
         }
@@ -836,7 +912,7 @@ namespace {
             rush2::track1::set_race_track(0);
             set_stunt_arena(0);
             set_battle_arena(0);
-            rush2::track_mod::set_race_track(t - mod_menu_id);
+            rush2::track_mod::set_race_track(mod_index(t));
             // A custom arena races in STUNT1's slot (stunt mode), as Rush 2049's arenas.
             MEM_B(0, (int32_t)track_id) = is_arena(t) ? stunt_host_slot : host_slot;
         }
@@ -1014,17 +1090,19 @@ extern "C" void rush2_track49_select_init(uint8_t* rdram, recomp_context* ctx) {
     if (test_folder != nullptr) {
         std::vector<rush2::track_mod::Entry> mods = rush2::track_mod::tracks();
         for (size_t i = 0; i < mods.size(); i++) {
-            if (mods[i].folder == test_folder && track_selectable(rdram, mod_menu_id + int(i))) t = mod_menu_id + int(i);
+            if (i < size_t(mod_capacity) && mods[i].folder == test_folder && track_selectable(rdram, mod_id(int(i)))) {
+                t = mod_id(int(i));
+            }
         }
     }
     // The game filter: after it changed, the track that was shown; a choice it hides gives the first track it offers.
     if (filter_present != 0 && filter_on) {
-        int chosen = t >= 0 ? t : (int8_t)MEM_B(0, (int32_t)track_id);
+        int chosen = t >= 0 ? t : MEM_BU(0, (int32_t)track_id);
         if (filter_keep_track >= 0 && track_selectable(rdram, filter_keep_track)) chosen = filter_keep_track;
         for (int i = 0; i < menu_tracks && !track_selectable(rdram, chosen); i++) {
             if (track_selectable(rdram, i)) chosen = i;
         }
-        if (chosen != (int8_t)MEM_B(0, (int32_t)track_id)) t = chosen;
+        if (chosen != MEM_BU(0, (int32_t)track_id)) t = chosen;
     }
     filter_keep_track = -1;
     if (t >= 0) {
@@ -1052,7 +1130,7 @@ extern "C" int rush2_track49_filter_frame(uint8_t* rdram, recomp_context* ctx) {
     if (!offered_changed && !rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
         return 0;
     }
-    filter_keep_track = (int8_t)MEM_B(0, (int32_t)track_id);
+    filter_keep_track = MEM_BU(0, (int32_t)track_id);
     recomp_context saved = *ctx;
     ctx->r4 = 0;
     trackselect_init_draw_803AB294(rdram, ctx);
@@ -1075,7 +1153,7 @@ extern "C" void rush2_track49_select_count(uint8_t* rdram, recomp_context* ctx) 
     std::lock_guard lock{ menu_mutex };
     std::vector<int> shown = shown_tracks(rdram);
     ctx->r15 = int(shown.size());
-    auto at = std::find(shown.begin(), shown.end(), (int8_t)MEM_B(0, (int32_t)track_id));
+    auto at = std::find(shown.begin(), shown.end(), MEM_BU(0, (int32_t)track_id));
     if (at != shown.end()) MEM_H(0, (int32_t)carousel_position) = int16_t(at - shown.begin());
 }
 
@@ -1117,7 +1195,7 @@ extern "C" void rush2_track49_select_step(uint8_t* rdram, recomp_context* ctx) {
     if (position < 0 || position >= count || count > menu_tracks) return;
     uint8_t t = MEM_BU(0, (int32_t)(new_carousel + position * carousel_entry));
     MEM_B(0, (int32_t)ctx->r7) = t;
-    ctx->r6 = (int8_t)t;
+    ctx->r6 = t;
 }
 
 // func_803AB294 at 0x803ABB58, each frame per carousel entry $s0: its slot (place relative to the position, $v0 =
@@ -1172,9 +1250,98 @@ namespace {
         // A spare buffer's list ends with a branch at +commands x 8 to the rest of the model's list (rest): the
         // screenshot, then the state the stock dioramas leave and the end (finish, 0 when not found).
         uint32_t commands = 0, rest = 0, finish = 0;
+        uint32_t count = 0;                         // the vertices in a buffer
         bool still = false;                         // spare buffer 1 holds the route unturned, its plain color
+        // A custom track's preview (preview_pooled_tag): its spare buffers are lent from the pool while it is on
+        // screen (lend_buffers), pool slot `slot`; without them it is turned in place.
+        bool pooled = false;
+        int slot = -1;
     };
     PreviewModel preview_models[menu_tracks];
+
+    // The custom tracks' previews' spare buffers: up to 201 previews with two each would take 4 MB of the game heap
+    // the track select's container is loaded into (as the stock 2049 previews' are), so the container leaves them out
+    // (strip_spare_buffers) and the few previews on screen borrow a slot of this pool, in RDRAM the game heap used
+    // before it moved (src/assets.cpp). A slot goes to another preview once its own has been off screen for a few
+    // frames (the renderer may still be reading lists from the frames before).
+    constexpr uint32_t preview_pool = 0x80320000;
+    constexpr uint32_t preview_pool_slot = 0x8000;     // two buffers: vertices, the commands loading them, a branch, an end
+    constexpr int preview_pool_slots = 8;              // 0x80320000-0x80360000
+    constexpr uint32_t pool_idle_frames = 6;
+    std::array<int, preview_pool_slots> pool_owner = [] { std::array<int, preview_pool_slots> a; a.fill(-1); return a; }();
+    std::array<uint32_t, preview_pool_slots> pool_used{};
+    uint32_t pool_frame = 0;
+
+    // The pool forgets its previews without touching their records: the container they were in was loaded again.
+    void reset_pool() {
+        for (int& owner : pool_owner) {
+            if (owner >= 0) preview_models[owner].slot = -1;
+            owner = -1;
+        }
+    }
+
+    // Model m's spare buffers from `at`: each the vertices, then the model's commands loading them, a branch to the
+    // rest of the model's list and an end. `copy`: fill them from the model's own (else they were made before).
+    void make_spares(uint8_t* rdram, PreviewModel& m, uint32_t at, bool copy) {
+        for (int b = 1; b < preview_buffers; b++) {
+            m.vertices[b] = at;
+            m.lists[b] = at + m.count * 16;
+            at = m.lists[b] + (m.commands + 2) * 8;
+            if (!copy) continue;
+            for (uint32_t o = 0; o < m.count * 16; o += 4) {
+                MEM_W(0, (int32_t)(m.vertices[b] + o)) = MEM_W(0, (int32_t)(m.vertices[0] + o));
+            }
+            for (uint32_t i = 0; i < m.commands; i++) {
+                uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)(m.lists[0] + i * 8));
+                uint32_t w1 = (uint32_t)MEM_W(4, (int32_t)(m.lists[0] + i * 8));
+                if ((w0 >> 24) == 0x01) w1 += m.vertices[b] - m.vertices[0];
+                MEM_W(0, (int32_t)(m.lists[b] + i * 8)) = (int32_t)w0;
+                MEM_W(4, (int32_t)(m.lists[b] + i * 8)) = (int32_t)w1;
+            }
+            uint32_t rest = m.lists[b] + m.commands * 8;
+            MEM_W(0, (int32_t)rest) = (int32_t)0xDE010000;
+            MEM_W(4, (int32_t)rest) = (int32_t)m.rest;
+            MEM_W(8, (int32_t)rest) = (int32_t)0xDF000000;
+            MEM_W(12, (int32_t)rest) = 0;
+        }
+    }
+
+    // A pooled preview gives its slot back: drawn from its own list again.
+    void return_buffers(uint8_t* rdram, PreviewModel& m) {
+        if (m.slot < 0) return;
+        MEM_W(0xC, (int32_t)m.record) = (int32_t)m.lists[0];
+        pool_owner[size_t(m.slot)] = -1;
+        m.slot = -1;
+        m.buffers = 1;
+        m.turn = 0;
+        m.still = false;
+    }
+
+    // Entry t's pooled preview, on screen this frame, keeps or borrows a pool slot (none free: it is turned in place).
+    void lend_buffers(uint8_t* rdram, int t, PreviewModel& m) {
+        if (!m.pooled || m.record == 0) return;
+        if (m.slot >= 0) {
+            pool_used[size_t(m.slot)] = pool_frame;
+            return;
+        }
+        if (2 * (m.count * 16 + (m.commands + 2) * 8) > preview_pool_slot) return;
+        int pick = -1;
+        for (int s = 0; s < preview_pool_slots && pick < 0; s++) {
+            if (pool_owner[size_t(s)] < 0) pick = s;
+        }
+        for (int s = 0; s < preview_pool_slots && pick < 0; s++) {
+            if (pool_frame - pool_used[size_t(s)] > pool_idle_frames) pick = s;
+        }
+        if (pick < 0) return;
+        if (pool_owner[size_t(pick)] >= 0) return_buffers(rdram, preview_models[pool_owner[size_t(pick)]]);
+        pool_owner[size_t(pick)] = t;
+        pool_used[size_t(pick)] = pool_frame;
+        m.slot = pick;
+        make_spares(rdram, m, preview_pool + uint32_t(pick) * preview_pool_slot, true);
+        m.buffers = preview_buffers;
+        m.turn = 0;
+        m.still = false;
+    }
 
     float rdram_float(uint8_t* rdram, uint32_t address) {
         uint32_t w = (uint32_t)MEM_W(0, (int32_t)address);
@@ -1193,6 +1360,7 @@ namespace {
     // lookup after the container loads). `out` holds the last lookup's result.
     void find_model_vertices(uint8_t* rdram, recomp_context* ctx, int t, PreviewModel& out) {
         const PreviewModel last = std::move(out);
+        if (last.slot >= 0) pool_owner[size_t(last.slot)] = -1;    // its record is set below
         out = PreviewModel();
         out.looked_up = true;
         out.turn = last.turn;
@@ -1220,8 +1388,10 @@ namespace {
             else if ((w0 >> 24) == 0xDF) { tag = at + 8; break; }
         }
         uint32_t commands = 0, count = 0;
-        bool made = false;
-        if (tag != 0 && (uint32_t)MEM_W(0, (int32_t)tag) == preview_buffer_tag) {
+        bool made = false, pooled = false;
+        uint32_t tag_word = tag != 0 ? (uint32_t)MEM_W(0, (int32_t)tag) : 0;
+        if (tag_word == preview_buffer_tag || tag_word == preview_pooled_tag) {
+            pooled = tag_word == preview_pooled_tag;
             commands = (uint32_t)MEM_W(4, (int32_t)tag);
             count = (uint32_t)MEM_W(8, (int32_t)tag);
             uint32_t list = (uint32_t)MEM_W(12, (int32_t)tag);
@@ -1246,33 +1416,21 @@ namespace {
         out.lists[0] = own;
         out.buffers = 1;
         if (commands != 0 && commands < 4096 && count == (end - first) / 16) {
-            // Each spare buffer: the vertices, then the model's commands loading them, a branch to the rest of the
-            // model's list and an end.
-            uint32_t at = tag + 16;
-            for (int b = 1; b < preview_buffers; b++) {
-                out.vertices[b] = at;
-                out.lists[b] = at + count * 16;
-                at = out.lists[b] + (commands + 2) * 8;
-                if (made) continue;
-                for (uint32_t o = 0; o < count * 16; o += 4) {
-                    MEM_W(0, (int32_t)(out.vertices[b] + o)) = MEM_W(0, (int32_t)(first + o));
-                }
-                for (uint32_t i = 0; i < commands; i++) {
-                    uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)(own + i * 8)), w1 = (uint32_t)MEM_W(4, (int32_t)(own + i * 8));
-                    if ((w0 >> 24) == 0x01) w1 += out.vertices[b] - first;
-                    MEM_W(0, (int32_t)(out.lists[b] + i * 8)) = (int32_t)w0;
-                    MEM_W(4, (int32_t)(out.lists[b] + i * 8)) = (int32_t)w1;
-                }
-                uint32_t rest = out.lists[b] + commands * 8;
-                MEM_W(0, (int32_t)rest) = (int32_t)0xDE010000;
-                MEM_W(4, (int32_t)rest) = (int32_t)(own + commands * 8);
-                MEM_W(8, (int32_t)rest) = (int32_t)0xDF000000;
-                MEM_W(12, (int32_t)rest) = 0;
+            out.commands = commands;
+            out.count = count;
+            out.rest = own + commands * 8;
+            if (pooled) {
+                // Its spare buffers come from the pool while it is on screen; off a pool buffer an earlier visit
+                // left it on (the pool is reset with each container).
+                out.pooled = true;
+                MEM_W(0xC, (int32_t)record) = (int32_t)own;
+            }
+            else {
+                // In the container after the tag.
+                make_spares(rdram, out, tag + 16, !made);
+                out.buffers = preview_buffers;
             }
             MEM_W(12, (int32_t)tag) = (int32_t)own;
-            out.buffers = preview_buffers;
-            out.commands = commands;
-            out.rest = own + commands * 8;
             // The rest ends with the state the stock dioramas leave (track2049_art.cpp preview_finish: a pipe sync,
             // the render mode and the combine) before its end.
             for (uint32_t at = out.rest, i = 0; i < 4096 && (at >> 24) == 0x80; i++, at += 8) {
@@ -1303,8 +1461,9 @@ namespace {
 
 // func_803AB294 at 0x803AB7DC, building the carousel: $a0 = the diorama name of entry $s0 about to be looked up.
 extern "C" void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx) {
-    int t = (int8_t)MEM_B(0, (int32_t)ctx->r16);
-    if (t >= 0 && t < menu_tracks && preview_names[t] != 0) {
+    reset_pool();
+    int t = MEM_BU(0, (int32_t)ctx->r16);
+    if (t < menu_tracks && preview_names[t] != 0) {
         ctx->r4 = (int32_t)preview_names[t];
         preview_models[t].looked_up = false;
     }
@@ -1387,7 +1546,7 @@ namespace {
     // screen) at (target_x, target_y), `slide` along world x (the carousel's entries). Then turns the model and runs
     // the tube's highlight (`advance`: this frame's step), each frame in the next buffer.
     void pose_preview(uint8_t* rdram, recomp_context* ctx, int t, int16_t node, uint32_t camera_base, uint32_t view_base,
-                      float depth, float target_x, float target_y, float slide, bool advance) {
+                      float depth, float target_x, float target_y, float slide, bool advance, bool on_screen) {
         float m[3][3], position[3];
         if (!preview_matrix(rdram, camera_base, view_base, depth, 240.0f, 96.0f, target_x, target_y, 1.0f, m, position)) {
             return;
@@ -1406,6 +1565,7 @@ namespace {
         PreviewModel& model = preview_models[t];
         if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
         if (model.buffers == 0) return;
+        if (on_screen) lend_buffers(rdram, t, model);
         model.turn = (model.turn + 1) % model.buffers;
         if (model.buffers > 1) {
             MEM_W(0xC, (int32_t)model.record) = (int32_t)model.lists[model.turn];
@@ -1430,17 +1590,22 @@ namespace {
 // func_803AB294 at 0x803ABCA0, each frame: carousel entry $s0's node was just given its place and spun matrix.
 extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
     uint32_t entry = (uint32_t)ctx->r16;
-    int t = (int8_t)MEM_B(0, (int32_t)entry);
-    if (t < 0 || t >= menu_tracks || preview_names[t] == 0) return;
+    int t = MEM_BU(0, (int32_t)entry);
+    if (t >= menu_tracks || preview_names[t] == 0) return;
 
     // The carousel's centre entry sits at (0, y, z) and the others slide along x; the centre one advances the
     // highlight and the turn.
     float place[3] = { rdram_float(rdram, entry + 4), rdram_float(rdram, entry + 8), rdram_float(rdram, entry + 12) };
     const float centre[3] = { 0.0f, place[1], place[2] };
     int16_t node = (int16_t)MEM_H(0, (int32_t)(entry + 0x1A));
-    bool shown = (int8_t)MEM_B(0, (int32_t)(entry + 0x14)) == 0;
+    int slot = (int8_t)MEM_B(0, (int32_t)(entry + 0x14));
+    int count = MEM_H(0, (int32_t)carousel_count);
+    bool shown = slot == 0;
+    if (shown) pool_frame++;
+    // The centre entry and the two each side of it (sliding in or out) can be on screen.
+    bool on_screen = slot <= 2 || slot >= count - 2;
     pose_preview(rdram, ctx, t, node, camera, view, camera_depth(rdram, camera, centre), preview_disc_center_x,
-                 preview_disc_center_y, place[0], shown);
+                 preview_disc_center_y, place[0], shown, on_screen);
 }
 
 // The circuit screen (func_803B6260) shows the race's diorama in view 1, a window at the bottom right with its own
@@ -1466,7 +1631,15 @@ namespace {
     constexpr float circuit_route_size = 0.45f;              // the turning route (up to about 80 of 2049's pixels) in the window
 }
 
-// func_803B6260 at 0x803B6AFC, each frame: the shown diorama's node (0x80311600 + track * 4, +2) was just placed.
+// func_803B6260 at 0x803B64B4, the circuit screen's setup instancing a diorama per name table entry ($s1, from
+// 0x80310000) into the instance array (0x80312C00 + track * 4): $t8 is where the loop ends, which us.toml makes the
+// end of all 255; the entries past the ones in use are skipped (their instances stay -1, as the screen's teardown
+// leaves them).
+extern "C" void rush2_track49_circuit_entries(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r24 = (uint64_t)(int64_t)(int32_t)(new_diorama_names + uint32_t(table_entries.load()) * 4);
+}
+
+// func_803B6260 at 0x803B6AFC, each frame: the shown diorama's node (0x80312C00 + track * 4, +2) was just placed.
 extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) {
     int t = (int32_t)MEM_W(0, (int32_t)circuit_shown);
     if (!is_mod_track(t) || preview_names[t] == 0 ||
@@ -1477,6 +1650,8 @@ extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) 
     if (node < 0) return;
     PreviewModel& model = preview_models[t];
     if (!model.looked_up) find_model_vertices(rdram, ctx, t, model);
+    pool_frame++;
+    lend_buffers(rdram, t, model);
     if (model.buffers < 2 || model.finish == 0) return;
 
     float place[3];
@@ -1527,7 +1702,9 @@ extern "C" int rush2_track49_select_available(uint8_t* rdram, recomp_context* ct
 }
 
 // func_803ABE0C at 0x803AC104: the TRACK option wrapped below 0 and stored 11 at $a3; wrap to the last added track
-// instead (the availability check that follows steps back past entries that are off).
+// instead (the availability check that follows steps back past entries that are off). With the id read unsigned the
+// game no longer sees it go below 0 (past 254 it wraps to 0 instead); either way rush2_track49_select_step then takes
+// the track at the carousel's new position.
 extern "C" void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(0, (int32_t)ctx->r7) = uint8_t(menu_tracks - 1);
 }
@@ -1567,7 +1744,7 @@ extern "C" void rush2_track49_select_save_p2(uint8_t* rdram, recomp_context* ctx
 // on the current track at $a1. On the added tracks the unlock system decides (rush2::unlocks::added_track_keys).
 extern "C" int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx) {
     int count;
-    if (!rush2::unlocks::added_track_keys(rdram, (int32_t)ctx->r4, (int8_t)MEM_B(0, (int32_t)track_id),
+    if (!rush2::unlocks::added_track_keys(rdram, (int32_t)ctx->r4, MEM_BU(0, (int32_t)track_id),
                                           (ctx->r6 & 0xFF) != 0, count)) {
         return 0;
     }
@@ -1593,7 +1770,7 @@ int rush2::track2049::host_menu_track(uint8_t* rdram, int t) {
     rush2::calspeed::set_race_track(0);
     MEM_B(0, (int32_t)track_id) = (int8_t)t;
     enter_race(rdram);
-    return (int8_t)MEM_B(0, (int32_t)track_id);
+    return MEM_BU(0, (int32_t)track_id);
 }
 
 bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_t>& out) {
@@ -1627,10 +1804,10 @@ bool rush2::track2049::menu_track_logo(uint8_t* rdram, int t, std::vector<uint8_
         rush2::track_mod::MenuArt art;
         {
             std::lock_guard lock{ menu_mutex };
-            size_t i = size_t(t - mod_menu_id);
+            size_t i = size_t(mod_index(t));
             if (i < mod_ok.size() && mod_ok[i]) art.logo = mod_arts[i].logo, art.logo_palette = mod_arts[i].logo_palette;
         }
-        if (art.logo.empty() && !rush2::track_mod::menu_art(t - mod_menu_id, art)) return false;
+        if (art.logo.empty() && !rush2::track_mod::menu_art(mod_index(t), art)) return false;
         return set_race_logo(logo, art.logo, art.logo_palette, out);
     }
     return false;
@@ -1733,6 +1910,7 @@ extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx
     // so the route previews' models are looked up again (rush2_track49_circuit_pose).
     if ((ctx->r4 & 0xFF) != 0 && MEM_BU(0, (int32_t)circuit_set_up) == 0) {
         for (PreviewModel& model : preview_models) model.looked_up = false;
+        reset_pool();
     }
 }
 
@@ -1821,7 +1999,7 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     // The races, once per circuit (the generator runs on every visit to the circuit screen).
     static std::string logged;
     std::string races;
-    for (int i = 0; i <= last; i++) races += " " + std::to_string(MEM_B(0, (int32_t)(circuit_races + i * 4)));
+    for (int i = 0; i <= last; i++) races += " " + std::to_string(MEM_BU(0, (int32_t)(circuit_races + i * 4)));
     if (races != logged) {
         logged = races;
         printf("[circuit] Tracks:%s\n", races.c_str());
@@ -2063,7 +2241,7 @@ extern "C" int rush2_track49_battle_step(uint8_t* rdram, recomp_context* ctx) {
 
 // func_803C6268 at 0x803C6354: $s5 = 11, which the option list compares with the track to grey options.
 extern "C" void rush2_track49_stunt_options(uint8_t* rdram, recomp_context* ctx) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     if (is_stunt_course(t)) ctx->r21 = (uint64_t)(int64_t)t;
 }
 
@@ -2190,7 +2368,7 @@ std::string rush2::track2049::online_track_key(int t) {
     if (!is_mod_track(t) || !entry_available(t)) {
         return {};
     }
-    return rush2::track_mod::identity(t - mod_menu_id);
+    return rush2::track_mod::identity(mod_index(t));
 }
 
 int rush2::track2049::track_for_online_key(const std::string& key) {
@@ -2200,7 +2378,7 @@ int rush2::track2049::track_for_online_key(const std::string& key) {
     std::lock_guard lock{ menu_mutex };
     for (size_t i = 0; i < mod_ok.size(); i++) {
         if (mod_ok[i] && rush2::track_mod::identity(int(i)) == key) {
-            return mod_menu_id + int(i);
+            return mod_id(int(i));
         }
     }
     return -1;
@@ -2211,7 +2389,7 @@ std::string rush2::track2049::mod_track_name(int t) {
         return {};
     }
     std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
-    size_t i = size_t(t - mod_menu_id);
+    size_t i = size_t(mod_index(t));
     return i < entries.size() ? entries[i].settings.name : std::string();
 }
 

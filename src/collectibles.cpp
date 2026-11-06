@@ -148,7 +148,7 @@ namespace {
 
     // The course of the added track being raced, or -1.
     int hosted_course(uint8_t* rdram) {
-        int t = (int8_t)MEM_B(0, (int32_t)track_id);
+        int t = MEM_BU(0, (int32_t)track_id);
         if (t == rush2::track2049::host_slot) {
             int k = rush2::track1::race_track();
             if (k >= 1 && k <= sfrush_courses) {

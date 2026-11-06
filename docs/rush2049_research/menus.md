@@ -583,7 +583,7 @@ review's (and the next track select's) earlier races were other tracks than the 
 The hook now winds the state back 4 x (current + 1) draws (multiplier inverse mod 2^32) to the state before the
 loop, which depends only on the circuit, and every machine of an online circuit computes the same one.
 
-Custom tracks (ids 38-63) also follow the enabled mods, which can
+Custom tracks (ids 38-63 and 80-254) also follow the enabled mods, which can
 be missing for a while (the arcade mod is rebuilt at launch after a new build) or in another order, so a circuit's
 earlier races could come out as other tracks. The hook also keeps each race's track and direction bits with the circuit's record (saves "circuits", key
 `tracks`: `[race, track id or custom track folder, direction]`, `rush2::circuit::record_races`) and takes them from
@@ -597,7 +597,7 @@ keeps no record.
 The CIRCUIT REVIEW screen (`menu_screen_circuit_803B6260`, screen 0xB) shows the race picked with the arrows
 (`menu_circuit_alpha_803C7A64`: -1 the totals, else a race index) and that race's track
 (`menu_circuit_logo_state_803CB414` = 0x800D3A60[race].track, 0 for the totals): the logo widget
-(`func_803BE528`) reads the logo name table, and the diorama is the track's instance (0x80311600 + track x 4, +2 its
+(`func_803BE528`) reads the logo name table, and the diorama is the track's instance (0x80312C00 + track x 4, +2 its
 node), placed every frame at 0x803B6AF4 from `menu_circuit_float_d_803CB440` (position) and turned by
 0x803C7A68. It is drawn in view 1, the window at the bottom right: camera 0x800E7A10 (view 0's at 0x800E79D0, 0x40 a
 view), projection `func_80054A50(1, 60, 0, 113, 127, 239, 195)` (view 0x802401F0 + 0x54: 60 degrees, 113 wide, the

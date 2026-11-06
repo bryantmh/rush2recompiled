@@ -365,7 +365,7 @@ void rush2::track1::restore_host(uint8_t* rdram) {
 
 bool rush2::track1::load(uint8_t* rdram) {
     int k = raced_track;
-    if (k == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
+    if (k == 0 || MEM_BU(0, (int32_t)track_id) != host_slot) {
         restore_host(rdram);
         return false;
     }
@@ -392,7 +392,7 @@ bool rush2::track1::load(uint8_t* rdram) {
 
 bool rush2::track1::pvs(uint8_t* rdram, uint32_t sp, uint32_t& table) {
     std::lock_guard lock{ track_mutex };
-    if (!applied || MEM_B(0, (int32_t)track_id) != host_slot) {
+    if (!applied || MEM_BU(0, (int32_t)track_id) != host_slot) {
         return false;
     }
     table = pvs_table;
@@ -460,7 +460,7 @@ extern "C" void rush2_track1_wrong_way(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = cars + (state - states) / 0x354 * 0x81C;
     int last = (int16_t)MEM_H(0, (int32_t)(car + 0x7FE)), next = (int16_t)MEM_H(0, (int32_t)(car + 0x800));
     std::lock_guard lock{ track_mutex };
-    if (!applied || MEM_B(0, (int32_t)track_id) != host_slot) {
+    if (!applied || MEM_BU(0, (int32_t)track_id) != host_slot) {
         return;
     }
     uint16_t mask = track.timing[applied_backward == 1 ? 1 : 0].no_wrong_way;
@@ -479,7 +479,7 @@ extern "C" void rush2_track1_fall_floor(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     std::lock_guard lock{ track_mutex };
-    if (applied && MEM_B(0, (int32_t)track_id) == host_slot) {
+    if (applied && MEM_BU(0, (int32_t)track_id) == host_slot) {
         ctx->f16.fl = -290.0f;
     }
 }
@@ -502,7 +502,7 @@ bool rush2::track1::race_time(uint8_t* rdram) {
     constexpr uint32_t difficulty = 0x8010C211; // 0-5.
     constexpr uint32_t laps = 0x8010C0E2;
     std::lock_guard lock{ track_mutex };
-    if (!applied || raced_track == 0 || MEM_B(0, (int32_t)track_id) != host_slot) {
+    if (!applied || raced_track == 0 || MEM_BU(0, (int32_t)track_id) != host_slot) {
         return false;
     }
     const ConvertedTrack::Timing& timing = track.timing[applied_backward == 1 ? 1 : 0];

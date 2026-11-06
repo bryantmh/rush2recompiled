@@ -425,7 +425,7 @@ namespace {
     }
 
     bool hosting(uint8_t* rdram) {
-        return applied && MEM_B(0, (int32_t)track_id) == slot;
+        return applied && MEM_BU(0, (int32_t)track_id) == slot;
     }
 
     bool hosting_mod(uint8_t* rdram) {
@@ -476,33 +476,33 @@ int rush2::track2049::loaded_slot() {
 
 bool rush2::track2049::converted_race(uint8_t* rdram) {
     int s = applied_slot;
-    return s >= 0 && MEM_B(0, (int32_t)track_id) == s;
+    return s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::mod_smooth_collision(uint8_t* rdram, float* fold) {
     int s = applied_slot;
-    if (!applied_smooth || s < 0 || MEM_B(0, (int32_t)track_id) != s) return false;
+    if (!applied_smooth || s < 0 || MEM_BU(0, (int32_t)track_id) != s) return false;
     if (fold) *fold = applied_smooth_fold;
     return true;
 }
 
 bool rush2::track2049::mod_random_song(uint8_t* rdram) {
     int s = applied_slot;
-    return applied_random_song && s >= 0 && MEM_B(0, (int32_t)track_id) == s;
+    return applied_random_song && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::mod_point_to_point(uint8_t* rdram) {
     int s = applied_slot;
-    return applied_p2p && s >= 0 && MEM_B(0, (int32_t)track_id) == s;
+    return applied_p2p && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::mod_road_hold(uint8_t* rdram) {
     int s = applied_slot;
-    return applied_road_hold && s >= 0 && MEM_B(0, (int32_t)track_id) == s;
+    return applied_road_hold && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
 }
 
 bool rush2::track2049::obstacle_race(uint8_t* rdram) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     // The track select's id before the race setup turns it into the host slot's.
     return t == obstacle_menu_id || (t == host_slot && raced_track == obstacle);
 }
@@ -514,19 +514,19 @@ static int mod_arena(int t) {
 }
 
 bool rush2::track2049::battle_race(uint8_t* rdram) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     return (t >= battle_menu_id && t < battle_menu_id + battle_count) || (t == stunt_host_slot && raced_battle != 0) ||
            mod_arena(t) == rush2::track_mod::race_battle ||
-           (t >= mod_menu_id && t < mod_menu_id + mod_capacity && rush2::track_mod::type_of(t - mod_menu_id) == rush2::track_mod::race_battle);
+           (is_mod_id(t) && rush2::track_mod::type_of(mod_index(t)) == rush2::track_mod::race_battle);
 }
 
 bool rush2::track2049::battle_arena_race(uint8_t* rdram) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     return t == stunt_host_slot && (raced_battle != 0 || mod_arena(t) == rush2::track_mod::race_battle);
 }
 
 rush2::track2049::GameType rush2::track2049::game_type(uint8_t* rdram) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     if (t == host_slot && raced_track == obstacle) return GameType::obstacle;
     if (t == host_slot && raced_track != 0) return GameType::race;
     if (t == stunt_host_slot && raced_stunt != 0) return GameType::stunt;
@@ -556,7 +556,7 @@ extern "C" void rush2_track49_load(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     std::lock_guard lock{ track_mutex };
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     int k = 0, want_slot = -1;
     if (raced_track != 0 && t == host_slot) {
         k = raced_track;
@@ -761,7 +761,7 @@ extern "C" void rush2_track49_pvs(uint8_t* rdram, recomp_context* ctx) {
             table = pvs_table;
         }
         else {
-            int slot = MEM_B(0, (int32_t)track_id);
+            int slot = MEM_BU(0, (int32_t)track_id);
             table = slot >= 0 && slot < 12 ? rush2_tables[slot] : 0;
         }
     }
@@ -858,7 +858,7 @@ namespace {
     }
 
     bool calspeed_path(uint8_t* rdram) {
-        return rush2::calspeed::race_track() > 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+        return rush2::calspeed::race_track() > 0 && MEM_BU(0, (int32_t)track_id) == host_slot;
     }
 
     void calspeed_lane_speeds(uint8_t* rdram) {
@@ -905,7 +905,7 @@ extern "C" void rush2_race_lane_speeds(uint8_t* rdram, recomp_context* ctx) {
         calspeed_lane_speeds(rdram);
         return;
     }
-    bool rush2049_path = rush2::track2049::race_track() != 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+    bool rush2049_path = rush2::track2049::race_track() != 0 && MEM_BU(0, (int32_t)track_id) == host_slot;
     for (int lane = 0; lane < 4; lane++) {
         uint32_t points = (uint32_t)MEM_W(0, (int32_t)(lane_points + lane * 4));
         uint32_t count = MEM_HU(0, (int32_t)(lane_counts + lane * 2));
@@ -965,7 +965,7 @@ static void path_race_time(uint8_t* rdram) {
         }
         return;
     }
-    bool hosted_2049 = rush2::track2049::race_track() != 0 && MEM_B(0, (int32_t)track_id) == host_slot;
+    bool hosted_2049 = rush2::track2049::race_track() != 0 && MEM_BU(0, (int32_t)track_id) == host_slot;
     if (hosted_2049 && rush2::track2049::race_track() == rush2::track2049::obstacle) {
         // Rush 2049's obstacle course gives no time at checkpoints (rush2_track49_obstacle_clock sets the clock).
         MEM_H(0, (int32_t)header) = (int16_t)rush2::track2049::obstacle_time;
@@ -1041,7 +1041,7 @@ extern "C" void rush2_track49_race_time(uint8_t* rdram, recomp_context* ctx) {
 
 // The Cal Speed track (0-15) of the race being set up (its track select id) or run (the host slot), or -1.
 static int calspeed_race(uint8_t* rdram) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
+    int t = MEM_BU(0, (int32_t)track_id);
     if (rush2::calspeed::is_menu_track(t)) return t - rush2::calspeed::first_menu_id;
     if (t == host_slot && rush2::calspeed::race_track() > 0) return rush2::calspeed::race_track() - 1;
     return -1;
@@ -1050,9 +1050,9 @@ static int calspeed_race(uint8_t* rdram) {
 // The custom track (index into rush2::track_mod::tracks()) of the race being set up (its track select id) or run (the
 // host slot), or -1.
 static int mod_race(uint8_t* rdram) {
-    int t = (int8_t)MEM_B(0, (int32_t)track_id);
-    if (t >= rush2::track2049::mod_menu_id && t < rush2::track2049::mod_menu_id + rush2::track2049::mod_capacity) {
-        return t - rush2::track2049::mod_menu_id;
+    int t = MEM_BU(0, (int32_t)track_id);
+    if (rush2::track2049::is_mod_id(t)) {
+        return rush2::track2049::mod_index(t);
     }
     if (t == host_slot && rush2::track_mod::race_track() >= 0) return rush2::track_mod::race_track();
     return -1;
@@ -1430,6 +1430,14 @@ extern "C" void rush2_track49_battle_rearm(uint8_t* rdram, recomp_context* ctx) 
 // Rush 2049 shows neither on count as it.
 extern "C" void rush2_track49_map_s4(uint8_t* rdram, recomp_context* ctx) {
     if (rush2::track2049::no_map(rdram)) ctx->r20 = stunt_host_slot;
+}
+
+// func_800B8188 at 0x800B8270: $s6 and $s7 are the path's x and z extents (s16 bounds 0x8010D394 - 0x8010D3A0 and
+// +4), which the map's scale divides by. A custom track whose path has no width along one of them (a broken export)
+// divided by zero and crashed the race setup; at least 1 draws its map as a line or a dot. Real paths are never 0.
+extern "C" void rush2_map_extent(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r22 == 0) ctx->r22 = 1;
+    if ((int32_t)ctx->r23 == 0) ctx->r23 = 1;
 }
 
 extern "C" void rush2_track49_map_a1(uint8_t* rdram, recomp_context* ctx) {

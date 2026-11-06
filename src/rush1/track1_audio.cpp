@@ -356,7 +356,7 @@ extern "C" void rush2_track1_song_bank(uint8_t* rdram, recomp_context* ctx) {
 // an SF Rush track it is SF Rush's FIRECRK instead, a looped sound at the position (func_80099C20(sound, &pos, range),
 // as SF Rush's func_800C3678 does with its fireworks sound). Returns true when it replaced the emitter.
 extern "C" int rush2_track1_fireworks(uint8_t* rdram, recomp_context* ctx) {
-    if (rush2::track1::race_track() == 0 || MEM_B(0, (int32_t)track_id) != rush2::track2049::host_slot) {
+    if (rush2::track1::race_track() == 0 || MEM_BU(0, (int32_t)track_id) != rush2::track2049::host_slot) {
         return 0;
     }
     std::lock_guard lock{ mutex };

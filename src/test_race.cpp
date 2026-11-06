@@ -69,8 +69,8 @@ namespace {
     constexpr uint32_t race_type = 0x8010C3E8;         // s32: 0 a race, 1 circuit, 2 stunt
     constexpr uint32_t menu_settings = 0x800D5760;     // +0 laps, +1 drones (func_80094698 copies them to the race)
     constexpr int max_players = 4;
-    // Track select ids: Rush 2's, the added games', the custom tracks' (38-63) and California Speed's (64-79) last.
-    constexpr int menu_tracks = rush2::calspeed::first_menu_id + rush2::calspeed::track_count;
+    // Track select ids: Rush 2's, the added games', the custom tracks' (38-63 and 80-254) and California Speed's (64-79).
+    constexpr int menu_tracks = rush2::track2049::menu_id_limit;
 
     int call(uint8_t* rdram, recomp_context* ctx, void (*func)(uint8_t*, recomp_context*), int32_t a0 = 0,
              int32_t a1 = 0) {
@@ -97,8 +97,8 @@ namespace {
         }
         std::vector<rush2::track_mod::Entry> mods = rush2::track_mod::tracks();
         for (size_t i = 0; i < mods.size(); i++) {
-            if (mods[i].folder == spec && rush2::track2049::mod_menu_id + int(i) < rush2::calspeed::first_menu_id) {
-                return rush2::track2049::mod_menu_id + int(i);
+            if (mods[i].folder == spec && i < size_t(rush2::track2049::mod_capacity)) {
+                return rush2::track2049::mod_id(int(i));
             }
         }
         return -1;

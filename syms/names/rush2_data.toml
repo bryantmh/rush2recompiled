@@ -10920,8 +10920,8 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x8010C3F0
 name = "menu_track_id"
-type = "s8"
-desc = "Track select id of the track to race (0-11 Rush 2, 12+ added tracks; the race setup hook turns an added track into its host slot) and of the title/victory screen's attract demo (func_800AB824 gives the next)."
+type = "u8"
+desc = "Track select id of the track to race (0-11 Rush 2, 12-254 added tracks, custom tracks up to 254; the game read it signed, us.toml makes every load lbu (tools/byte_reads.py); the race setup hook turns an added track into its host slot) and of the title/victory screen's attract demo (func_800AB824 gives the next)."
 area = "menu"
 status = "verified"
 ref = "docs/rush2049_research/menus.md#accurate-circuit-review-port-v"

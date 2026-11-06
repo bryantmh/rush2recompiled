@@ -724,7 +724,7 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
     rush2_track49_collision_selftest(rdram, ctx);
     std::lock_guard lock{ movers_mutex };
     int slot = rush2::track2049::loaded_slot();
-    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {
+    if (slot < 0 || MEM_BU(0, (int32_t)track_id) != slot) {
         rush2::interpolation_clear_node_aliases();  // the node pool belongs to another track now
         if (active) {
             rush2::track2049::stop_object_sounds();

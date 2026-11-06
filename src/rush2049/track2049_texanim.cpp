@@ -316,7 +316,7 @@ void rush2::track2049::texanim_reset() {
 void rush2::track2049::texanim_tick(uint8_t* rdram, float dt) {
     std::lock_guard lock{ texanim_mutex };
     int slot = loaded_slot();
-    if (slot < 0 || MEM_B(0, (int32_t)track_id) != slot) {
+    if (slot < 0 || MEM_BU(0, (int32_t)track_id) != slot) {
         active = false;
         return;
     }

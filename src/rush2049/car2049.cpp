@@ -3087,7 +3087,7 @@ extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     // The raced track: each game's own (its race_track) in the host slot.
-    bool host_slot = MEM_B(0, (int32_t)0x8010C3F0) == rush2::track2049::host_slot;
+    bool host_slot = MEM_BU(0, (int32_t)0x8010C3F0) == rush2::track2049::host_slot;
     bool track_49 = host_slot && rush2::track2049::race_track() > 0;
     bool track_cs = host_slot && rush2::calspeed::race_track() > 0;
     constexpr int rush2_drone_types = 16;

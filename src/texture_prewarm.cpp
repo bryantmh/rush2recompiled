@@ -291,7 +291,7 @@ namespace {
     // The attract demo's next track (race_next_attract_track_800AB824): the last one + 1, wrapping at 7, with ATARI
     // (10) after the 7th once it is unlocked.
     int next_attract_track(uint8_t* rdram) {
-        int t = (int8_t)MEM_B(0, (int32_t)track_id) + 1;
+        int t = MEM_BU(0, (int32_t)track_id) + 1;
         if (t < 7) return t;
         return t == 7 && MEM_BU(0, (int32_t)unlock_tracks) != 0 ? 10 : 0;
     }
@@ -320,7 +320,7 @@ void rush2::texture_prewarm::frame(uint8_t* rdram) {
     frame_count++;
 
     // Each visit to the car select, and each track picked there, prewarms that track.
-    int at_car_select = state == 2 ? (int8_t)MEM_B(0, (int32_t)track_id) : -1;
+    int at_car_select = state == 2 ? MEM_BU(0, (int32_t)track_id) : -1;
     if (at_car_select != car_select_track) {
         car_select_track = at_car_select;
         if (at_car_select >= 0) set_track(at_car_select);
@@ -344,7 +344,7 @@ void rush2::texture_prewarm::frame(uint8_t* rdram) {
         // The attract demo races the stock track it set as the menu's (0x800ACFE0); a player's race is on the track
         // its car select had.
         if (MEM_BU(0, (int32_t)race_game_mode) != 0) {
-            int demo_track = (int8_t)MEM_B(0, (int32_t)track_id);
+            int demo_track = MEM_BU(0, (int32_t)track_id);
             if (demo_track != track) known.clear();
             track = demo_track;
         }
@@ -361,7 +361,7 @@ void rush2::texture_prewarm::frame(uint8_t* rdram) {
         if (MEM_BU(0, (int32_t)race_game_mode) != 0) {
             // In case the demo flag is set after the race start state.
             std::lock_guard lock{ mutex };
-            track = (int8_t)MEM_B(0, (int32_t)track_id);
+            track = MEM_BU(0, (int32_t)track_id);
         }
         if (state == 3 && !racing) {
             racing = true;
