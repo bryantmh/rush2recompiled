@@ -543,14 +543,15 @@ in 0x800D3E40): `+2` races finished, `+4` random seed, `+8` the cars' places, 3 
 ### Circuit length and courses (port) [V]
 
 The General tab's Circuit Length select (4 to 28 races) and Circuit Courses section (a toggle per course of Rush 2
-0-6, CRASH 8 and PIPE 9, Rush 2049 12-17, the Rush 2049 race tracks' Dreamcast versions 249-254 (their own game
+0-6, HALFPIPE 7, CRASH 8, PIPE 9 and MIDWAY 10, Rush 2049 12-17, the Rush 2049 race tracks' Dreamcast versions 249-254 (their own game
 group, "Rush 2049 Dreamcast", shown while both copies are enabled: docs/custom_tracks.md#versions), SF Rush 18-24 and
 California Speed 64-79, and one per game for all of them) are in src/circuit.cpp (`course_ids` 255).
-CRASH and PIPE start off, since Rush 2's own circuits only draw tracks 0-6; PIPE is only drawn once it is unlocked
-(0x800E7D50 or the UNLOCKS shop), and HALFPIPE (7) is never a course. A circuit keeps
+HALFPIPE, CRASH, PIPE and MIDWAY start off, since Rush 2's own circuits only draw tracks 0-6; PIPE and MIDWAY are only
+drawn once unlocked (0x800E7D50 / 0x800E7D19 or the UNLOCKS shop). Their toggles are always listed, as in Rush 2's
+track select options. A circuit keeps
 what was chosen when it started: the hook at the end of `func_800B2A58` (0x800B2BBC) records the length and courses
 against the block's seed in the saves file's "circuits" section; a circuit with no record is 28 races over every
-course but CRASH, PIPE and California Speed's. Rush 2 compares the length 28 in six places, each hooked to use the circuit's length L:
+course but HALFPIPE to MIDWAY and California Speed's. Rush 2 compares the length 28 in six places, each hooked to use the circuit's length L:
 
 | Where | Test | Hook |
 |---|---|---|

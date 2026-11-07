@@ -2500,8 +2500,8 @@ extern "C" void rush2_track49_circuit_screen(uint8_t* rdram, recomp_context* ctx
 }
 
 // func_800A7DCC after it generated a circuit's races (tracks 0-6). With added tracks available, or only some courses
-// chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7, CRASH and
-// PIPE (8 and 9, once unlocked; Rush 2's circuits never have them) and the added tracks, custom tracks included (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
+// chosen for the circuit (src/circuit.cpp), the tracks are picked again from the chosen ones among Rush 2's 7, HALFPIPE,
+// CRASH, PIPE and MIDWAY (7-10, PIPE and MIDWAY once unlocked; Rush 2's circuits never have them) and the added tracks, custom tracks included (all of them if none is chosen), with Rush 2's rules: no track twice in a row, at most 4 times in all,
 // and no track in the same direction twice. The game generates races only up to the one to come, so the picks are
 // seeded from its random state before its race loop (which moves on with every race run; seeding from the state after
 // it re-picked the races already run, so a circuit's review showed other tracks than the ones raced). The generator
@@ -2516,8 +2516,10 @@ extern "C" void rush2_track49_circuit(uint8_t* rdram, recomp_context* ctx) {
     }
     std::vector<int> all, pool;
     for (int t = 0; t < circuit_stock_tracks; t++) all.push_back(t);
+    all.push_back(7);   // HALFPIPE
     all.push_back(8);   // CRASH
     if (rush2::unlocks::track_open(rdram, 9, MEM_BU(0, (int32_t)pipe_unlocked) != 0)) all.push_back(9);
+    if (rush2::unlocks::track_open(rdram, 10, MEM_BU(0, (int32_t)atari_unlocked) != 0)) all.push_back(10);   // MIDWAY
     for (int t = first_menu_id; t < circuit_tracks; t++) {
         if (entry_available(t) && !is_stunt_course(t) && rush2::unlocks::track_open(rdram, course_id(t))) all.push_back(t);
     }
