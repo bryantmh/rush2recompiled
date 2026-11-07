@@ -79,7 +79,8 @@ namespace {
 
     const std::string description =
         "Adds the tracks, cars and wings of San Francisco Rush 2049 and the tracks of San Francisco Rush and California "
-        "Speed, from their USA N64 ROMs, and the Rush 2049 arcade game's own track and cars.\n\n"
+        "Speed, from their USA N64 ROMs, the Rush 2049 arcade game's own track and cars, and the SF Rush arcade game's "
+        "versions of its tracks.\n\n"
         "Select each game's ROM or disc once; it is copied into the app folder.";
 
     class GamesPage : public rush2::ui::OptionsPage {
@@ -93,6 +94,7 @@ namespace {
             rush2::track1::add_games_section(this, refresh[1]);
             rush2::arcade2049::add_games_section(this, refresh[3]);
             rush2::arcade2049::add_options(this);
+            rush2::arcade2049::add_games_section(this, refresh[4], rush2::arcade2049::sfrush_arcade);
             next_column();
             rush2::calspeed::add_games_section(this, refresh[2]);
             update_battle_options(battles);
@@ -114,7 +116,7 @@ namespace {
         }
 
     private:
-        std::function<void()> refresh[4];
+        std::function<void()> refresh[5];
         bool battles = rush2::track2049::available();
 
         static std::string html(const std::string& text) {

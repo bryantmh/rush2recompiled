@@ -82,7 +82,7 @@ bool a49::Texture::rgba(const std::vector<uint8_t>& texels, std::vector<uint8_t>
         }
         int c, a = 255;
         if (fmt == fmt_yiq422) c = p[k];
-        else if (fmt == fmt_ayiq8422) c = p[2 * k], a = p[2 * k + 1];
+        else if (fmt == fmt_ayiq8422) c = p[2 * k + (alpha_first ? 1 : 0)], a = p[2 * k + (alpha_first ? 0 : 1)];
         else return false;
         for (int ch = 0; ch < 3; ch++) {
             int v = y[c >> 4] + i[(c >> 2) & 3][ch] + q[c & 3][ch];
@@ -116,26 +116,52 @@ bool a49::Track::open(const std::filesystem::path& folder, std::string& error) {
         return false;
     }
     Reader r{ d };
-    // Header at 0x50: u32 object count, u32 0, u32 object name table, u32 texture name table; 0x64: u32 texture count.
-    uint32_t n_obj = r.u32(0x50), obj_names = r.u32(0x58), tex_names = r.u32(0x5C), n_tex = r.u32(0x64);
+    // Header at 0x50: u32 object count, u32 0, u32 object name table, u32 texture name table; 0x60: u32 object count,
+    // u32 texture count. The count is read at 0x60: Rush The Rock keeps another number at 0x50 (64 of TRACK1's 607).
+    uint32_t n_obj = r.u32(0x60), obj_names = r.u32(0x58), tex_names = r.u32(0x5C), n_tex = r.u32(0x64);
     if (!r.ok || n_obj > 100000 || n_tex > 100000) {
         error = "objects.rom header unreadable";
         return false;
+    }
+    // Vertex records: Rush 2049's 28 bytes (f32 x, y, z, s, t, u16 flags, u8 r, g, b, a, u16 0xDEAD), Rush The Rock's
+    // 24 (f32 x, y, z, s, t, u16 flags, u8 a shade index (not decoded), u8 0: no color, drawn white). Told apart by the
+    // gap from an object's vertices to its triangles, which follow them (every object of either game).
+    size_t vsize = 28;
+    for (uint32_t k = 0; k < n_obj && r.ok; k++) {
+        size_t lo = 0x68 + 0x8C * size_t(k) + 0xC;
+        uint32_t nv = r.u32(lo + 8), ov = r.u32(lo + 12), ot = r.u32(lo + 20);
+        if (nv == 0 || ot <= ov) continue;
+        if (ot - ov == size_t(nv) * 24) vsize = 24;
+        break;
     }
     for (uint32_t k = 0; k < n_obj && r.ok; k++) {
         Object o;
         o.name = r.name(obj_names + 0x18 * k, 16);
         // The object header (0x8C bytes from 0x68): u32 0, f32 radius, u32 LOD count, 4 LOD slots of 0x20 bytes.
         size_t lo = 0x68 + 0x8C * size_t(k) + 0xC;
+        if (vsize == 24) {
+            // Rush The Rock lists an object's LODs the other way round: slot 0 is the coarse model with the distance it
+            // starts at (a cone: 4 triangles from 20 ft), the full one follows with distance 0 (199 of Golden Gate's
+            // 202 multi-LOD objects). Taken from slot 0, the scenery was coarse up close and its pieces didn't meet
+            // (holes). The slot with the smallest distance is the near model; Rush 2049's is slot 0.
+            uint32_t lods = std::clamp<uint32_t>(r.u32(0x68 + 0x8C * size_t(k) + 8), 1, 4);
+            size_t best = lo;
+            for (uint32_t s = 1; s < lods; s++) {
+                size_t at = lo + 0x20 * s;
+                if (r.u32(at + 8) != 0 && r.f32(at) < r.f32(best)) best = at;
+            }
+            lo = best;
+        }
         uint32_t nv = r.u32(lo + 8), ov = r.u32(lo + 12), nt = r.u32(lo + 16), ot = r.u32(lo + 20);
-        if (!r.has(ov, size_t(nv) * 28) || !r.has(ot, size_t(nt) * 8)) break;
+        if (!r.has(ov, size_t(nv) * vsize) || !r.has(ot, size_t(nt) * 8)) break;
         o.lod0.verts.resize(nv);
         for (uint32_t v = 0; v < nv; v++) {
-            size_t vo = ov + 28 * size_t(v);
+            size_t vo = ov + vsize * size_t(v);
             Vertex& x = o.lod0.verts[v];
             x.pos = { r.f32(vo), r.f32(vo + 4), r.f32(vo + 8) };
             x.st = { r.f32(vo + 12), r.f32(vo + 16) };
-            memcpy(x.rgba.data(), d.data() + vo + 22, 4);
+            if (vsize == 28) memcpy(x.rgba.data(), d.data() + vo + 22, 4);
+            else x.rgba = { 255, 255, 255, 255 };
         }
         o.lod0.tris.resize(nt);
         for (uint32_t t = 0; t < nt; t++) {
@@ -159,6 +185,7 @@ bool a49::Track::open(const std::filesystem::path& folder, std::string& error) {
             t.i[j] = unpack(r.u32(o + 0x30 + 4 * j));
             t.q[j] = unpack(r.u32(o + 0x40 + 4 * j));
         }
+        t.alpha_first = vsize == 24;
         textures.push_back(std::move(t));
     }
     if (!r.ok) {
@@ -214,7 +241,10 @@ bool a49::Track::worlds(std::vector<WorldEntry>& out, std::string& error) const 
 bool a49::Track::dobs(std::vector<DobsEntry>& out, std::string& error) const {
     std::vector<uint8_t> b;
     if (!read("dobs.rom", b)) {
-        error = "no dobs.rom";
+        // Rush The Rock has no dobs.rom: its tracks have no scripted objects.
+        std::error_code ec;
+        if (!std::filesystem::exists(dir / "dobs.rom", ec)) return true;
+        error = "dobs.rom unreadable";
         return false;
     }
     Reader r{ b };
@@ -360,11 +390,14 @@ bool a49::Track::path_tables(std::vector<PathTable>& out, std::string& error) co
         return false;
     }
     Reader r{ p };
-    // 8 tables of 2000 0x18-byte slots; slot 0 of each is its header (u32 lap point count, ...).
+    // 8 tables of 2000 0x18-byte slots; slot 0 of each is its header (u32 lap point count, ...; Rush The Rock's u16 at
+    // +0xA the loop start and +0xC the lap's end, the N64 SF Rush lane header's loop and end).
     for (size_t k = 0; k < p.size() / 48000; k++) {
         size_t base = k * 48000;
         PathTable t;
         t.lap_count = r.u32(base);
+        t.loop_start = r.u16(base + 0xA);
+        t.lap_end = r.u16(base + 0xC);
         for (size_t i = 1; i < 2000; i++) {
             size_t o = base + 0x18 * i;
             double x = r.f32(o), y = r.f32(o + 4), z = r.f32(o + 8), speed = r.f32(o + 12);
@@ -391,8 +424,8 @@ std::vector<uint8_t> a49::png(const std::vector<uint8_t>& rgba, int w, int h) {
     return out;
 }
 
-std::filesystem::path a49::default_data_dir() {
-    if (const char* env = std::getenv("ARCADE2049_DATA"); env && *env) return std::filesystem::u8path(env);
+std::filesystem::path a49::default_data_dir(const ArcadeGame& game) {
+    if (const char* env = std::getenv(game.data_env); env && *env) return std::filesystem::u8path(env);
 #ifdef _WIN32
     const char* base = std::getenv("LOCALAPPDATA");
     std::filesystem::path root = base ? std::filesystem::u8path(base) : std::filesystem::path();
@@ -402,21 +435,24 @@ std::filesystem::path a49::default_data_dir() {
     std::filesystem::path root = xdg && *xdg ? std::filesystem::u8path(xdg)
                                              : std::filesystem::u8path(home ? home : "") / ".local" / "share";
 #endif
-    return root / "ProjectR" / "Data" / "sf2049se";
+    return root / "ProjectR" / "Data" / game.data_folder;
 }
 
-bool a49::is_data_dir(const std::filesystem::path& dir) {
+bool a49::is_data_dir(const std::filesystem::path& dir, const ArcadeGame& game) {
     std::error_code ec;
-    return std::filesystem::exists(dir / "TRACKS" / "TRACK4" / "roaddat.rom", ec) &&
-           std::filesystem::exists(dir / "CARS" / "CAR8", ec);
+    if (!std::filesystem::exists(dir / std::filesystem::u8path(game.check_file), ec)) return false;
+    for (size_t k = 0; k < game.track_count; k++) {
+        if (!std::filesystem::exists(dir / "TRACKS" / game.tracks[k].folder / "roaddat.rom", ec)) return false;
+    }
+    return game.car_mod_id == nullptr || std::filesystem::exists(dir / "CARS" / "CAR8", ec);
 }
 
-std::optional<std::filesystem::path> a49::find_data_dir(const std::filesystem::path& picked) {
+std::optional<std::filesystem::path> a49::find_data_dir(const std::filesystem::path& picked, const ArcadeGame& game) {
     std::error_code ec;
     std::filesystem::path p = std::filesystem::is_directory(picked, ec) ? picked : picked.parent_path();
     for (int up = 0; up < 8 && !p.empty(); up++) {
-        if (is_data_dir(p)) return p;
-        if (is_data_dir(p / "sf2049se")) return p / "sf2049se";
+        if (is_data_dir(p, game)) return p;
+        if (is_data_dir(p / game.data_folder, game)) return p / game.data_folder;
         std::filesystem::path parent = p.parent_path();
         if (parent == p) break;
         p = parent;

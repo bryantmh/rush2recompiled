@@ -3,7 +3,9 @@
 The arcade game (Rush 2049 Special Edition) has a track the N64 never got: Alcatraz. `src/arcade2049/arcade_track.cpp`
 converts an arcade track into a custom-track mod (docs/custom_tracks.md) at the arcade's full model detail and texture
 size, and `src/arcade2049/arcade_cars.cpp` the cars into a car mod; the Games tab runs both (below).
-`tools/arcade2049/arcade.py` reads the data for study. Nothing here is shared with the N64 or Dreamcast formats.
+`tools/arcade2049/arcade.py` reads the data for study. Nothing here is shared with the N64 or Dreamcast formats. The
+same converter builds the SF Rush arcade (Rush The Rock) tracks, whose data is laid out the same way, with a few rules
+of their own: docs/sfrush_arcade.md.
 
 ```
 python tools/arcade2049/arcade.py TRACK4          (a summary of the track's files)
@@ -76,7 +78,8 @@ track select read the new files without a restart; `mods_changed` also has the c
   The six ARCADE versions show the 2049 course's route tube and color in front of their own picture, with a red
   version ring (docs/menus.md#track-versions).
 - **TRACK8** is SF Rush's Track 2, Embarcadero, left on the 2049 disk. It is The Rock's TRACK2 (same 200 textures,
-  220 road segments) with checkpoints matching SF Rush 64's exactly, and it is already in the game from the N64 ROM.
+  220 road segments) with checkpoints matching SF Rush 64's exactly; the SF Rush arcade mod has it as Embarcadero's
+  ARCADE version (docs/sfrush_arcade.md).
   Its drone path is stale data from another track. `arcade.py` now reads its collision: its vertex lists follow the
   leaves, and the file ends in 2 bytes of padding.
 
@@ -347,6 +350,13 @@ until 2026-10-21 they fell to their flat facets, a crease every few feet up the 
 corners within 0.04 ft of it, t 0..1, none reaching past it). So a spline polygon facing less than 0.2 up, or whose
 segment has no band, and that fits its own segment is kept as it is, in its own facing (`kept` in `spline_road`):
 Alcatraz 232, TRACK1 248, TRACK7 4,348, matching the census.
+
+Footprints off their surface (checked 2026-11-06): the report gives how many footprint planes sit over 5 ft from
+their segment's surface and where (Marina 4, one 143 ft off near (717, 1576); Civic 1; Presidio 1). The game picks the
+face under a wheel by its plane (the highest within 5 ft above), but `tools/collision_probe.py` shows those faces still
+give the lanes their segment's height, and cutting their segments again changed nothing there, so they stay as built.
+The probe does find 1-2 ft gaps between faces on the lanes near them (Civic (672-690, 1856), Presidio (-740, 915)),
+there either way: open (docs/sfrush_arcade.md#how-it-differs-from-the-rush-2049-arcade-data).
 
 ## dpath.rom (the drones' paths)
 

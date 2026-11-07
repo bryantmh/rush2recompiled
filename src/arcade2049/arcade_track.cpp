@@ -15,6 +15,9 @@
 // sounds and sound volumes. The polygon booleans are Clipper2 (the spline road's footprints at 1/4096 ft, their union
 // on the file's 1/32 ft grid) and the triangulation earcut; the converter joins the triangles into convex polygons
 // again. The logo and the round preview are shipped pictures (assets/arcade2049/: tools/build_banners.py --arcade).
+// The same code converts the SF Rush arcade (Rush The Rock) tracks (game.key "sfrush", `rock` in build_one): their
+// data is laid out the same way; what differs (24-byte vertices without color, laps from the drone path's loop and
+// end, gates from rock_gates, a 12,000 ft sky radius, sea-level water only, no dobs.rom) is in docs/sfrush_arcade.md.
 
 #include <algorithm>
 #include <cmath>
@@ -42,6 +45,9 @@ using namespace a49;
 
 namespace {
     const char* const sky_textures[] = { "GS_SKY", "GS_APANS", "AL_MOON" };
+    // Rush The Rock's: the ring of panels and its ceiling (SKY00-03, SKY00A-03A, SKYTOP, TRZSKY01-04 on The Rock), the
+    // clouds and The Rock's distant land (APANS_01-16). SKYSIDE, SKYBOTT and SKYSCR are skyscraper walls, not sky.
+    const char* const rock_sky_textures[] = { "SKY0", "SKYTOP", "TRZSKY", "APANS", "CLOUD" };
     constexpr double lane_map = 1.2;           // a Rush 2049 lane speed / 1.2 is the Rush 2 lane speed
     constexpr double sky_radius = 9000.0;      // ft: objects reaching past this from the origin are sky
     constexpr double max_edge = 2500.0;        // ft: longer scenery triangle edges are split
@@ -343,9 +349,11 @@ namespace {
     // segment goes to `kept` as it is, in its own facing (flat, it was a stream of creases up the loop). `tris` gets the
     // footprint triangles, `flat` every other polygon and the rest of a spline polygon no segment's stretch covers
     // (chain ends).
-    void spline_road(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
-                     std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept, std::vector<FlatPoly>& flat,
-                     std::vector<std::string>& report) {
+    // One pass of spline_road (below), cutting no footprints for the segments in no_band; bad gets the segments with a
+    // footprint whose plane is over 5 ft off their surface.
+    void spline_road_pass(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
+                          const std::set<int>& no_band, std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept,
+                          std::vector<FlatPoly>& flat, std::vector<std::string>& report, std::set<int>& bad) {
         std::vector<Seg> segs;
         for (const auto& r : records) segs.emplace_back(r);
         int ns = int(segs.size());
@@ -354,6 +362,7 @@ namespace {
         // Segment k's stretch from above: its start line to its next one's, well past the road's edges (u -1.5..2.5).
         std::vector<std::optional<Path64>> bands(ns);
         for (int k = 0; k < ns; k++) {
+            if (no_band.count(k)) continue;
             const Seg &S = segs[k], &T = nxt(k);
             double h, tt, u;
             seg_surface(S, T, T.O, h, tt, u);
@@ -444,6 +453,7 @@ namespace {
         };
 
         std::vector<double> off;
+        std::vector<std::string> off_where;     // the first footprints whose plane is over 5 ft off its surface
         for (const auto& [key, parts] : pieces) {
             auto [k, flags] = key;
             // Joined, then put on the file's 1/32 ft grid: corners a hair apart become one (no slivers), and the
@@ -491,6 +501,12 @@ namespace {
                     worst = std::max(worst, std::abs(coef[0] * ring[i][0] + coef[1] * ring[i][1] + coef[2] - ys[i]));
                 }
                 off.push_back(worst);
+                if (worst > 5.0) bad.insert(k);
+                if (worst > 5.0 && off_where.size() < 6) {
+                    char b[120];
+                    snprintf(b, sizeof(b), "segment %d at (%.0f, %.0f): %.1f ft", k, ring[0][0], ring[0][1], worst);
+                    off_where.push_back(b);
+                }
                 for (const auto& t : triangulate(part)) {
                     if (tri_area(t) <= 0) continue;
                     FootprintTri ft{ flags | 0x1000, {}, k };
@@ -501,11 +517,24 @@ namespace {
         }
         int leftovers = 0;
         for (const FlatPoly& f : flat) leftovers += (f.flags & 0x1000) ? 1 : 0;
-        char line[256];
+        char line[300];
         snprintf(line, sizeof(line), "spline road: %d segments, %zu footprints from %d spline polygons (planes within "
-                 "%.2f ft of the surface), %zu kept on their own segment (loops), %d flat leftovers", ns, off.size(),
-                 spline_polys, off.empty() ? 0.0 : *std::max_element(off.begin(), off.end()), kept.size(), leftovers);
+                 "%.2f ft of the surface, %zu over 5 ft), %zu kept on their own segment (loops), %d flat leftovers", ns,
+                 off.size(), spline_polys, off.empty() ? 0.0 : *std::max_element(off.begin(), off.end()),
+                 size_t(std::count_if(off.begin(), off.end(), [](double v) { return v > 5.0; })), kept.size(), leftovers);
         report.push_back(line);
+        for (const std::string& w : off_where) report.push_back("  footprint plane off its surface: " + w);
+    }
+
+    // The spline road (spline_road_pass, every segment cut). Footprints whose plane is over 5 ft off their surface are
+    // reported only: checked 2026-11-06 with tools/collision_probe.py, they still give the wheels their segment's
+    // height (Marina's 143 ft one too), and cutting their segments again changed nothing where wheels go
+    // (docs/arcade2049.md#segments-the-spline-road).
+    void spline_road(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
+                     std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept, std::vector<FlatPoly>& flat,
+                     std::vector<std::string>& report) {
+        std::set<int> bad;
+        spline_road_pass(records, polys, {}, tris, kept, flat, report, bad);
     }
 
     // ----------------------------------------------------------------------------------------- crowding
@@ -979,13 +1008,50 @@ namespace {
         for (const auto& [f, ft] : laps) if (std::strcmp(f, folder) == 0) return ft;
         return 0.0;
     }
+
+    // Rush The Rock's gates per track, in race order (docs/sfrush_arcade.md#gates): its data has none (its CHKPOINT
+    // banners mark only some of them), its code has them, read from ProjectR's project-r.exe (records of 0x1C bytes from
+    // file offset 0x6ED650: f32 x, y, z in world feet, u32 radius squared, ...). TRACK1-3 and TRACK5 are the N64 SF Rush
+    // tables of the same tracks to the foot (N64 tracks 1-4, rush1_research.md#checkpoints); TRACK4, TRACK6 and TRACK7
+    // are the arcade's own (The Rock adds a gate where its intro meets the loop; Sunset's figure 8 and The Heights
+    // differ from the N64's). Roles: 'S' the start line (the N64's arm checkpoint 0 on Golden Gate's intro), 'F' the lap
+    // line (the N64's flag 2), 'C' a checkpoint.
+    struct RockGate {
+        const char* folder;
+        char role;
+        double x, y, z;
+    };
+    constexpr RockGate rock_gates[] = {
+        { "TRACK1", 'S', -1630, 276, 5972 }, { "TRACK1", 'C', -1621, 78, 2640 }, { "TRACK1", 'C', -1988, 83, -1037 },
+        { "TRACK1", 'C', -1679, 12, -2655 }, { "TRACK1", 'F', 1389, -116, 670 }, { "TRACK1", 'C', -491, -14, 1514 },
+        { "TRACK2", 'F', -420, 0, -300 }, { "TRACK2", 'C', 1140, 143, 2240 }, { "TRACK2", 'C', 720, 0, 4320 },
+        { "TRACK2", 'C', -3183, 50, 2899 }, { "TRACK2", 'C', -5605, 1, 1690 }, { "TRACK2", 'C', -4176, 0, -197 },
+        { "TRACK3", 'F', -3067, 0, 0 }, { "TRACK3", 'C', -5419, -31, 67 }, { "TRACK3", 'C', -7111, 198, 2918 },
+        { "TRACK3", 'C', -7924, 173, 2962 }, { "TRACK3", 'C', -6376, 140, 575 }, { "TRACK3", 'C', -4936, 61, 524 },
+        { "TRACK3", 'C', -3888, 227, 2680 }, { "TRACK3", 'C', -1661, 258, 3104 }, { "TRACK3", 'C', -2527, 290, 1359 },
+        { "TRACK4", 'C', 517, 160, 446 }, { "TRACK4", 'C', -367, 350, 1705 }, { "TRACK4", 'C', -653, 276, -347 },
+        { "TRACK4", 'C', 240, 373, -1487 }, { "TRACK4", 'C', -664, 48, 518 }, { "TRACK4", 'C', 158, -17, -2163 },
+        { "TRACK4", 'F', 701, 112, -838 },
+        { "TRACK5", 'F', 3690, 145, 258 }, { "TRACK5", 'C', 2957, 253, 3340 }, { "TRACK5", 'C', 50, 235, 2578 },
+        { "TRACK5", 'C', 200, 145, 258 },
+        { "TRACK6", 'F', 2960, 65, -20 }, { "TRACK6", 'C', 4591, 20, 2581 }, { "TRACK6", 'C', 1400, 350, 4458 },
+        { "TRACK6", 'C', 0, 320, 1638 },
+        { "TRACK7", 'F', 0, 40, 0 }, { "TRACK7", 'C', 0, 40, -2000 }, { "TRACK7", 'C', 2458, 111, -5126 },
+        { "TRACK7", 'C', 60, 40, -2000 }, { "TRACK7", 'C', 60, 40, 0 }, { "TRACK7", 'C', 1565, 380, 2201 },
+    };
 }
 
 // One arcade track (TRACKS/<folder>) as the mod's tracks/<track_id>/ (in a49, whose Vertex the body means).
 namespace rush2::arcade2049 {
-static bool build_one(const std::filesystem::path& data_dir, const char* folder, const std::string& track_id, const std::string& name,
-               const char* course, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
-               const std::function<bool()>& cancelled) {
+static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_dir, const ArcadeTrack& track,
+                      const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+                      const std::function<bool()>& cancelled) {
+    const char* folder = track.folder;
+    const std::string track_id = track.id, name = track.name;
+    const char* course = track.course;
+    // Rush The Rock (docs/sfrush_arcade.md): no dobs.rom, its sky only what its sky textures draw (its scenery reaches
+    // past sky_radius), no water collision, the lap from the drone path's loop and end, the gates from its own table.
+    const bool rock = !game.is_2049();
     std::vector<std::string> report;
     std::string error;
     Track t;
@@ -1002,6 +1068,46 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         !t.segments(seg_records, error) || !t.path_tables(tables, error)) {
         log += error + "\n";
         return false;
+    }
+    if (rock) {
+        // The Rock's flags carry other bits in the high word (0x7000, 0xB000, ...: not 2049's covered levels; the N64
+        // SF Rush polygons have none): only the low word is the surface and spline flags.
+        for (CollisionPoly& p : collision) p.flags &= 0xFFFF;
+    }
+    if (rock && !tables.empty()) {
+        // Each table's lap (docs/sfrush_arcade.md#dpathrom): records 0 to lap_end, going on at loop_start; records past
+        // lap_end, the run-out after the finish, are left out. The lap is closed (loop_start to lap_end) when its intro,
+        // records 0 to loop_start, runs within 150 ft of the loop all along (The Rock: the grid, up to 103 ft beside the
+        // loop, then the stretch of loop before the finish) or record 0 is within 300 ft of lap_end. Else (Golden Gate,
+        // whose intro starts 4,300 ft from the loop) records 0 to lap_end are a run-in circuit, cut where the line first drives back
+        // over its own intro: each racing line joins the loop some points before its loop_start (Golden Gate's table 1
+        // record 305 is record 994), and the stretch after that would lie on itself.
+        for (PathTable& tb : tables) {
+            size_t end = std::min<size_t>(tb.lap_end, tb.records.size() ? tb.records.size() - 1 : 0);
+            size_t loop = std::min<size_t>(tb.loop_start, end);
+            if (end < 3) continue;
+            const auto& R = tb.records;
+            bool closed = norm(R[0].pos - R[end].pos) <= 300.0;
+            if (!closed) {
+                closed = true;
+                for (size_t i = 0; i < loop && closed; i++) {
+                    double nearest_loop = 1e300;
+                    for (size_t j = loop; j <= end; j++) nearest_loop = std::min(nearest_loop, norm(R[i].pos - R[j].pos));
+                    closed = nearest_loop <= 150.0;
+                }
+            }
+            size_t last = end;      // the run-in's last record
+            if (!closed) {
+                for (size_t j = loop + 1; j <= end && last == end; j++) {
+                    for (size_t i = 0; i < loop; i++) {
+                        if (norm(R[i].pos - R[j].pos) < 2.0) { last = j; break; }
+                    }
+                }
+            }
+            std::vector<PathRecord> lap(R.begin() + long(closed ? loop : 0), R.begin() + long(closed ? end : last + 1));
+            tb.records = std::move(lap);
+            tb.lap_count = uint32_t(tb.records.size());
+        }
     }
     Glb g("rush2-recomp src/arcade2049");
 
@@ -1031,12 +1137,18 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     for (const Object& o : t.objects) {
         for (const auto& tr : o.lod0.tris) {
             if (tr[3] >= t.textures.size()) continue;
-            for (const char* s : sky_textures) {
+            const std::vector<const char*> names = rock ? std::vector<const char*>(std::begin(rock_sky_textures), std::end(rock_sky_textures))
+                                                        : std::vector<const char*>(std::begin(sky_textures), std::end(sky_textures));
+            for (const char* s : names) {
                 if (starts_with(t.textures[tr[3]].name, s)) sky_names.insert(o.name);
             }
         }
     }
     auto is_water_texture = [&](int ti) { return ti < int(t.textures.size()) && t.textures[ti].name == "WATER2"; };
+    // Objects reaching past this from the origin are sky: sky_radius, but on The Rock (docs/sfrush_arcade.md#sky)
+    // 12,000 ft for all but water: Market's road and trees reach 9,138 ft and Embarcadero's signs 9,406, its backdrops
+    // (Market's hills 12,190-22,743, Embarcadero's Marin hills and bay 16,440-18,698) further.
+    auto far_radius = [&](bool water) { return rock && !water ? 12000.0 : sky_radius; };
     size_t tri_count = 0;
 
     // lod's triangles at the world points V into target; returns the count.
@@ -1093,13 +1205,17 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         bool card = false;      // a worlds.rom card the arcade turns to the camera (name FF_)
     };
     std::vector<Instance> instances;
+    size_t unnamed = 0;
     for (const WorldEntry& w : worlds) {
+        // The Rock's TRACK5-7 have placements with no name (111, 100 and 65): nothing to place.
+        if (w.name.empty()) { unnamed++; continue; }
         const Object* o = t.object_named(w.name);
         if (!o) { report.push_back("worlds.rom: " + w.name + " names no object, left out"); continue; }
         // The arcade's worlds loader (ProjectR 0x1402D69EE) gives a placement named FF_ the flag dobs' `frontface`
         // sets (0x2000000): mostly trees, plus Presidio's bridge glows and Mission's glare sprites.
         instances.push_back({ o, w.m, w.pos, {}, starts_with(upper(w.name), "FF_") });
     }
+    if (unnamed) report.push_back("worlds.rom: " + std::to_string(unnamed) + " placements with no name, left out");
     for (const DobsEntry& d : dobs) {
         const Object* o = t.object_named(d.name);
         if (!o) { report.push_back("dobs.rom: " + d.name + " names no object, left out"); continue; }
@@ -1112,7 +1228,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     // panels reach less than sky_radius (Marina G27322-3, Haight G20137-9, Civic AF_G27162-3, Metro G23003-5,
     // Presidio G14557-8). As scenery they were cut off by the draw distance, opening a gap in the sky and leaving the
     // ceiling's edge as a box overhead. A texture that at least two far objects use, and that far objects make up at
-    // least half the users of, is a sky texture, and every object using it is sky.
+    // least half the users of, is a sky texture, and every object using it is sky (far: far_radius).
     {
         std::map<int, std::pair<int, int>> users;   // texture: objects using it, far ones
         for (const Instance& in : instances) {
@@ -1120,7 +1236,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             bool water = std::all_of(lod.tris.begin(), lod.tris.end(), [&](const auto& tr) { return is_water_texture(tr[3]); });
             double reach = 0;
             for (const V3& p : placed(lod, in.M, in.pos)) reach = std::max(reach, std::hypot(p[0], p[2]));
-            bool far = reach > sky_radius && !water;
+            bool far = reach > far_radius(false) && !water;
             std::set<int> used;
             for (const auto& tr : lod.tris) if (tr[3] < t.textures.size()) used.insert(tr[3]);
             for (int ti : used) { users[ti].first++; users[ti].second += far; }
@@ -1389,7 +1505,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         bool is_water = std::all_of(lod.tris.begin(), lod.tris.end(), [&](const auto& tr) { return is_water_texture(tr[3]); });
         double reach = 0;
         for (const V3& p : V) reach = std::max(reach, std::hypot(p[0], p[2]));
-        bool far = reach > sky_radius;
+        bool far = reach > far_radius(is_water);
         bool is_sky = sky_names.count(in.o->name) || in.o->name.find("CLOUDS") != std::string::npos || (far && !is_water);
         // The bay's water sheets reach 10,700 ft out, past what the game draws (2,000 ft): scenery for the near part
         // (depth tested against the island) and sky too, where the far part meets the distant land (GS_APANS, 9,750
@@ -1617,7 +1733,13 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         std::vector<Glb::Prim> list = sky.list();
         auto layer = [&](const Glb::Prim& p) {
             std::string n = g.js["materials"][p.material]["name"];
-            return upper(n).find("CLOUD") != std::string::npos ? 3 : starts_with(n, "GS_APANS") ? 2 : n == "WATER2" ? 1 : 0;
+            if (upper(n).find("CLOUD") != std::string::npos) return 3;
+            if (n == "WATER2") return 1;
+            // The distant land: GS_APANS (2049). On The Rock everything but the dome (its sky textures) is distant land:
+            // APANS_01-16, Market's hills (TP_), Embarcadero's Marin hills, over the bay.
+            if (!rock) return n.find("GS_APANS") != std::string::npos ? 2 : 0;
+            for (const char* s : { "SKY0", "SKYTOP", "TRZSKY" }) if (starts_with(n, s)) return 0;
+            return 2;
         };
         std::stable_sort(list.begin(), list.end(), [&](const auto& a, const auto& b) { return layer(a) < layer(b); });
         g.textured_mesh("SKY", list);
@@ -1762,6 +1884,9 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             if (!is_water_texture(tr[3])) continue;
             Tri corners;
             for (int c = 0; c < 3; c++) corners[c] = { o->lod0.verts[tr[c]].pos + w.pos, {}, {} };
+            // The Rock: only the sea (its sheets lie at -10 to 0 ft); a raised sheet (61-64 ft on The Rock) has lane
+            // points passing under it.
+            if (rock && std::any_of(corners.begin(), corners.end(), [](const Corner& c) { return c.p[1] > 5.0; })) continue;
             for (const Tri& part : split_large(corners, water_edge)) {
                 std::array<V3, 3> p{ part[0].p, part[1].p, part[2].p };
                 V3 normal = unit(cross(p[1] - p[0], p[2] - p[0]));
@@ -1881,8 +2006,38 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
         if (count) out = sum * (1.0 / count) + w.pos;
         return count != 0;
     };
+    if (rock) {
+        // The Rock's gates are in its code, not its data: rock_gates (ProjectR's tables). Each is snapped to the lap
+        // point nearest it (3D) at or after the one before: Sunset's figure 8 passes some gates' spots twice.
+        size_t at = 0, checkpoints = 0;
+        for (const RockGate& rg : rock_gates) {
+            if (std::strcmp(rg.folder, folder) != 0) continue;
+            V3 p{ rg.x, rg.y, rg.z };
+            size_t best = at;
+            double bd = 1e300;
+            for (size_t s = 0; s < n && (!run_in || at + s < n); s++) {
+                size_t i = run_in ? at + s : (at + s) % n;
+                double d = norm(lap[i] - p);
+                if (d < bd) bd = d, best = i;
+                if (bd < 120.0 && d > bd + 200.0) break;   // past the pass it was nearest
+            }
+            at = best;
+            gates.push_back({ rg.role == 'S' ? std::string("START") : rg.role == 'F' ? std::string("FINISH")
+                                                                   : "CHECKPOINT_" + std::to_string(++checkpoints), best });
+            if (bd > 150.0) {
+                report.push_back("gate " + gates.back().first + " is " + std::to_string(int(bd)) + " ft from the lap");
+            }
+        }
+        if (gates.empty()) {
+            log += std::string("no gates for ") + folder + "\n";
+            return false;
+        }
+    }
     auto finish = std::find_if(dobs.begin(), dobs.end(), [](const DobsEntry& d) { return d.name == "FINISHSIGN"; });
-    if (finish != dobs.end()) gates.push_back({ "FINISH", nearest(to_world_dobs(finish->pos)) });
+    if (rock) {
+        // gates are in place (above)
+    }
+    else if (finish != dobs.end()) gates.push_back({ "FINISH", nearest(to_world_dobs(finish->pos)) });
     else {
         // Mission's finish is a sign in worlds.rom (TE_FINISH).
         V3 c;
@@ -1898,6 +2053,7 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     constexpr double gate_reach = 120.0, gate_merge = 250.0;
     std::vector<size_t> banners;
     for (const WorldEntry& w : worlds) {
+        if (rock) break;
         V3 c;
         if (!textured_center(w, { "MG_CHECK5", "MG_W_CHECK6", "TE_CHKPNT" }, c)) continue;
         size_t i = nearest(c);
@@ -1936,7 +2092,9 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     // to the line with. A run-in lap keeps its start (it is the grid).
     auto ai_attrs = [&](const std::vector<PathRecord>& recs) {
         std::vector<double> speed, mode;
-        for (const PathRecord& r : recs) speed.push_back(r.speed * 60.0 / 88.0 / lane_map), mode.push_back(r.kind);
+        // The Rock's speeds are the N64 SF Rush lanes' (the same ft/s, point for point), which the SF Rush port maps
+        // as ft/s x 15/22 with no 2049 lane map (docs/rush1_research.md#ai-lanes-assets-58t--65t-loader-func_800a804c).
+        for (const PathRecord& r : recs) speed.push_back(r.speed * 60.0 / 88.0 / (rock ? 1.0 : lane_map)), mode.push_back(r.kind);
         if (!run_in && speed.size() > 40) {
             double arrive = speed.back();
             for (size_t i = 0; i < 30 && speed[i] < arrive * 0.9 && speed[i] < speed[i + 1]; i++) speed[i] = arrive;
@@ -2002,6 +2160,16 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
             report.push_back(line);
             continue;
         }
+        // The Rock: a line that comes back over its own points (Golden Gate's table 6 doubles back on itself in its
+        // intro) isn't a ribbon the converter can read as a lane.
+        bool folds = false;
+        for (size_t i = 0; rock && i < pts.size() && !folds; i++) {
+            for (size_t j = i + 3; j < pts.size() && !folds; j++) folds = norm(pts[i] - pts[j]) < 1.0;
+        }
+        if (folds) {
+            report.push_back("dpath table " + std::to_string(k) + ": comes back over its own points, left out");
+            continue;
+        }
         lines.push_back({ k, std::move(pts), std::move(recs) });
     }
     if (t0.records.size() > n) {
@@ -2039,18 +2207,25 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
     const std::string dir = "tracks/" + track_id + "/";
     out[dir + "track.glb"] = g.bytes();
     out[dir + "track.toml"] = text_bytes(
-        "[track]\nname = \"" + name + "\"\nauthor = \"Rush 2049 arcade (converted)\"\ndescription = \"" + name +
-        " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n" +
+        "[track]\nname = \"" + name + "\"\nauthor = \"" + (rock ? "SF Rush" : "Rush 2049") + " arcade (converted)\"\n" +
+        "description = \"" + name + (rock ? " from San Francisco Rush: The Rock (arcade)\"\n"
+                                          : " from San Francisco Rush 2049 Special Edition (arcade)\"\ngravity = \"rush2049\"\n") +
         std::string(run_in ? "run_in = true\n" : "") +
         // The arcade's road is built for its own flat-faced collision: no smoothing (docs/custom_tracks.md#smooth-collision).
         "smooth_collision = false\n\n" +
         // Alcatraz is at night; the others keep the custom tracks' default fog.
         std::string(track_id == "alcatraz" ? "[look]\nfog_color = \"#0c1424\"\n\n" : "") +
+        // The Rock: SF Rush's fog color (the N64 port's, docs/rush1_research.md#7-per-track-values-used); Downtown, The
+        // Heights and Sunset have no sky in their data (no SKY00-03 dome), so they get the N64 version's cloud dome.
+        (rock ? std::string("[look]\nfog_color = \"#9696be\"\n") + (sky.empty() ? "sky = \"clouds\"\n" : "") + "\n"
+              : std::string()) +
         // Alcatraz after the Rush 2049 tracks; the others are versions of their courses (the track select's version
         // button), shown as ARCADE.
         "[menu]\nlogo = \"logo.png\"\n" +
         (course != nullptr ? "variant_of = \"" + std::string(course) + "\"\nvariant = \"ARCADE\"\n"
                            : std::string("after = \"rush2049\"\n")) +
+        // Without the SF Rush ROM the course isn't there to be a version of: then listed after the SF Rush tracks.
+        (rock ? "after = \"sfrush\"\n" : "") +
         (std::filesystem::exists(assets_dir / (track_id + "_preview.png")) ? "preview = \"preview.png\"\n" : "") +
         // How the moving objects play: their dobs scripts' events (docs/arcade2049.md#dobsrom-dynamic-objects).
         mover_toml);
@@ -2090,9 +2265,10 @@ static bool build_one(const std::filesystem::path& data_dir, const char* folder,
 }
 }
 
-bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::filesystem::path& assets_dir, ModFiles& out,
-                          std::string& log, const std::function<bool()>& cancelled) {
-    // The tracks are built at once, a thread each (build_one shares nothing), and put together in arcade_tracks order.
+bool a49::build_track_mod(const ArcadeGame& game, const std::filesystem::path& data_dir,
+                          const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+                          const std::function<bool()>& cancelled) {
+    // The tracks are built at once, a thread each (build_one shares nothing), and put together in the game's order.
     struct Part {
         const ArcadeTrack* track;
         std::string log;
@@ -2100,13 +2276,12 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
         bool ok = false;
     };
     std::vector<Part> parts;
-    for (const ArcadeTrack& a : arcade_tracks) parts.push_back({ &a });
+    for (size_t k = 0; k < game.track_count; k++) parts.push_back({ &game.tracks[k] });
     if (cancelled && cancelled()) return false;
     std::vector<std::thread> threads;
     for (Part& p : parts) {
-        threads.emplace_back([&p, &data_dir, &assets_dir, &cancelled] {
-            p.ok = build_one(data_dir, p.track->folder, p.track->id, p.track->name, p.track->course, assets_dir, p.files,
-                             p.log, cancelled);
+        threads.emplace_back([&p, &game, &data_dir, &assets_dir, &cancelled] {
+            p.ok = build_one(game, data_dir, *p.track, assets_dir, p.files, p.log, cancelled);
         });
     }
     for (std::thread& t : threads) t.join();
@@ -2115,11 +2290,14 @@ bool a49::build_track_mod(const std::filesystem::path& data_dir, const std::file
         if (!p.ok) return false;
         for (auto& [name, bytes] : p.files) out.emplace(name, std::move(bytes));   // a shared file (checkpoint.png): the first track's
     }
+    const bool rock = !game.is_2049();
     out["mod.json"] = text_bytes(nlohmann::json{
-        { "game_id", "rush2" }, { "id", track_mod_id }, { "display_name", "Rush 2049 Arcade Tracks" },
-        { "description", "Tracks from San Francisco Rush 2049 Special Edition (arcade), built from the arcade data by the "
-                         "Games tab." },
-        { "short_description", "Rush 2049 arcade tracks" }, { "version", "1.0.0" }, { "authors", { "rush2-recomp" } },
+        { "game_id", "rush2" }, { "id", game.track_mod_id }, { "display_name", game.track_mod_name },
+        { "description", std::string("Tracks from ") +
+                         (rock ? "San Francisco Rush: The Rock" : "San Francisco Rush 2049 Special Edition") +
+                         " (arcade), built from the arcade data by the Games tab." },
+        { "short_description", rock ? "SF Rush arcade tracks" : "Rush 2049 arcade tracks" }, { "version", "1.0.0" },
+        { "authors", { "rush2-recomp" } },
         { "minimum_recomp_version", "0.0.0" },
         // Converted from the arcade's own data, so the converter's authoring warnings don't apply to it.
         { "hide_track_warnings", true } }.dump(4));

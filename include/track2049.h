@@ -255,6 +255,8 @@ namespace rush2::track2049 {
     // Whether custom track t (a mod id) is one of the app's Rush 2049 arcade mod's (rush2::arcade2049::track_mod_id,
     // matched by the mod's id so other mods can't claim it): the game filter files those under Rush 2049.
     bool mod_from_2049(int t);
+    // The same for the app's SF Rush arcade mod (rush2::arcade2049::sfrush_track_mod_id): filed under SF Rush.
+    bool mod_from_sfrush(int t);
     // The Dreamcast version's (249-254) preview of race track k, beside the N64 one: "R49PDTRACKk".
     std::string disc_preview_name(int k);
     // The circuit screen shows the route turning in a small window without the round picture, so the race tracks'

@@ -177,7 +177,7 @@ namespace {
         const bool sf_rush = r1 != nullptr && rush2::track1::available();
         {
             std::lock_guard lock{ progress_mutex };
-            jobs = { { "Rush 2049 arcade mods", 1.5 }, { "Car mods", 0.3 }, { "Custom tracks", 2.4 },
+            jobs = { { "Arcade mods", 1.5 }, { "Car mods", 0.3 }, { "Custom tracks", 2.4 },
                      { "Rush 2049 and California Speed tracks", 3.3 }, { "Track select art", 0.2 },
                      { "Car stats", 1.5 } };
             if (r49 != nullptr) jobs.push_back({ "Rush 2049 cars", 1.0 });
@@ -191,7 +191,7 @@ namespace {
             }
         }
         spawn(L"Prewarm Arcade", [] {
-            job("Rush 2049 arcade mods", [] { rush2::arcade2049::refresh_now(); });
+            job("Arcade mods", [] { rush2::arcade2049::refresh_now(); });
             std::thread cars([] {
                 name_thread(L"Prewarm Car Mods", false);
                 job("Car mods", [] { rush2::car_mods::prepare(); });

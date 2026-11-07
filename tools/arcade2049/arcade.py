@@ -42,6 +42,7 @@ class Texture:
 
     def __init__(self, name, rec):
         self.name = name
+        self.alpha_first = False      # AYIQ8422 byte order (Track sets it: Rush The Rock)
         self.lod_min, self.lod_max, self.fmt = rec[0], rec[1], rec[2]
         self.w, self.h, self.offset = struct.unpack_from('<HHI', rec, 4)
         self.texture_mode, self.tlod = struct.unpack_from('<II', rec, 0x10)
@@ -72,7 +73,8 @@ class Texture:
             a = np.full((h, w), 255)
         elif self.fmt == FMT_AYIQ8422:
             v = np.frombuffer(texels, '<u2', w * h, self.offset).reshape(h, w).astype(np.int32)
-            p, a = v & 255, v >> 8
+            # Rush The Rock stores the bytes the other way round (alpha, then color index): alpha_first.
+            p, a = (v >> 8, v & 255) if self.alpha_first else (v & 255, v >> 8)
         else:
             raise ValueError('%s: texture format %d' % (self.name, self.fmt))
         y, i, q = np.array(self.y), np.array(self.i), np.array(self.q)
@@ -91,23 +93,30 @@ class Lod:
     texel space), u16 flags (0, 0xFFFF, 0xFFFE), u8 r, g, b, a, u16 0xDEAD. Triangle (8 bytes): u16 v0, v1, v2,
     u16 texture index."""
 
-    def __init__(self, d, o):
+    def __init__(self, d, o, vsize=28):
+        # Rush The Rock's vertices are 24 bytes: the same up to the flags, then u8 a shade index (not decoded), u8 0,
+        # and no color (white here); vsize says which.
         self.dist2, _, nv, ov, nt, ot = struct.unpack_from('<fIIIII', d, o)
         self.verts = []
         for k in range(nv):
-            x, y, z, s, t, flags = struct.unpack_from('<5fH', d, ov + 28 * k)
-            r, g, b, a = d[ov + 28 * k + 22:ov + 28 * k + 26]
-            self.verts.append(((x, y, z), (s, t), flags, (r, g, b, a)))
+            x, y, z, s, t, flags = struct.unpack_from('<5fH', d, ov + vsize * k)
+            rgba = tuple(d[ov + 28 * k + 22:ov + 28 * k + 26]) if vsize == 28 else (255, 255, 255, 255)
+            self.verts.append(((x, y, z), (s, t), flags, rgba))
         self.tris = [struct.unpack_from('<4H', d, ot + 8 * k) for k in range(nt)]
+        self.nt = nt
 
 
 class Object:
     """An object header (0x8C bytes from 0x68): u32 0, f32 radius, u32 LOD count, 4 LOD slots."""
 
-    def __init__(self, name, d, o):
+    def __init__(self, name, d, o, vsize=28):
         self.name = name
         _, self.radius, self.lod_count = struct.unpack_from('<IfI', d, o)
-        self.lods = [Lod(d, o + 0xC + 0x20 * k) for k in range(max(1, min(4, self.lod_count)))]
+        self.lods = [Lod(d, o + 0xC + 0x20 * k, vsize) for k in range(max(1, min(4, self.lod_count)))]
+        if vsize == 24:
+            # Rush The Rock lists LODs the other way round (slot 0 the coarse model, with the distance it starts at):
+            # nearest first, as Rush 2049's, so lods[0] is the full model.
+            self.lods.sort(key=lambda l: (l.nt == 0, l.dist2))
 
 
 class Track:
@@ -116,14 +125,24 @@ class Track:
         d = self.read('objects.rom')
         # Header at 0x50: u32 object count, u32 0, u32 object name table, u32 texture name table; 0x60: u32 object
         # count, u32 texture count, u32 0; object headers from 0x68, then the texture descriptors, then geometry.
-        n_obj, _, obj_names, tex_names = struct.unpack_from('<4I', d, 0x50)
-        n_tex = struct.unpack_from('<I', d, 0x64)[0]
+        # The count is read at 0x60: Rush The Rock (sfrushrk) has another number at 0x50 (64 on TRACK1, of 607).
+        _, _, obj_names, tex_names = struct.unpack_from('<4I', d, 0x50)
+        n_obj, n_tex = struct.unpack_from('<II', d, 0x60)
         name = lambda o: d[o:o + 16].split(b'\0')[0].decode('latin1')
         # Name tables: objects 0x18 bytes (name[16], f32 radius, u32 index); textures 0x14 (name[16], u16 w, h).
-        self.objects = [Object(name(obj_names + 0x18 * k), d, 0x68 + 0x8C * k) for k in range(n_obj)]
+        # The vertex size (28, or 24 on Rush The Rock): the gap from an object's vertices to its triangles.
+        vsize = 28
+        for k in range(n_obj):
+            _, _, nv, ov, _, ot = struct.unpack_from('<fIIIII', d, 0x68 + 0x8C * k + 0xC)
+            if nv and ot > ov:
+                vsize = 24 if ot - ov == nv * 24 else 28
+                break
+        self.objects = [Object(name(obj_names + 0x18 * k), d, 0x68 + 0x8C * k, vsize) for k in range(n_obj)]
         tex_desc = 0x68 + 0x8C * n_obj
         self.textures = [Texture(name(tex_names + 0x14 * k), d[tex_desc + 0x50 * k:tex_desc + 0x50 * (k + 1)])
                          for k in range(n_tex)]
+        for x in self.textures:
+            x.alpha_first = vsize == 24     # Rush The Rock (told apart by its vertex size)
         self.by_name = {o.name: o for o in self.objects}
         self._texels = None
 
@@ -171,6 +190,8 @@ class Track:
         """dobs.rom: u8 1, then records: u8 name length (with NUL), name, u16 script length, script (CRLF lines such
         as 'spinz 16', 'alpha 0', 'soundsphere prisonsiren 900 0.5', 'coin'), f32 matrix[9], f32 position[3].
         Returns (name, script lines, matrix, position)."""
+        if not os.path.exists(os.path.join(self.folder, 'dobs.rom')):
+            return []           # Rush The Rock has none
         b = self.read('dobs.rom')
         out, o = [], 1
         while o < len(b):

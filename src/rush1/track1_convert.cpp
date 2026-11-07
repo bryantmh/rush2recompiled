@@ -30,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+#include "clipper2/clipper.h"
+
 #include "track1.h"
 #include "track1_banners.h"
 #include "track2049.h"
@@ -293,6 +295,7 @@ namespace {
         bool load;       // Index into the texture-load lists, else offset in a source.
         int index;       // Load list, or source.
         uint32_t offset;
+        std::string model = {};   // Set: the start of that model's first list (a call into it), the rest unused.
     };
 
     struct Fixup {
@@ -353,6 +356,15 @@ namespace {
             align8(out);
             sources.push_back({ &c, uint32_t(out.size()) });
             out.insert(out.end(), c.d.begin(), c.d.end());
+            return int(sources.size() - 1);
+        }
+
+        // Raw data (vertices of the converter's own) placed in the container, as a source without a container: Refs
+        // { false, index, offset } point into it.
+        int add_raw(const Bytes& data) {
+            align8(out);
+            sources.push_back({ nullptr, uint32_t(out.size()) });
+            out.insert(out.end(), data.begin(), data.end());
             return int(sources.size() - 1);
         }
 
@@ -534,11 +546,20 @@ namespace {
             raw_palettes.push_back({ name, prec });
         }
 
-        // The extended container: the new model lists, then every table rebuilt (old and new records, sorted).
+        // The extended container: the new model lists, then every table rebuilt (old and new records, sorted). Models
+        // whose lists call another model's (Ref::model) are placed after the others.
+        std::map<std::string, uint32_t> placed_lists;
         Bytes build_extended() {
             if (!load_lists.empty() || !textures.empty() || !palettes.empty()) fail("extension with texture-load lists");
             align8(out);
             std::vector<uint32_t> no_loads;
+            auto calls = [](const ModelOut& m) {
+                for (const auto& lod : m.lods) {
+                    if (lod) for (const Fixup& f : lod->fixups) if (!f.ref.model.empty()) return true;
+                }
+                return false;
+            };
+            std::stable_partition(models.begin(), models.end(), [&](const ModelOut& m) { return !calls(m); });
             for (ModelOut& m : models) {
                 Bytes rec, name_rec(0x18, 0);
                 add32(rec, m.count);
@@ -548,6 +569,7 @@ namespace {
                         at = uint32_t(out.size());
                         out.insert(out.end(), m.lods[l]->bytes.begin(), m.lods[l]->bytes.end());
                         for (const Fixup& f : m.lods[l]->fixups) put32(out, at + f.pos, resolve(f.ref, no_loads));
+                        if (l == 0) placed_lists[m.name] = at;
                     }
                     add16(rec, 0);
                     add16(rec, m.flags[l]);
@@ -639,6 +661,11 @@ namespace {
         }
 
         uint32_t resolve(const Ref& ref, const std::vector<uint32_t>& load_at) const {
+            if (!ref.model.empty()) {
+                auto it = placed_lists.find(ref.model);
+                if (it == placed_lists.end()) fail("call to model " + ref.model + " before its list is placed");
+                return it->second;
+            }
             return ref.load ? load_at[size_t(ref.index)] : sources[size_t(ref.index)].second + ref.offset;
         }
 
@@ -1536,6 +1563,136 @@ namespace {
         }
         return std::nullopt;
     }
+
+    // The version band (rush2::track2049::version_ring_*, as the Rush 2049 previews' rings): a model `name` that draws
+    // the diorama `base` (a call into its list) and a band of color `rgb` round the foot of its sides. The band follows
+    // the outline of the diorama's base from above (the union of its lowest triangles, concave bays and all, pushed out
+    // a little), not a circle. The track select shows it for a course with another version installed (track2049_menu.cpp).
+    void add_band_model(Builder& b, const std::string& base, const std::string& name, uint32_t rgb) {
+        const Builder::ModelOut* model = nullptr;
+        for (const Builder::ModelOut& m : b.models) if (m.name == base) model = &m;
+        if (model == nullptr) fail("no model " + base);
+        std::vector<std::array<double, 2>> ring;     // the band's outline; empty: no band (the plain diorama)
+        // The diorama's triangles (its list run through a vertex buffer as the RSP would).
+        std::vector<std::array<std::array<double, 3>, 3>> tris;
+        double lo = 1e30, hi = -1e30;
+        {
+            const Body& body = *model->lods[0];
+            std::array<std::array<double, 3>, 64> slots{};
+            std::map<size_t, const Fixup*> at;
+            for (const Fixup& f : body.fixups) at[f.pos] = &f;
+            for (size_t o = 0; o + 8 <= body.bytes.size(); o += 8) {
+                uint32_t w0 = u32(body.bytes, o), w1 = u32(body.bytes, o + 4);
+                uint8_t op = uint8_t(w0 >> 24);
+                if (op == 0x01) {
+                    auto f = at.find(o + 4);
+                    if (f == at.end() || f->second->ref.load) continue;
+                    uint32_t n = (w0 >> 12) & 0xFF, end = (w0 >> 1) & 0x7F;
+                    size_t addr = b.sources[size_t(f->second->ref.index)].second + f->second->ref.offset;
+                    for (uint32_t k = 0; k < n && end >= n && end - n + k < slots.size(); k++) {
+                        size_t v = addr + k * 16;
+                        slots[end - n + k] = { double(s16(b.out, v)), double(s16(b.out, v + 2)), double(s16(b.out, v + 4)) };
+                        lo = std::min(lo, slots[end - n + k][1]);
+                        hi = std::max(hi, slots[end - n + k][1]);
+                    }
+                }
+                auto tri = [&](uint32_t w) {
+                    uint32_t i0 = ((w >> 16) & 0xFF) / 2, i1 = ((w >> 8) & 0xFF) / 2, i2 = (w & 0xFF) / 2;
+                    if (i0 < slots.size() && i1 < slots.size() && i2 < slots.size()) tris.push_back({ slots[i0], slots[i1], slots[i2] });
+                };
+                if (op == 0x05) tri(w0 & 0xFFFFFF);
+                if (op == 0x06) tri(w0 & 0xFFFFFF), tri(w1 & 0xFFFFFF);
+            }
+        }
+        // The base's outline: the diorama seen from above, the union of all its triangles (they have no underside, and
+        // their sides run its full height), concave bays and all, pushed out a little. None found: the plain diorama.
+        constexpr double grid = 4.0;            // Clipper units per model unit
+        double height = 0.0;
+        auto largest = [](const Clipper2Lib::Paths64& paths) {
+            size_t best = 0;
+            for (size_t i = 1; i < paths.size(); i++) {
+                if (std::abs(Clipper2Lib::Area(paths[i])) > std::abs(Clipper2Lib::Area(paths[best]))) best = i;
+            }
+            return best;
+        };
+        Clipper2Lib::Paths64 parts;
+        for (const auto& t : tris) {
+            Clipper2Lib::Path64 q;
+            for (const auto& v : t) q.push_back(Clipper2Lib::Point64(int64_t(std::llround(v[0] * grid)), int64_t(std::llround(v[2] * grid))));
+            if (Clipper2Lib::Area(q) != 0) parts.push_back(q);
+        }
+        Clipper2Lib::Paths64 shape = parts.empty() ? Clipper2Lib::Paths64{} : Clipper2Lib::Union(parts, Clipper2Lib::FillRule::NonZero);
+        if (!shape.empty()) {
+            const Clipper2Lib::Path64& outline = shape[largest(shape)];
+            double radius = std::sqrt(std::abs(Clipper2Lib::Area(outline)) / 3.14159) / grid;
+            // Pushed out 1.5% of the base's size so it doesn't fight the sides; as tall as 7% of it, from the foot up.
+            height = radius * 0.07;
+            Clipper2Lib::Paths64 grown = Clipper2Lib::InflatePaths({ outline }, radius * 0.015 * grid,
+                                                                   Clipper2Lib::JoinType::Round, Clipper2Lib::EndType::Polygon);
+            grown = Clipper2Lib::SimplifyPaths(grown, radius * 0.01 * grid);
+            if (!grown.empty()) {
+                for (const auto& pt : grown[largest(grown)]) ring.push_back({ double(pt.x) / grid, double(pt.y) / grid });
+            }
+        }
+        if (ring.size() < 3) ring.clear();
+        // Vertices (16 bytes: s16 x, y, z, flag, s, t, u8 r, g, b, a) and the list: up to 15 sides a load.
+        Bytes verts;
+        Builder::ModelOut m{ name, 1, {}, {}, {}, model->radius };
+        Body body;
+        body.fixups.push_back({ body.bytes.size() + 4, { false, -1, 0, base } });
+        add32(body.bytes, 0xDE000000);                  // the diorama
+        add32(body.bytes, 0);
+        // Texture off, sync, opaque z-buffered without fog, shade color.
+        for (uint32_t w : { 0xD7000000u, 0xFFFFFFFFu, 0xE7000000u, 0u, 0xE200001Cu, 0x0C192230u, 0xFCFFFFFFu, 0xFFFE7C38u }) {
+            add32(body.bytes, w);
+        }
+        std::vector<std::pair<size_t, uint32_t>> loads;     // (body offset of a G_VTX's address, vertex byte offset)
+        const size_t sides = ring.size();
+        constexpr size_t per_load = 15;
+        for (size_t s0 = 0; s0 < sides; s0 += per_load) {
+            const size_t n = std::min(per_load, sides - s0);
+            const uint32_t first = uint32_t(verts.size());
+            for (size_t e = 0; e <= n; e++) {
+                const auto& r = ring[(s0 + e) % sides];
+                for (double y : { lo, lo + height }) {
+                    add16(verts, uint16_t(int16_t(std::lround(r[0]))));
+                    add16(verts, uint16_t(int16_t(std::lround(y))));
+                    add16(verts, uint16_t(int16_t(std::lround(r[1]))));
+                    add16(verts, 0);
+                    add16(verts, 0);
+                    add16(verts, 0);
+                    verts.push_back(uint8_t(rgb >> 16));
+                    verts.push_back(uint8_t(rgb >> 8));
+                    verts.push_back(uint8_t(rgb));
+                    verts.push_back(0xFF);
+                }
+            }
+            const uint32_t count = uint32_t(2 * (n + 1));
+            loads.push_back({ body.bytes.size() + 4, first });
+            add32(body.bytes, 0x01000000 | (count << 12) | (count << 1));
+            add32(body.bytes, 0);
+            auto tri = [](uint32_t a, uint32_t b2, uint32_t c) { return (a * 2 << 16) | (b2 * 2 << 8) | (c * 2); };
+            for (uint32_t e = 0; e < uint32_t(n); e++) {
+                uint32_t b0 = 2 * e, t0 = b0 + 1, b1 = b0 + 2, t1 = b0 + 3;
+                // Both windings: it shows whatever the culling and mirror state.
+                add32(body.bytes, 0x06000000 | tri(b0, t0, t1));
+                add32(body.bytes, tri(b0, t1, b1));
+                add32(body.bytes, 0x06000000 | tri(b0, t1, t0));
+                add32(body.bytes, tri(b0, b1, t1));
+            }
+        }
+        add32(body.bytes, 0xD7000002);                  // texture on, as the lists end
+        add32(body.bytes, 0xFFFFFFFF);
+        for (uint32_t w : restore_state) add32(body.bytes, w);
+        add32(body.bytes, 0xDF000000);
+        add32(body.bytes, 0);
+        int raw = b.add_raw(verts);
+        for (const auto& [at, off] : loads) body.fixups.push_back({ at, { false, raw, off } });
+        m.lods[0] = std::move(body);
+        m.dist[0] = model->dist[0];
+        m.flags[0] = model->flags[0];
+        b.models.push_back(std::move(m));
+    }
 }
 
 bool rush2::track1::extend_menu_container(const std::vector<uint8_t>& container, const std::vector<uint8_t>& rom,
@@ -1548,7 +1705,11 @@ bool rush2::track1::extend_menu_container(const std::vector<uint8_t>& container,
         for (int t = 0; t < track_count; t++) {
             auto i = find_model(dioramas, diorama_models[t]);
             if (!i) fail(std::string("no diorama ") + diorama_models[t]);
-            b.add_model(s, *i, "R1TRACK" + std::to_string(t + 1), false);
+            const std::string model = "R1TRACK" + std::to_string(t + 1);
+            b.add_model(s, *i, model, false);
+            // Its version bands (shown for a course with another version: the SF Rush arcade tracks'): N64 and ARCADE.
+            add_band_model(b, model, model + "N", rush2::track2049::version_ring_n64);
+            add_band_model(b, model, model + "A", rush2::track2049::version_ring_arcade);
             Bytes texels, palette;
             build_logo(t, texels, palette);
             b.add_texels("R1LOGO" + std::to_string(t + 1), logo_w, logo_h, 0x01, 0x02, 0x48008000, texels, palette);

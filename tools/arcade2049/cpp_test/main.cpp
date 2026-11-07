@@ -2,9 +2,11 @@
 // their output can be checked (tools/track_mod_test.bat, tools/track_mod_check.py) without a game run. Built and run
 // by tools/arcade2049/cpp_test/build.bat:
 //
-//   build.bat [OUT_DIR] [DATA_DIR]     (OUT_DIR default tmp/arcade/cpp; DATA_DIR default ProjectR's sf2049se folder)
+//   build.bat [OUT_DIR] [DATA_DIR|-] [GAME]   (OUT_DIR default tmp/arcade/cpp; DATA_DIR default (or -) ProjectR's folder
+//                                            of the game; GAME rush2049 (default) or sfrush)
 //
-// Writes OUT_DIR/rush2049_arcade/ and OUT_DIR/rush2049_arcade_cars/ and prints each converter's log and time.
+// Writes OUT_DIR/<mod id>/ for each of the game's mods (rush2049_arcade and rush2049_arcade_cars, or sfrush_arcade) and
+// prints each converter's log and time.
 
 #include <chrono>
 #include <cstdio>
@@ -35,20 +37,22 @@ static bool write_mod(const std::filesystem::path& dir, const a49::ModFiles& fil
 
 int main(int argc, char** argv) {
     std::filesystem::path out = argc > 1 ? std::filesystem::u8path(argv[1]) : std::filesystem::path("tmp/arcade/cpp");
-    std::filesystem::path data = argc > 2 ? std::filesystem::u8path(argv[2]) : a49::default_data_dir();
-    if (!a49::is_data_dir(data)) {
+    const a49::ArcadeGame& game = argc > 3 && std::string(argv[3]) == "sfrush" ? a49::sfrush_arcade : a49::rush2049_arcade;
+    std::filesystem::path data = argc > 2 && std::string(argv[2]) != "-" ? std::filesystem::u8path(argv[2])
+                                                                          : a49::default_data_dir(game);
+    if (!a49::is_data_dir(data, game)) {
         fprintf(stderr, "%s is not the arcade data folder\n", rush2::upscale::path_utf8(data).c_str());
         return 1;
     }
     int status = 0;
-    for (int which = 0; which < 2; which++) {
+    for (int which = 0; which < (game.car_mod_id ? 2 : 1); which++) {
         auto t0 = std::chrono::steady_clock::now();
         a49::ModFiles files;
         std::string log;
-        bool ok = which == 0 ? a49::build_track_mod(data, "assets/arcade2049", files, log)
+        bool ok = which == 0 ? a49::build_track_mod(game, data, std::filesystem::path("assets") / game.assets, files, log)
                              : a49::build_car_mod(data, files, log);
         double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        const char* id = which == 0 ? a49::track_mod_id : a49::car_mod_id;
+        const char* id = which == 0 ? game.track_mod_id : game.car_mod_id;
         printf("== %s: %s in %.1f s, %zu files\n%s", id, ok ? "built" : "FAILED", s, files.size(), log.c_str());
         if (!ok || !write_mod(out / id, files)) status = 1;
     }

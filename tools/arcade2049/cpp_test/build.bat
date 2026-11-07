@@ -1,7 +1,7 @@
 @echo off
 rem Builds tmp\arcade_cpp\arcade_test.exe (tools\arcade2049\cpp_test\main.cpp: the game's Rush 2049 arcade converters,
 rem src\arcade2049, outside the game) and runs it. From Git Bash:
-rem   cmd //c "tools\arcade2049\cpp_test\build.bat [OUT_DIR] [DATA_DIR]"
+rem   cmd //c "tools\arcade2049\cpp_test\build.bat [OUT_DIR] [DATA_DIR or -] [rush2049 or sfrush]"
 rem Check the track with: cmd //c "tools\track_mod_test.bat OUT_DIR\rush2049_arcade\tracks\alcatraz tmp\arcade\cpp_check"
 setlocal
 set "HERE=%~dp0"

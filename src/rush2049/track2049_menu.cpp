@@ -220,9 +220,10 @@ namespace {
     // The custom tracks the track select offers: whether each converted (its art built), and the enabled mods they came
     // from (rebuilt when those change).
     std::vector<bool> mod_ok;
-    // By custom track index: from the app's own Rush 2049 arcade mod (by its mod id, not anything a track.toml can
-    // say), which the game filter files under Rush 2049 (rush2::track2049::mod_from_2049).
-    std::array<std::atomic<bool>, rush2::track2049::mod_capacity> mod_arcade{};
+    // By custom track index: from one of the app's own arcade mods (by its mod id, not anything a track.toml can say):
+    // 1 Rush 2049's, which the game filter files under Rush 2049 (rush2::track2049::mod_from_2049), 2 SF Rush's, under
+    // SF Rush (mod_from_sfrush); else 0.
+    std::array<std::atomic<int>, rush2::track2049::mod_capacity> mod_arcade{};
     std::vector<rush2::track_mod::MenuArt> mod_arts;
     std::string mod_signature;
     std::atomic<bool> mods_reload = false;     // rush2::track2049::mods_changed
@@ -420,10 +421,12 @@ namespace {
         }
     }
 
-    // What the version button shows for version t.
+    // What the version button shows for version t: the stock courses of Rush 2049 and SF Rush (both from N64 ROMs) as
+    // N64 (or DC), Rush 2's and California Speed's as STOCK.
     std::string version_label(int t) {
         if (t >= first_menu_id && t < first_menu_id + track_count) return courses_from_disc() ? "DC" : "N64";
         if (is_disc_course(t)) return "DC";
+        if (t >= r1_first && t < r1_end) return "N64";
         int i = mod_index(t);
         if (i >= 0 && size_t(i) < mod_version_labels.size()) return mod_version_labels[size_t(i)];
         return "STOCK";
@@ -741,6 +744,8 @@ namespace {
                 // A build of 2026-11-05 named the Dreamcast versions DREAMCAST and allowed 12 characters.
                 std::string l = label.is_string() ? label.get<std::string>() : std::string();
                 if (l == "DREAMCAST") l = "DC";
+                // Until 2026-11-06 the SF Rush courses' own version showed as STOCK (now N64, beside ARCADE).
+                if (l == "STOCK" && key.rfind("sfrush:", 0) == 0) l = "N64";
                 if (!l.empty()) version_picks[key] = upper_label(l);
             }
         }
@@ -867,6 +872,25 @@ namespace {
             for (size_t i = 0; i < mod_ok.size(); i++, m += 32) {
                 if (!mod_ok[i]) continue;
                 int t = mod_id(int(i));
+                // The app's SF Rush arcade versions show their course's own diorama and banner, as the Dreamcast
+                // versions do (only one version of a course is on the carousel): the arcade data has no picture of
+                // its own, and SF Rush's dioramas are models of the courses.
+                int g = group_of[size_t(t)];
+                int course = g >= 0 ? version_groups[size_t(g)].members[0] : -1;
+                if (mod_arcade[i].load() == 2 && menu_has_rush1 && course >= r1_first && course < r1_end) {
+                    for (uint32_t table : { new_diorama_names, new_logo_names, new_diorama_scales, new_cloud_heights }) {
+                        MEM_W(0, (int32_t)(table + t * 4)) = MEM_W(0, (int32_t)(table + course * 4));
+                    }
+                    // With the version bands (src/rush1/track1_convert.cpp add_band_model), as the Rush 2049 versions'
+                    // rings: red round this one, blue round the course's N64 one. The names go in this entry's own
+                    // string slots (its logo name is the course's).
+                    std::string model = "R1TRACK" + std::to_string(course - r1_first + 1);
+                    write_string(rdram, m, model + "A");
+                    MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = m;
+                    write_string(rdram, m + 16, model + "N");
+                    MEM_W(0, (int32_t)(new_diorama_names + course * 4)) = m + 16;
+                    continue;
+                }
                 // The author's diorama, or Rush 2049's preview of the route, posed and animated as the 2049 tracks'
                 // previews are (rush2_track49_select_pose).
                 write_string(rdram, m, rush2::track_mod::diorama_model_name(int(i)));
@@ -1029,7 +1053,8 @@ namespace {
         mod_arts.clear();
         mod_types.clear();
         for (size_t i = 0; i < size_t(mod_capacity); i++) {
-            mod_arcade[i] = i < entries.size() && entries[i].mod_id == rush2::arcade2049::track_mod_id;
+            const std::string id = i < entries.size() ? entries[i].mod_id : std::string();
+            mod_arcade[i] = id == rush2::arcade2049::track_mod_id ? 1 : id == rush2::arcade2049::sfrush_track_mod_id ? 2 : 0;
         }
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));
@@ -1404,7 +1429,12 @@ void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
 
 bool rush2::track2049::mod_from_2049(int t) {
     int i = mod_index(t);
-    return i >= 0 && i < mod_capacity && mod_arcade[size_t(i)].load();
+    return i >= 0 && i < mod_capacity && mod_arcade[size_t(i)].load() == 1;
+}
+
+bool rush2::track2049::mod_from_sfrush(int t) {
+    int i = mod_index(t);
+    return i >= 0 && i < mod_capacity && mod_arcade[size_t(i)].load() == 2;
 }
 
 uint32_t rush2::track2049::diorama_name(uint8_t* rdram, int t) {

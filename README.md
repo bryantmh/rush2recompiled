@@ -81,6 +81,10 @@ With the mods built, the Arcade Checkpoints option hangs the arcade's CHECKPOINT
 
 The mods are built from your own copy of the arcade game and aren't shared with the download. They rebuild themselves when a new version of the game changes them.
 
+### SF Rush arcade tracks
+
+The arcade release of San Francisco Rush (The Rock edition) has its own versions of all seven SF Rush tracks: the same layouts with much sharper textures and more detailed scenery. With its files unpacked by Project R, press Build and Install under SF Rush Arcade on the Games tab. Each course then gets an ARCADE version beside its N64 one: the version button (X, Square or J on the keyboard) on the track select switches between them.
+
 ## What you need
 
 - A Windows 10 or 11 PC, or a Linux PC (any desktop distro with glibc 2.38 or newer, such as Ubuntu 24.04, Fedora 39, Debian 13, current Arch or SteamOS; see [docs/linux.md](docs/linux.md))

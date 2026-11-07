@@ -638,7 +638,7 @@ variant    = "NIGHT"             # what the version button shows for it (up to 6
 | `"rush2:<name>"`, `"sfrush:<name>"`, `"rush2049:<name>"`, `"calspeed:<name>"` | that game's race track. The name is the track's full name in lower case, with each space or dot as `_`: `"rush2:las_vegas"`, `"rush2:lower_manhattan"`, `"sfrush:golden_gate"`, `"rush2049:presidio"`, `"calspeed:mt_shasta"` |
 | a custom track's folder name | that track (which can itself be a version of something: the chain ends at the course) |
 
-- The stock track's own version shows as STOCK, Rush 2049's as N64 (and its Dreamcast version as DC, when
+- The stock track's own version shows as STOCK, Rush 2049's and SF Rush's as N64 (and Rush 2049's Dreamcast version as DC, when
   both the N64 ROM and the disc are installed and Settings > Games > Enabled Source is Both). A custom version without
   `variant` shows its name, cut to 6 characters (what fits beside the button).
 - A version must be the same kind of track as its course: a race track's versions are race tracks, an arena's are

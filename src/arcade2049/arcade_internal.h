@@ -53,6 +53,10 @@ namespace rush2::arcade2049 {
         uint32_t offset = 0, texture_mode = 0;
         std::array<int, 16> y{};
         std::array<std::array<int, 3>, 4> i{}, q{};
+        // AYIQ8422's byte order: Rush 2049's little-endian texel (color index, then alpha), Rush The Rock's the other way
+        // round (alpha, then color index: read as 2049's, its trees came out pale boxes with 164 alpha levels; swapped,
+        // alpha is 0 or 255 and the colors right). Set by Track::open from the vertex size, which tells the games apart.
+        bool alpha_first = false;
         bool clamp_s() const { return (texture_mode & 0x40) != 0; }
         bool clamp_t() const { return (texture_mode & 0x80) != 0; }
         // Level 0 as w*h RGBA (row 0 first); false for a format the reader doesn't know or data that ends early.
@@ -108,6 +112,9 @@ namespace rush2::arcade2049 {
 
     struct PathTable {
         uint32_t lap_count = 0;
+        // Rush The Rock: a lap runs from record 0 to lap_end and goes on at loop_start (an intro from the grid when
+        // loop_start is past the first few); records past lap_end are a run-out. Not read for Rush 2049.
+        uint32_t loop_start = 0, lap_end = 0;
         std::vector<PathRecord> records;
     };
 
