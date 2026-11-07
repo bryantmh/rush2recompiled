@@ -2078,9 +2078,16 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         last = at;
         gates.push_back({ "CHECKPOINT_" + std::to_string(++kept), i });
     }
+    // Rush The Rock's gates count a car crossing their line within 500 ft (their radius in ProjectR's tables: 250,000
+    // squared), not only across the road's width the marker is scaled to (where the converter finds the AI path's
+    // crossing): The Rock's tunnel under checkpoint 2 crosses its line 45-65 ft from the gate, the rooftop beside its
+    // finish 65-160 ft, and a gate missed there stopped the race's checkpoints and laps (issue 57).
+    // docs/sfrush_arcade.md#gates
+    constexpr double rock_gate_radius = 500.0;
     for (const auto& [gname, i] : gates) {
         V2 tg = tangent(i);
-        g.empty(gname, gate_matrix(lap[i], { tg[0], 0.0, tg[1] }, std::max({ half[i][0], half[i][1], 30.0 }) + 10.0));
+        int node = g.empty(gname, gate_matrix(lap[i], { tg[0], 0.0, tg[1] }, std::max({ half[i][0], half[i][1], 30.0 }) + 10.0));
+        if (rock) g.js["nodes"][node]["extras"] = { { "pass_radius", rock_gate_radius / feet_per_meter } };
     }
 
     // AI: every racing line the arcade gives the drones. Table 0's lap is AIPATH_main (as wide as the road there: the

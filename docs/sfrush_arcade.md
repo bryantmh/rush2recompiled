@@ -145,6 +145,18 @@ Each gate goes to the lap point nearest it in 3D at or after the one before (Sun
 opposite stretch (the converter warns): a car meets that stretch only while another gate is next, so no gate is
 passed early.
 
+Each marker carries the arcade's radius as `pass_radius` (500 ft, 152.4 m), which the mod converter writes into the
+path file as the gate radius the race's gate test reads (`func_800A1468`: a change of side counts only within the
+radius seen from above), while the marker's X scale (the road's half width + 10 ft, 40-210 ft) stays where the
+converter finds the AI path's crossing. With the road's width alone (issue 57, 2026-11-07: "the tunnel shortcut
+doesn't count and the left path on top of the rooftop near the end of the lap doesn't count either" on The Rock) a
+car taking a shortcut crossed the gate's line beside it and the gate was missed, which stops the race's checkpoints,
+laps and respawn window (docs/rush2049_research/checkpoints.md#8-car-tracker-checkpoint-window-and-respawn-point-rush-2-vs-2049-vs-sf-rush).
+On The Rock the road under the bridge crosses checkpoint 2's line 43-66 ft out (its marker: 40 ft), the cell-block
+roof (ACELLTOP) 52 ft above the finish 66-157 ft out (its marker: 52 ft), and the lower road beside the climb to the
+finish up to 180 ft out. `tools/gate_pass.py` (Rush 2's gate test along every AI line, 3 laps) finds no gate counted
+on another stretch at 500 ft on any of the seven tracks; in game The Rock's drone counted checkpoints 1-6 in order.
+
 ## Checks
 
 All seven pass `tools/track_mod_test.bat` and `tools/track_mod_check.py` (every lane point has ground in its index

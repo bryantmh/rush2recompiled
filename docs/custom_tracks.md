@@ -219,6 +219,13 @@ direction, put it in the middle of the road, and scale its X so the red arrow ju
 scale is half the gate's width. Leave the Empty's Display Size at 1, because the exported file keeps the scale but not
 the display size. Move every marker into place: markers left at the origin are reported as errors.
 
+A car counts a gate when it crosses the marker's line within its half width (seen from above). If your track has a
+shortcut or a second road that passes beside a gate (a tunnel underneath, a rooftop alongside), give the marker a
+custom property `pass_radius`: how far from the marker, in meters, a car may cross its line and still count. The X
+scale still sets where the AI path is taken to cross it. Keep it short of any other stretch of road that crosses the
+line before the gate is due, or the gate counts early there; `python tools/gate_pass.py track.glb` replays the game's
+gate test along your AI path and lanes and reports gates counted on the wrong stretch (WIDE) or missed.
+
 | Name | What |
 |---|---|
 | `FINISH` | The start/finish line. The grid lines up behind it. On a point-to-point track, the finish line only. |
@@ -791,6 +798,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | `COL_*` | `covered` | 0, 1, 2 | Shades the cars on it: 1 a tunnel, 2 lightly covered ([Collision surfaces](#collision-surfaces)) |
 | `MOVE_<name>` | `billboard` | True | Its meshes face the camera as it moves ([Moving billboards](#moving-billboards)) |
 | `PROP_*` | `billboard` | True | The prop faces the camera ([Props](#props)) |
+| `FINISH`, `START`, `CHECKPOINT_n` | `pass_radius` | meters | How far from the marker a car may cross its line and still count ([Markers](#markers)) |
 | `AIPATH_main` | `keep_height` | True | The path keeps its height over every gap ([The AI path](#the-ai-path)) |
 | `AIPATH_main`, `AIPATH_lane*` | attributes `_SPEED`, `_AI_MODE` | mph; 2 or 5 | The computer cars' speed and steering point by point ([The AI path](#the-ai-path)) |
 | `COL_*` | attribute `_SEGMENT` | segment number | Spline road, for converter tools ([Spline road](#spline-road)) |

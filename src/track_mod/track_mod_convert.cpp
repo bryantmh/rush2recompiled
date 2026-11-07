@@ -1773,10 +1773,24 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // A circuit's gates are FINISH and then CHECKPOINT_1, 2, ...; a point-to-point race's START, the checkpoints and
     // FINISH last (START stands in at the path's start when there is none: see the AI path below).
     // loop: a run-in circuit's loop start (flags 4), where the path's end comes back onto it.
-    struct Gate { std::string name; Vec3 pos, dir; float radius; int at = -1; bool loop = false; };
+    // radius: half the marker's width (its X scale), where the converter looks for the AI path's crossing. pass: the
+    // marker's pass_radius custom property (m, kept in ft here), how far from it seen from above a car may cross its
+    // line and still count, when that is wider (0: radius). The path file's gate radius is the larger: it is what the
+    // race's gate test (func_800A1468) reads, while the crossings stay the converter's (rush2_mod_checkpoint_crossing).
+    struct Gate { std::string name; Vec3 pos, dir; float radius; int at = -1; bool loop = false; float pass = 0.0f; };
+    auto pass_radius = [](const rush2::gltf::Node* n) {
+        if (!n->extras.contains("pass_radius")) return 0.0f;
+        const auto& v = n->extras["pass_radius"];
+        return v.is_number() ? std::max(0.0f, v.get<float>()) * feet_per_meter : 0.0f;
+    };
+    auto marker_gate = [&](std::string name, const rush2::gltf::Node* n) {
+        Gate g{ std::move(name), to_game(n->position()), forward(n), half_width(n) };
+        g.pass = pass_radius(n);
+        return g;
+    };
     std::vector<Gate> gates;
-    if (finish && !open_path) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
-    if (start_line) gates.push_back({ "START", to_game(start_line->position()), forward(start_line), half_width(start_line) });
+    if (finish && !open_path) gates.push_back(marker_gate("FINISH", finish));
+    if (start_line) gates.push_back(marker_gate("START", start_line));
     if (arena) {
         // Start spots: Rush 2049's battle starts player p at checkpoint [0, 2, 1, 3][p] (rush2_track49_battle_start), the
         // stunt mode at the path's first point, which is START_1's.
@@ -1793,9 +1807,9 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     int cps_added = 0;
     for (const auto& [k, n] : checkpoints) {
         if (cps_added++ >= max_cps) break;   // the extra ones were reported above
-        gates.push_back({ "CHECKPOINT_" + std::to_string(k), to_game(n->position()), forward(n), half_width(n) });
+        gates.push_back(marker_gate("CHECKPOINT_" + std::to_string(k), n));
     }
-    if (finish && open_path) gates.push_back({ "FINISH", to_game(finish->position()), forward(finish), half_width(finish) });
+    if (finish && open_path) gates.push_back(marker_gate("FINISH", finish));
     for (size_t i = 0; i < gates.size(); i++) {
         const Gate& g = gates[i];
         if (length(g.dir) < 0.5f) report.error(g.name + " points straight up or down; turn it so its green arrow points down the track.");
@@ -3012,7 +3026,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 // Pointing back against the race, as in every stock path file (the gate test 0x800A15BC takes a
                 // side change either way).
                 for (float f : g.dir) addf(d, -f);
-                add32(d, uint32_t(std::min(65535.0f, g.radius) * std::min(65535.0f, g.radius)));
+                float r = std::min(65535.0f, std::max(g.radius, g.pass));
+                add32(d, uint32_t(r * r));
                 // Circuit: the finish is the lap line, arms lap counting and starts the loop (7). An open path:
                 // open_flags.
                 add16(d, open_path ? open_flags(c) : c == 0 ? 7 : 0);
