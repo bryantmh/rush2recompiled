@@ -26,7 +26,7 @@ args = ap.parse_args()
 
 os.makedirs(args.out, exist_ok=True)
 exe = os.path.abspath(args.exe)
-p = subprocess.Popen([exe] + (['--input-script', args.script] if args.script else []), cwd=os.path.dirname(exe), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+p = shots.hidden_desktop.popen([exe] + (['--input-script', args.script] if args.script else []), cwd=os.path.dirname(exe), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 time.sleep(args.wait)
 hwnd = shots.find_window(p.pid)
 shots.user32.PostMessageW(hwnd, 0x10, 0, 0)   # WM_CLOSE

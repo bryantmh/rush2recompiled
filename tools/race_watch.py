@@ -38,6 +38,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(HERE, 'rush2049'))
 import roms, paths  # noqa: E402
+import hidden_desktop  # noqa: E402  (game runs start on a hidden desktop; RUSH2_VISIBLE=1 shows them)
 
 k32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
@@ -311,7 +312,7 @@ def main():
     if a.launch:
         exe = os.path.abspath(a.exe) if a.exe else os.path.join(REPO, 'build', 'Rush2Recompiled.exe')
         log = open(os.path.join(a.out, 'run.log'), 'w')
-        proc = subprocess.Popen([exe, '--input-script', a.launch], cwd=os.path.dirname(exe), stdout=log,
+        proc = hidden_desktop.popen([exe, '--input-script', a.launch], cwd=os.path.dirname(exe), stdout=log,
                                 stderr=subprocess.STDOUT)
         pid = proc.pid
         with open(os.path.join(a.out, 'pid.txt'), 'w') as f:   # for tools attaching to this run

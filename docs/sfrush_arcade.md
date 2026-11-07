@@ -105,6 +105,28 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   2026-11-06) changed nothing where the lanes go, so they are left as built. What the probe does find are gaps between
   faces, 1-2 ft wide, on the lanes (Golden Gate, Market and Sunset 30-40 lane points each, the others 1-10; Rush 2049's
   Civic and Presidio too), there with or without that: open.
+- **Drawn road against the spline road (2026-11-06, reported as the road looking bumpy, wavy lane lines and the
+  car's shadow clipping into the road on Golden Gate past the bridge):** the drawn road is the arcade's own flat
+  facets, one quad across the road and 30-190 ft long, kinked 1-4 degrees at their seams, with the road texture's t
+  jumping about 103 texels at two of every three seams (T1_4_GRN repeats every 128), while the cars ride the spline
+  road's curved surface: along all four lanes the drawn road is at most 0.76 ft over the game's ground (median
+  0.07; the arcade's own ground query, ProjectR project-r.exe 0x1402C6550, is the same math). The arcade draws the
+  same facets and seams (checked against a ProjectR screenshot of the spot), so the road stays as the data has it; a
+  drape of the drawn road onto the surface was tried and dropped (it reshaped arrows and wall bottoms).
+- **Car shadow against the drawn road (open):** Rush 2 puts the shadow over the wheel points
+  (car_model_update_parts_80059D24). Logged on Golden Gate (two cars, a minute each): its corners sit 0.3-1.1 ft
+  over the drawn road (median 0.75, against 1 ft on a stock track), and in about 1% of frames a crest between them
+  rises through it, by up to 0.36 ft. Tried in src/interpolation.cpp and dropped: the decal depth mode (the shadow
+  vanished: RT64 passes a decal pixel only within the depth slope of what is there), and moving its vertices
+  toward the camera (0.5 ft drew it over the car's lower body, 0.35 ft drew dark lines across other cars seen from
+  the side, where the far corners move much more than the near ones). The arcade's shadow (ProjectR 0x1402FEBC0,
+  texture SHADBLUR, set up in 0x1402FEB50) is the wheels' ground points raised along the car's up axis by 0.7 ft
+  for the watched car and 0.5 ft for the others (table 0x140623970), left out when its wheels' heights differ by
+  over 8 ft, its alpha from their average height; the quads go to its Vulkan renderer through 0x14017D0F0 /
+  0x14017D5E0, and it never calls vkCmdSetDepthBias. How its renderer keeps the road from cutting it is not found.
+- The exe's table of 84 TEMPL names at 0x1406F4798 (per track: 64, 19, 1 names with value 0x20, placed through
+  0x1402C4930 with that flag at the object record's +4) is not the road: only 7 of Golden Gate's 51 road objects
+  are in it.
 
 ## Gates
 

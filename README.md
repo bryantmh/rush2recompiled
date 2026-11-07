@@ -73,8 +73,7 @@ California Speed (Atari Games, 1999) runs on the same engine as Rush 2, so it co
 
 The arcade release of San Francisco Rush 2049 (Special Edition) had a track and cars the N64 version never got, and its own versions of the six race tracks. If you have the arcade game's files as unpacked by [Project R](https://t3hd0gg.com/project-r/) (a free native PC port of the arcade game; you supply your own arcade files), press Build and Install under Rush 2049 Arcade on the Games tab. It finds ProjectR's folder by itself (or press Select Folder) and builds and turns on two mods in a few seconds, no restart needed:
 
-- **Alcatraz.** The arcade-only Alcatraz track, listed right after the Rush 2049 tracks, with computer opponents, records and ghosts like any custom track.
-- **Arcade tracks.** Turn off Alcatraz Only and the arcade's own Marina, Haight, Civic, Metro, Mission and Presidio are added too, as tracks of their own (Marina Arcade and so on) before Alcatraz. Their buildings, props, skies and road shapes come from the arcade game, so they look and drive a little differently from the N64 versions.
+- **Arcade tracks.** The arcade's Alcatraz joins the track select, and Marina, Haight, Civic, Metro, Mission and Presidio each get an ARCADE version beside their N64 one: the version button (X, Square or J on the keyboard) on the track select switches between them. Their buildings, props, skies and road shapes come from the arcade game, so they look and drive a little differently from the N64 versions.
 - **Arcade cars.** The arcade's Truck, Deuce and Caddy join the car select, and the arcade-only color schemes for the 2049 cars show up as a STYLE row.
 
 With the mods built, the Arcade Checkpoints option hangs the arcade's CHECKPOINT banner over every checkpoint on the N64 Rush 2049 tracks, which the N64 game leaves unmarked.

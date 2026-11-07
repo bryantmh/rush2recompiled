@@ -79,7 +79,7 @@ def windows(pid, cls, parent=None):
             found.append(h)
         return True
     if parent is None:
-        u.EnumWindows(cb_t(cb), 0)
+        return shots.hidden_desktop.windows(pid, cls)   # top-level: on the hidden test desktop or the normal one
     else:
         u.EnumChildWindows(parent, cb_t(cb), 0)
     return found
@@ -113,7 +113,7 @@ env = dict(os.environ, RUSH2_SIM='1', RUSH2_SIM_TURBO='0', RUSH2_SIM_SHOW='1', R
            RUSH2_DATA_DIR=data)
 exe = os.path.join(shots.REPO, 'build', 'Rush2Recompiled.exe')
 log = open(os.path.join(out, 'game.log'), 'w')
-p = subprocess.Popen([exe], cwd=os.path.dirname(exe), env=env, stdout=log, stderr=subprocess.STDOUT)
+p = shots.hidden_desktop.popen([exe], cwd=os.path.dirname(exe), env=env, stdout=log, stderr=subprocess.STDOUT)
 try:
     time.sleep(12)
     game = shots.find_window(p.pid)

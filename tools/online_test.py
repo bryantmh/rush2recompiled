@@ -61,7 +61,7 @@ try:
             env[k] = v
         cmd = [exe] + (['--input-script', script] if script else [])
         log = open(os.path.join(args.out, name + '.log'), 'w')
-        procs.append((name, subprocess.Popen(cmd, cwd=os.path.dirname(exe), env=env, stdout=log,
+        procs.append((name, shots.hidden_desktop.popen(cmd, cwd=os.path.dirname(exe), env=env, stdout=log,
                                              stderr=subprocess.STDOUT)))
         print('started', name, 'pid', procs[-1][1].pid, 'at %.1f' % (time.time() - start))
         if i + 1 < len(args.instance):

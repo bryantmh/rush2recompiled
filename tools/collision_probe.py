@@ -1,14 +1,16 @@
 """Drives every AI lane point of a converted track through the game's ground pick and reports where a wheel would get
 the wrong height (research aid; docs/custom_tracks.md#spline-road, docs/rush2049_research/collision.md).
 
-    python tools/collision_probe.py OUTDIR [--near X,Z,R] [--tol FT]
+    python tools/collision_probe.py OUTDIR [--near X,Z,R] [--tol FT] [--gap FT] [--why]
 
 OUTDIR is tools/track_mod_test.bat output (collision.bin, path.bin). For each lane point (dropped onto the road by the
 converter): the ground faces of its quadtree leaf whose local x/z footprint holds it (func_8006C670's test), of those
 the highest whose flat plane is at most 5 ft above the point (the wheel probe's window), and that face's height there:
 its spline segment's surface for a spline face (collision_seg_surface_8006BDA8), else its plane. Reports points where
 no face is taken (a hole) or the height taken is more than --tol ft (default 3) from the point, with the face, its
-segment and how far its plane is from the point. --near limits the report to points within R ft of (X, Z).
+segment and how far its plane is from the point. --near limits the report to points within R ft of (X, Z). --gap FT
+mimics the crack fill of smooth collision (src/smooth_collision.cpp gap_tol, 1 ft; on unless a track sets
+smooth_collision = false): when no face holds a point, a face whose footprint is within FT of it holds it.
 """
 import argparse, os, struct, sys
 
@@ -27,6 +29,8 @@ def main():
     ap.add_argument('outdir')
     ap.add_argument('--near')
     ap.add_argument('--tol', type=float, default=3.0)
+    ap.add_argument('--gap', type=float, default=0.0, help='crack fill: a face within this many ft of a point holds it '
+                    'when none does (smooth collision: 1)')
     ap.add_argument('--why', action='store_true', help='with each bad point, list every ground face holding it')
     a = ap.parse_args()
     c = collision.Collision.parse(open(os.path.join(a.outdir, 'collision.bin'), 'rb').read(), collision.R2)
@@ -44,6 +48,21 @@ def main():
             local = np.array([[0.0, 0.0, 0.0]] + [list(v) for v in vs[1:]])
             faces[pi] = (np.array(vs[0], float), M, local[:, [0, 2]], poly['seg'], poly['flags'] & 0xF)
         return faces[pi]
+
+    def outside_by(q, poly2d):
+        # How far q lies outside the convex footprint (0 inside): the largest distance past an edge line.
+        worst, sign = 0.0, 0.0
+        for i in range(len(poly2d)):
+            a0, b0 = poly2d[i], poly2d[(i + 1) % len(poly2d)]
+            cr = (b0[0] - a0[0]) * (q[1] - a0[1]) - (b0[1] - a0[1]) * (q[0] - a0[0])
+            ln = np.hypot(b0[0] - a0[0], b0[1] - a0[1])
+            if ln < 1e-9:
+                continue
+            if sign == 0.0 and abs(cr) > 1e-9:
+                sign = 1.0 if cr > 0 else -1.0
+            if sign != 0.0:
+                worst = max(worst, -sign * cr / ln)
+        return worst
 
     def inside(q, poly2d):
         sign = 0.0
@@ -76,22 +95,25 @@ def main():
                 continue
             total += 1
             best, held = None, []
-            for pi in leaf_for(c, P[0], P[2]):
-                O, M, fp, seg, ty = face(pi)
-                if ty in (5, 6):
-                    continue
-                d = M @ (P - O)
-                if not inside((d[0], d[2]), fp):
-                    continue
-                n = M[1]
-                if abs(n[1]) < 1e-6:
-                    continue
-                plane_y = O[1] - (n[0] * (P[0] - O[0]) + n[2] * (P[2] - O[2])) / n[1]
-                held.append((pi, seg, plane_y - P[1]))
-                if plane_y - P[1] > WINDOW:
-                    continue        # over the window: the probe skips it
-                if best is None or plane_y > best[0]:
-                    best = (plane_y, pi, seg)
+            for gap in ([0.0, a.gap] if a.gap > 0 else [0.0]):
+                if best is not None:
+                    break
+                for pi in leaf_for(c, P[0], P[2]):
+                    O, M, fp, seg, ty = face(pi)
+                    if ty in (5, 6):
+                        continue
+                    d = M @ (P - O)
+                    if (outside_by((d[0], d[2]), fp) > gap) if gap > 0 else not inside((d[0], d[2]), fp):
+                        continue
+                    n = M[1]
+                    if abs(n[1]) < 1e-6:
+                        continue
+                    plane_y = O[1] - (n[0] * (P[0] - O[0]) + n[2] * (P[2] - O[2])) / n[1]
+                    held.append((pi, seg, plane_y - P[1]))
+                    if plane_y - P[1] > WINDOW:
+                        continue        # over the window: the probe skips it
+                    if best is None or plane_y > best[0]:
+                        best = (plane_y, pi, seg)
             if best is None:
                 bad.append((li, P, 'no face taken', None, None, None, held))
                 continue

@@ -18,12 +18,14 @@ that isn't done in TIMEOUT is closed, by its PID only.
 
 See: docs/custom_tracks.md#race-replays
 """
-import json, os, shutil, subprocess, threading, time
+import json, os, shutil, subprocess, sys, threading, time
 
 import stock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, os.path.join(REPO, 'tools'))
+import hidden_desktop  # noqa: E402  (game runs start on a hidden desktop; RUSH2_VISIBLE=1 shows them)
 BUILD = os.path.join(REPO, 'build')
 EXE = os.path.join(BUILD, 'Rush2Recompiled.exe')
 RUNS = os.path.join(REPO, 'tmp', 'trackview', 'runs')
@@ -134,7 +136,7 @@ def start(folder, backward=False):
     if backward:
         env['RUSH2_TEST_BACKWARD'] = '1'
     log = open(rec[:-5] + '.log', 'w')
-    proc = subprocess.Popen([EXE], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
+    proc = hidden_desktop.popen([EXE], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
     with lock:
         current.clear()
         current.update(folder=folder if stock.is_stock(folder) else os.path.abspath(folder), folder_name=run_name(folder), backward=backward,

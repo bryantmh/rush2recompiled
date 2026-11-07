@@ -1000,7 +1000,7 @@ merges and renames as needed.
   itself has since moved (see Scene node table below).
 - **Scene node table:** every section, billboard, prop and moving object's record gets a scene node, and so do the
   cars. The game's table at 0x800D9E90 holds 1,000 (0x38 bytes each, count `scene_node_table_count_800FAE58`, appended
-  with no bound). The arcade Haight (Rush 2049 Arcade, Alcatraz Only off) made 1,045 with its 167 billboards, 80 props
+  with no bound). The arcade Haight (Rush 2049 Arcade) made 1,045 with its 167 billboards, 80 props
   and 117 moving objects: the extra nodes ran over `text_state_stack_a_800E7C50`, whose handler the loading screen
   calls, so its race start jumped to 0x300 and quit every time (and the texture deriver's thread then crashed on the
   exit, which is what the dumps show). The arcade Metro makes 944 and Marina 831 (`race_watch.py --peek 800FAE58
@@ -1009,7 +1009,7 @@ merges and renames as needed.
   func_800BC888 through another pointer are excluded), and the game heap starts at 0x80420000 (`src/assets.cpp`;
   3 MB of it was still free in the arcade Metro's race). Interpolation keeps state for every node and its matrix IDs
   hold 12 bits of node index (`src/interpolation.cpp` node_id).
-- **A big track and the heap:** the arcade Presidio (Rush 2049 Arcade, Alcatraz Only off) fills the heap to about
+- **A big track and the heap:** the arcade Presidio (Rush 2049 Arcade) fills the heap to about
   0x80A5EAA0 (`test_race.py --peek 8010C438 --peek 8010C454`: heap low and high). Two things broke there (issue 27).
   `race_preload_car_assets_800A37F4` loads a car's model only if the free heap holds its asset + 0x200, else a smaller
   Rush 2 type's. Its checks read the size table at asset 0x1D + type, which for a Rush 2049 type is a track asset

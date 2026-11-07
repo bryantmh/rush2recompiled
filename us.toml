@@ -1074,7 +1074,7 @@ text = "    if (rush2_track49_select_available(rdram, ctx)) return;"
 
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
-before_vram = 0x803AC104
+before_vram = 0x803AC118
 text = "    rush2_track49_select_wrap(rdram, ctx);"
 
 [[patches.hook]]

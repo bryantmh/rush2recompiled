@@ -72,7 +72,7 @@ def main():
     cwd = os.path.dirname(exe) if 'RUSH2_EXE' in os.environ else shots.REPO
     args = [exe] + (['--input-script', script] if script else [])
     log = open(os.path.join(out, 'run.log'), 'w')
-    game = subprocess.Popen(args, cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
+    game = shots.hidden_desktop.popen(args, cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
     handled = 0
     try:
         while game.poll() is None:

@@ -12,7 +12,8 @@
 //   menu_settings_to_race_globals_80094698 at 0x800947C0).
 // - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
 // - RUSH2_TEST_RACE_VIEW_CAR=<car>: the first view follows that car (a drone: 1 and up) for the whole race, as
-//   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course.
+//   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course. RUSH2_TEST_RACE_VIEW_LANE=<0-3> keeps that
+//   drone to one AI lane (left to right as you drive).
 // - RUSH2_TEST_RACE_WAIT=<seconds>: the race starts that long after the title screen is first up (a mod rebuilt at
 //   launch finished first, as when a player starts a race after it).
 //
@@ -195,6 +196,15 @@ namespace {
 extern "C" void rush2_test_race_frame(uint8_t* rdram, recomp_context* ctx) {
     static const char* spec = env("RUSH2_TEST_RACE");
     static bool done = false;
+    // RUSH2_TEST_RACE_VIEW_LANE=<0-3>: the watched drone (RUSH2_TEST_RACE_VIEW_CAR) takes that AI lane (left to right)
+    // as its home lane (drone state +0x2A, car record 0x801124A0 + car * 0x354 + 0x30C: drone_driver_80074990), which
+    // drone_steer_along_path_80074284 scores a lane higher for, so it keeps to it.
+    static const char* view_lane = env("RUSH2_TEST_RACE_VIEW_LANE");
+    static const char* view_car = env("RUSH2_TEST_RACE_VIEW_CAR");
+    if (spec != nullptr && done && view_lane != nullptr && view_car != nullptr && !rush2::race_setup::in_menus(rdram)) {
+        uint32_t state = 0x801124A0u + uint32_t(std::atoi(view_car)) * 0x354u + 0x30Cu;
+        MEM_H(0x2A, (int32_t)state) = (int16_t)std::atoi(view_lane);
+    }
     if (spec == nullptr || done || rush2::online::state() != rush2::online::State::Offline ||
         !rush2::race_setup::in_menus(rdram)) {
         return;

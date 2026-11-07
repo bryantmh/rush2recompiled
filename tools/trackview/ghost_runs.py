@@ -55,7 +55,7 @@ def launch(folder, ghost, a, log_path, until, timeout):
     if ghost:
         env['RUSH2_GHOST_DEBUG'] = '1'
     log = open(log_path, 'w')
-    proc = subprocess.Popen([runs.EXE, '--input-script', script(ghost, a.backward, a.mirror)], cwd=runs.BUILD, env=env,
+    proc = runs.hidden_desktop.popen([runs.EXE, '--input-script', script(ghost, a.backward, a.mirror)], cwd=runs.BUILD, env=env,
                             stdout=log, stderr=subprocess.STDOUT)
     t0 = time.time()
     try:

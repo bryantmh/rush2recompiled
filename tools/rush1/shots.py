@@ -2,6 +2,7 @@
 
 Usage: python shots.py OUT_DIR "<input script>" t1 t2 ...    (times in seconds after launch)
 Captures with PrintWindow (client area, full content), which works when other windows cover the game.
+The game runs on a hidden desktop (tools/hidden_desktop.py), off the user's screen; RUSH2_VISIBLE=1 shows it.
 Set RUSH2_EXE to run another build (e.g. a copy linked into tmp/ while build/ is in use); it runs in its own folder.
 Set RUSH2_WINDOW=WxH to resize the window's client area to W x H as soon as it appears (resolution tests).
 Set RUSH2_ARGS to pass more arguments to the game, space separated (e.g. "--autostart --debug-rumble").
@@ -13,23 +14,13 @@ user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 user32.SetProcessDPIAware()
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(REPO, 'tools'))
+import hidden_desktop  # noqa: E402  (test runs start on a hidden desktop; RUSH2_VISIBLE=1 shows them)
 
 
 def find_window(pid):
-    found = []
-
-    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
-    def cb(hwnd, _):
-        p = wt.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
-        if p.value == pid and user32.IsWindowVisible(hwnd):
-            r = wt.RECT()
-            user32.GetClientRect(hwnd, ctypes.byref(r))
-            if r.right > 200:
-                found.append(hwnd)
-        return True
-    user32.EnumWindows(cb, 0)
-    return found[0] if found else None
+    """The game window of `pid`, on the hidden test desktop or the normal one (tools/hidden_desktop.py)."""
+    return hidden_desktop.find_window(pid)
 
 
 def resize(hwnd, w, h):
@@ -70,7 +61,7 @@ if __name__ == '__main__':
     exe = os.path.abspath(os.environ.get('RUSH2_EXE', os.path.join(REPO, 'build', 'Rush2Recompiled.exe')))
     cwd = os.path.dirname(exe) if 'RUSH2_EXE' in os.environ else REPO
     extra = os.environ.get('RUSH2_ARGS', '').split()
-    p = subprocess.Popen([exe, *extra, '--input-script', script], cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
+    p = hidden_desktop.popen([exe, *extra, '--input-script', script], cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
     start = time.time()
     print('launched at %.3f (epoch seconds)' % start)
     size = os.environ.get('RUSH2_WINDOW')

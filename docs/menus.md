@@ -193,6 +193,10 @@ hidden and silent from a data folder of its own and reports when it loaded, each
 drove; read its docstring for the options. `tools/test_race.py menus --script S` runs the same sandbox with no race set
 up, for a script through the real menus (it starts as JUST PLAY: the folder has no saved players).
 
+To look at a spot on a track, don't hold the gas and hope: watch a drone drive the AI lanes there,
+`tools/test_race.py TRACK --drones 1 --env RUSH2_TEST_RACE_VIEW_CAR=1 --env RUSH2_TEST_RACE_VIEW_LANE=1` (the view on
+drone 1, kept to lane 1 of 0-3, left to right), with `--shots` as it passes.
+
 - `RUSH2_TEST_RACE_CARS=T[,T...]`: one car type per player, 1 to 4 players (split screen). View p follows car p
   (`view_cars` 0x80240380, as online sets them): left unset, view 0 kept another car and split screen's first view
   watched it from far off. Without it one player, in
@@ -236,6 +240,21 @@ printing the stick and torque the wings steer with while out (src/rush2049/wings
 `RUSH2_AUDIO_LEVELS=1` prints each sound source's level once a second in a test run (src/main.cpp
 `log_audio_levels`); `RUSH2_AUDIO_LEVELS=<folder>` also writes their streams for `tools/audio_loudness.py <folder>`
 (integrated loudness, docs/rush2049_research/audio.md#10-loudness-against-rush-2).
+
+### Hidden desktop
+
+Every tool that launches the game (test_race.py through race_watch.py, rush1/shots.py, menu_shot.py, ui_drive.py,
+online_test.py, first_boot_test.py, startup_time.py, shutdown_time.py, calspeed/sim_wrecks.py, trackview runs) starts
+it through `tools/hidden_desktop.py`: `popen()` is `subprocess.Popen` with the child on a Win32 desktop of its own,
+`Rush2Test` (`CreateDesktopW` + `STARTUPINFO.lpDesktop`, as TESConversion's `tools/live/hidden_launch.py`). The game
+renders, ticks and loads at the same speed there (track 0 race up 8.5-8.7 s either way), but its window never shows
+on the user's screen, takes focus or reads their keyboard and mouse, so a run with a visible window (`--show`, menu
+runs on build/) doesn't get in their way. Its windows are found with `hidden_desktop.find_window(pid)` /
+`windows(pid, class)` (`EnumDesktopWindows` over that desktop and the normal one; `shots.find_window` uses it),
+captured with `PrintWindow` and driven with `PostMessage` keys and clicks as before. The tool keeps its handle to the
+desktop open while it runs: once a process closes it, the game's window handles stop being valid in that process.
+Sound still plays from a hidden run, so the muting rules hold. `RUSH2_VISIBLE=1` starts runs on the normal desktop, to
+watch one.
 
 ### Touch controls
 

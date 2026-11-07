@@ -2282,12 +2282,15 @@ extern "C" int rush2_track49_select_available(uint8_t* rdram, recomp_context* ct
     return 1;
 }
 
-// func_803ABE0C at 0x803AC104: the TRACK option wrapped below 0 and stored 11 at $a3; wrap to the last added track
-// instead (the availability check that follows steps back past entries that are off). With the id read unsigned the
-// game no longer sees it go below 0 (past 254 it wraps to 0 instead); either way rush2_track49_select_step then takes
-// the track at the carousel's new position.
+// func_803ABE0C at 0x803AC118: the TRACK option's step loop (0x803AC0EC-0x803AC124: id byte at $a3 += step $a1 until
+// func_803AB01C accepts it) just stored 0 because the id passed 254. The game read the id signed (lb) and wrapped
+// below 0 to 11 at 0x803AC100; read unsigned (us.toml lbu) 0 - 1 is 255, which the patched slti at 0x803AC0FC sends
+// to 0 as well, so stepping left from 0 went 255 -> 0 -> 255 forever whenever track 0 is off (the stunt and battle
+// selects, or Rush 2's tracks filtered out): the game hung on that select. Left (step < 0) wraps to the last id
+// instead; the loop then steps back past entries that are off. Either way rush2_track49_select_step then takes the
+// track at the carousel's new position.
 extern "C" void rush2_track49_select_wrap(uint8_t* rdram, recomp_context* ctx) {
-    MEM_B(0, (int32_t)ctx->r7) = uint8_t(menu_tracks - 1);
+    if ((int32_t)ctx->r5 < 0) MEM_B(0, (int32_t)ctx->r7) = uint8_t(menu_tracks - 1);
 }
 
 // func_803ABE0C at 0x803AC670 (player 1) / 0x803AC6B8 (player 2): about to store the save record byte with the

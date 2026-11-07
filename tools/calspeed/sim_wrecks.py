@@ -28,6 +28,8 @@ off its lane, under the course, a fall).
 import argparse, json, math, os, shutil, struct, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+import hidden_desktop  # noqa: E402  (game runs start on a hidden desktop; RUSH2_VISIBLE=1 shows them)
 REPO = os.path.dirname(os.path.dirname(HERE))
 BUILD = os.path.join(REPO, 'build')
 EXE = os.path.join(BUILD, 'Rush2Recompiled.exe')
@@ -154,7 +156,7 @@ def run(track, hold, catch_up=True, extra_env=None, tag='', cs_drones=False):
                RUSH2_TEST_CAR='0')
     env.update(extra_env or {})
     with open(rec[:-5] + '.log', 'w') as log:
-        proc = subprocess.Popen([EXE, '--input-script', SCRIPT], cwd=BUILD, env=env, stdout=log,
+        proc = hidden_desktop.popen([EXE, '--input-script', SCRIPT], cwd=BUILD, env=env, stdout=log,
                                 stderr=subprocess.STDOUT)
         try:
             proc.wait(timeout=TIMEOUT)

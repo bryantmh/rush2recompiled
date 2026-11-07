@@ -25,7 +25,7 @@ if sound_text is not None:
     import re
     with open(sound_path, 'w', newline='') as f:
         f.write(re.sub(r'("main_volume":\s*)[0-9.]+', r'\g<1>0', sound_text))
-p = subprocess.Popen([exe], cwd=os.path.dirname(exe), stdout=log, stderr=subprocess.STDOUT)
+p = shots.hidden_desktop.popen([exe], cwd=os.path.dirname(exe), stdout=log, stderr=subprocess.STDOUT)
 try:
     # The window shows later on a cold start (an empty shader cache, a new data folder): wait up to a minute for it.
     hwnd = None

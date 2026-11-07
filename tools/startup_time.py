@@ -5,6 +5,7 @@ ends only that process.
 Usage: python tools/startup_time.py [--exe build/Rush2Recompiled.exe] [--until "Initializing recomp heap"] [--timeout 90]
 """
 import argparse, os, subprocess, threading, time
+import hidden_desktop  # game runs start on a hidden desktop; RUSH2_VISIBLE=1 shows them
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--exe', default='build/Rush2Recompiled.exe')
@@ -14,7 +15,7 @@ args = ap.parse_args()
 
 exe = os.path.abspath(args.exe)
 start = time.monotonic()
-proc = subprocess.Popen([exe], cwd=os.path.dirname(exe), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+proc = hidden_desktop.popen([exe], cwd=os.path.dirname(exe), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 done = threading.Event()
 
 def read():
