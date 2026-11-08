@@ -1241,13 +1241,33 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
             for (const auto& tr : lod.tris) if (tr[3] < t.textures.size()) used.insert(tr[3]);
             for (int ti : used) { users[ti].first++; users[ti].second += far; }
         }
+        auto shared_sky = [&](int ti) {
+            auto u = users.find(ti);
+            return u != users.end() && u->second.second >= 2 && u->second.second * 2 >= u->second.first;
+        };
         for (const Instance& in : instances) {
             for (const auto& tr : in.o->lod0.tris) {
-                auto u = users.find(tr[3]);
-                if (u != users.end() && u->second.second >= 2 && u->second.second * 2 >= u->second.first) {
+                if (shared_sky(tr[3])) {
                     sky_names.insert(in.o->name);
                     break;
                 }
+            }
+        }
+        // Rush The Rock puts a few sky-textured panels inside street objects (Market's TEMPL1966: a block of road and
+        // shop fronts with four SKYTOP1 triangles under the road; TEMPL880: concrete and side road with a small box of
+        // SKY00A-03A and SKYTOP1). Taken as sky, the whole block was drawn in the sky pass, floating overhead, leaving a
+        // hole in the street (2026-11-07). On The Rock an object is sky by its textures only when every triangle is
+        // sky-textured; a mixed one stays scenery, its sky panels drawn in place (far objects are still sky by reach).
+        if (rock) {
+            const auto rock_sky = [&](int ti) {
+                if (ti >= int(t.textures.size())) return true;
+                for (const char* s : rock_sky_textures) if (starts_with(t.textures[ti].name, s)) return true;
+                return shared_sky(ti);
+            };
+            for (auto it = sky_names.begin(); it != sky_names.end();) {
+                const Object* o = t.object_named(*it);
+                bool mixed = o && std::any_of(o->lod0.tris.begin(), o->lod0.tris.end(), [&](const auto& tr) { return !rock_sky(tr[3]); });
+                it = mixed ? sky_names.erase(it) : std::next(it);
             }
         }
     }

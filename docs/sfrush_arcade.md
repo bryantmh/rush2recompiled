@@ -92,7 +92,11 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   far-object rules apply with a 12,000 ft radius for all but water (2049: 9,000): Market's road and trees reach 9,138
   ft and Embarcadero's signs 9,406, while the backdrops (Market's hills `TP_` 12,190-22,743 ft, Embarcadero's Marin hills
   and bay 16,440-18,698, The Rock's distant land `APANS_01`-`16`) go to the sky. Sky draw order: dome, water, every
-  other sky object (distant land), clouds. Downtown, The Heights and Sunset have no dome in their data (nor in
+  other sky object (distant land), clouds. An object is sky by its textures only when every triangle has a sky
+  texture: Market's TEMPL1966 (a block of road and shop fronts at about (-5400, 0) with four `SKYTOP1` triangles under
+  the road) and TEMPL880 (concrete and side road at (-2300, 2500) with a small box of `SKY00A`-`03A` and `SKYTOP1`)
+  were taken whole into the sky and drew floating overhead, leaving a hole in the street (2026-11-07); they stay
+  scenery, their sky panels drawn in place. Downtown, The Heights and Sunset have no dome in their data (nor in
   `STATIC` or `REFLECT`): they get `sky = "clouds"`, the N64 version's dome. All seven take SF Rush's fog color
   0x9696BE (`fog_color`, as the N64 port's).
 - **Water:** `WATER2` sheets become `COL_WATER` as on 2049, but only at sea level (every corner at 5 ft or below: the
