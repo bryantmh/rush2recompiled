@@ -29,6 +29,7 @@
 #include "librecomp/mods.hpp"
 #include "recompui/recompui.h"
 
+#include "arcade2049.h"
 #include "assets.h"
 #include "gltf_scene.h"
 #include "texture_derive.h"
@@ -420,6 +421,8 @@ namespace {
         if (!e.settings.diorama.empty()) read_file(e, e.settings.diorama, f.extras.diorama);
         if (!e.settings.preview.empty()) read_file(e, e.settings.preview, f.extras.preview);
         stock_sky_container(e.settings.sky, f.extras.sky_container, f.extras.sky_model, f.sky_pending);
+        // An arcade version of a course: the course's coins or keys it has (none for any other track).
+        rush2::arcade2049::collectible_extras(e.mod_id, e.folder, f.extras);
         key_files(f);
         remember_files(f);
         return true;
@@ -433,7 +436,16 @@ namespace {
         h = rush2::track_cache::hash(f.extras.logo.data(), f.extras.logo.size(), h);
         h = rush2::track_cache::hash(f.extras.preview.data(), f.extras.preview.size(), h);
         h = rush2::track_cache::hash(f.extras.sky_container.data(), f.extras.sky_container.size(), h);
-        f.source = rush2::track_cache::hash(f.extras.diorama.data(), f.extras.diorama.size(), h);
+        for (const auto& m : f.extras.models) {
+            h = rush2::track_cache::hash(m.container.data(), m.container.size(), h);
+            h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(m.name.data()), m.name.size(), h ^ m.behaviour);
+        }
+        for (const auto& r : f.extras.records) {
+            h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(r.name.data()), r.name.size(), h);
+            h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(r.m.data()), sizeof(r.m), h);
+            h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(r.pos.data()), sizeof(r.pos), h);
+        }
+        f.source =rush2::track_cache::hash(f.extras.diorama.data(), f.extras.diorama.size(), h);
         {
             std::lock_guard lock{ sources_mutex };
             sources[report_key(e)] = f.source;

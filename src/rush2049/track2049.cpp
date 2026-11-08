@@ -65,6 +65,7 @@
 #include "track2049_convert.h"
 #include "track_cache.h"
 #include "car2049.h"
+#include "collectibles.h"
 #include "rush2049_rom.h"
 #include "track_mod_runtime.h"
 #include "sim_run.h"
@@ -408,6 +409,14 @@ namespace {
         if (is_cs_k(loaded_track)) {
             rush2::track1::set_redirects(rdram, cs_track.record_models, cs_track.piece_models);
         }
+        else if (int course = is_mod_k(loaded_track) ? rush2::collectibles::raced_arcade_course() : -1;
+                 course >= 0 && course < rush2::collectibles::sfrush_courses) {
+            // An arcade version of an SF Rush course: its keys (src/arcade2049/arcade_collectibles.cpp) draw SF Rush's
+            // key and are taken by SF Rush's hit test, as on the course itself.
+            std::map<std::string, std::string> keys;
+            for (int n = 1; n <= rush2::collectibles::sfrush_keys[size_t(course)]; n++) keys["KEY" + std::to_string(n)] = "KEYL1";
+            rush2::track1::set_redirects(rdram, keys, {}, true);
+        }
         else {
             rush2::track1::clear_redirects();   // another track replaced a Cal Speed one in the slot
         }
@@ -441,7 +450,7 @@ namespace {
             MEM_W(0, (int32_t)(demo_lists + (slot + 12 * b) * 4)) = saved.demo_list[b];
             MEM_H(0, (int32_t)(demo_counts + (slot + 12 * b) * 2)) = saved.demo_count[b];
         }
-        if (is_cs_k(loaded_track)) {
+        if (is_cs_k(loaded_track) || is_mod_k(loaded_track)) {
             rush2::track1::clear_redirects();
         }
         applied = false;

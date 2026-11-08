@@ -168,6 +168,22 @@ namespace rush2::track_mod {
         // copied in as SKYO1. Empty when the game couldn't provide it (no Rush 2049 ROM, the offline converter).
         std::vector<uint8_t> sky_container;
         std::string sky_model;
+        // Models copied in from another Rush 2 container under their own name, with a behaviour id (the coin and key
+        // models of the arcade versions' collectibles), and placement records using them: each a child of the section
+        // it is in, at its world position. Only the game fills these (src/arcade2049/arcade_collectibles.cpp, for the
+        // arcade versions of the stock courses): track.glb and track.toml can't make collectibles.
+        struct Model {
+            std::vector<uint8_t> container;
+            std::string name;
+            uint16_t behaviour = 0;
+        };
+        struct Record {
+            std::string name;
+            std::array<float, 9> m{};
+            std::array<float, 3> pos{};
+        };
+        std::vector<Model> models;
+        std::vector<Record> records;
     };
 
     struct Converted {

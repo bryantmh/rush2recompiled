@@ -509,7 +509,8 @@ Meshes named `PROP_<kind>_<name>` react when a car hits them, the way Rush 2049'
 Put each prop's origin at its foot: a sign tips over about it. Its location, rotation and scale are kept. Give a prop
 a custom property `billboard` set to True (Object Properties > Custom Properties) to make it a billboard too: it faces
 the camera and keeps facing it as it flies off, which suits flat cones. Every prop is back in place at the start of
-each race. There are no collectibles (coins, keys) on custom tracks.
+each race. There are no collectibles (coins, keys) on custom tracks (the game's own arcade versions of the stock
+courses carry their course's: docs/arcade2049.md#coins-and-keys-on-the-arcade-versions).
 
 Props react only when the Rush 2049 ROM is set in the Games tab, because their movement and sounds come from
 Rush 2049. Without it they stand still and cars drive through them.

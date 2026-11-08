@@ -25,6 +25,8 @@ python tools/arcade2049/arcade.py %LOCALAPPDATA%\ProjectR\Data\sfrushrk\TRACKS\T
   tracks). The course's own version now shows as N64 (it showed STOCK; a saved STOCK pick of an `sfrush:` course is
   read as N64).
 - The game filter files them under SF Rush, by the mod's id (`rush2::track2049::mod_from_sfrush`).
+- They carry the N64 course's keys where the arcade track has the same spot (36 of 53; none on The Rock), taken with
+  SF Rush's hit test and shared with the N64 version: docs/arcade2049.md#coins-and-keys-on-the-arcade-versions.
 - In the track select an arcade version shows its course's diorama and banner (`write_tables`, as the Dreamcast
   versions do): the arcade data has no picture, and SF Rush's dioramas are models of the courses. A course with its
   arcade version installed shows a version band round the foot of its diorama, as the Rush 2049 previews' rings: blue

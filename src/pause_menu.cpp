@@ -467,7 +467,8 @@ namespace {
     struct Count {
         const char* label;                  // Shown when the model isn't there.
         std::vector<const char*> models;    // The collectible's model, by the names it can have.
-        int found, total;
+        int found, total;                   // On this track.
+        int course_total = 0;               // An arcade version with only some of them: the course's, shown as "(8)".
     };
 
     // What player 1 has found on the race's track, or nothing on a track without collectibles.
@@ -485,9 +486,30 @@ namespace {
             out.push_back({ "SILVER", { "SILVERCOINS_COI" }, bits(m & silver_bits), coins_per_kind });
         };
         int k = rush2::track2049::race_track();
-        if ((host || (t == rush2::track2049::stunt_host_slot && rush2::track_mod::race_type() != rush2::track_mod::race_race)) &&
+        int arcade = host ? race_arcade_course() : -1;
+        if (arcade >= 0) {
+            // An arcade version of a course (src/arcade2049/arcade_collectibles.cpp): what was found of the course's
+            // coins or keys that this version has, out of those, then the course's total. None placed: no box.
+            uint16_t here = race_pickups();
+            uint16_t m = arcade < sfrush_courses ? p.sfrush[size_t(arcade)] : p.rush2049[size_t(arcade - sfrush_courses)];
+            auto add = [&](const char* label, std::vector<const char*> models, uint16_t kind, int total) {
+                if ((here & kind) == 0) return;
+                int available = bits(here & kind);
+                out.push_back({ label, std::move(models), bits(m & here & kind), available, available < total ? total : 0 });
+            };
+            if (arcade < sfrush_courses) {
+                int keys = sfrush_keys[size_t(arcade)];
+                add("KEYS", { "KEYL1", "R1KEYL1" }, uint16_t((1u << keys) - 1), keys);
+            }
+            else {
+                add("GOLD", { "GOLDCOING_COIN" }, gold_bits, coins_per_kind);
+                add("SILVER", { "SILVERCOINS_COI" }, silver_bits, coins_per_kind);
+            }
+        }
+        else if ((host || (t == rush2::track2049::stunt_host_slot && rush2::track_mod::race_type() != rush2::track_mod::race_race)) &&
             rush2::track_mod::race_track() >= 0 && k == 0 && rush2::track1::race_track() == 0) {
-            // A custom track (src/track_mod/): no collectibles (not HAWAII's keys and cans, nor STUNT1's for an arena).
+            // Another custom track (src/track_mod/): no collectibles (not HAWAII's keys and cans, nor STUNT1's for an
+            // arena).
         }
         else if (host && k > 0) {
             if (k <= rush2049_courses) {
@@ -709,7 +731,8 @@ namespace {
         std::vector<uint32_t> lists;
         int value_w = 0, label_w = 0;
         for (const Count& c : rows) {
-            values.push_back(std::to_string(c.found) + "/" + std::to_string(c.total));
+            values.push_back(std::to_string(c.found) + "/" + std::to_string(c.total) +
+                             (c.course_total > 0 ? " (" + std::to_string(c.course_total) + ")" : ""));
             value_w = std::max(value_w, width(rdram, ctx, values.back()));
             uint32_t dl = 0;
             for (const char* name : c.models) {

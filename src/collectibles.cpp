@@ -32,6 +32,9 @@
 // session-only set, like Rush 2's no-profile keys. As in Rush 2, keys are only placed with one player (the placement
 // walker skips class records when racing with more).
 // What they buy (src/unlocks.cpp) is kept with them: each profile's purchases, by item id, in the same file.
+// The arcade versions of the SF Rush and Rush 2049 courses (custom tracks in the host slot) carry some of their
+// course's keys or coins with the same record names (src/arcade2049/arcade_collectibles.cpp): they count as that
+// course's, so a key or coin taken on either version is taken on both.
 
 #include <algorithm>
 #include <cstdio>
@@ -62,6 +65,7 @@
 #include "online.h"
 #include "track1.h"
 #include "track2049.h"
+#include "track_mod_runtime.h"
 
 namespace {
     using namespace rush2::collectibles;
@@ -146,6 +150,11 @@ namespace {
     };
     Rush2Snapshot rush2_snapshot;
 
+    // The course an arcade version raced is a version of (rush2::collectibles::raced_arcade_course), set at each race's
+    // object setup, or -1; and the bits of the keys and coins that setup placed.
+    int race_arcade = -1;
+    uint16_t race_bits = 0;
+
     // The course of the added track being raced, or -1.
     int hosted_course(uint8_t* rdram) {
         int t = MEM_BU(0, (int32_t)track_id);
@@ -157,6 +166,10 @@ namespace {
             k = rush2::track2049::race_track();
             if (k >= 1 && k <= rush2049_courses) {
                 return first_rush2049 + k - 1;
+            }
+            // An arcade version's coins and keys are its course's (src/arcade2049/arcade_collectibles.cpp).
+            if (race_arcade >= 0 && rush2::track_mod::race_track() >= 0) {
+                return race_arcade;
             }
         }
         else if (t == rush2::track2049::stunt_host_slot) {
@@ -579,9 +592,24 @@ extern "C" void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx) {
 
 // Start of func_8008BC64 (the race's object setup, before the placement is instantiated): a new race's coins.
 extern "C" void rush2_collect_race_reset(uint8_t* rdram, recomp_context* ctx) {
+    bool mod_race = MEM_BU(0, (int32_t)track_id) == rush2::track2049::host_slot && rush2::track_mod::race_track() >= 0 &&
+                    rush2::track_mod::race_type() == rush2::track_mod::race_race;
+    int arcade = mod_race ? rush2::collectibles::raced_arcade_course() : -1;
     std::lock_guard lock{ collect_mutex };
     coins.clear();
     hide_glows();
+    race_arcade = arcade;
+    race_bits = 0;
+}
+
+uint16_t rush2::collectibles::race_pickups() {
+    std::lock_guard lock{ collect_mutex };
+    return race_bits;
+}
+
+int rush2::collectibles::race_arcade_course() {
+    std::lock_guard lock{ collect_mutex };
+    return rush2::track_mod::race_track() >= 0 ? race_arcade : -1;
 }
 
 // func_800BC3F8 at 0x800BC490 ($v1 = the new key, its number at +0x68): on an added track, the bit named by its record.
@@ -597,6 +625,10 @@ extern "C" void rush2_collect_number(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     MEM_H(0, (int32_t)(key + 0x68)) = (int16_t)bit;
+    {
+        std::lock_guard lock{ collect_mutex };
+        race_bits |= (uint16_t)(1u << bit);
+    }
     if (c >= first_rush2049) {
         // The radius of the hit test's first, sphere check (func_8008B95C).
         uint32_t radius;

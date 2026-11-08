@@ -55,6 +55,15 @@ namespace rush2::collectibles {
     void reset_purchases(const std::string& name);
     // The Progress tab (src/progress_tab.cpp).
     void create_tab();
+
+    // Arcade versions of the courses (src/arcade2049/arcade_collectibles.cpp): the course (SF Rush tracks 0-6, then
+    // Rush 2049 race tracks 7-12) whose coins or keys a mod's track has some of, else -1; the raced custom track's.
+    int arcade_course(const std::string& mod_id, const std::string& folder);
+    int raced_arcade_course();
+    // Game thread: the bits of the coins or keys placed in the race being raced (all of a stock course's; some, or
+    // none, of an arcade version's), and the course whose arcade version is raced, or -1.
+    uint16_t race_pickups();
+    int race_arcade_course();
 }
 
 #endif

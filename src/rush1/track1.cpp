@@ -336,10 +336,10 @@ void rush2::track1::preload(int k) {
 }
 
 void rush2::track1::set_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
-                                  const std::map<std::string, std::string>& pieces) {
+                                  const std::map<std::string, std::string>& pieces, bool rush1_hits) {
     std::lock_guard lock{ track_mutex };
     fill_redirects(rdram, records, pieces);
-    rush1_rules = false;
+    rush1_rules = rush1_hits;
 }
 
 void rush2::track1::clear_redirects() {

@@ -162,7 +162,7 @@ commands and what the converter makes of them:
 |---|---|---|
 | `frontface` | a card turned to the camera | `BILLBOARD_` |
 | `bounce`, `box x y z`, `point x y z` | knocked when hit (box or point hit shape) | `PROP_KNOCK_` |
-| `coin` | a score pickup, not Rush 2049's hidden coins | left out (mods have no collectibles) |
+| `coin` | a score pickup, not Rush 2049's hidden coins | left out (the N64 course's coins are placed instead: [Coins and keys on the arcade versions](#coins-and-keys-on-the-arcade-versions)) |
 | `spinx`/`spinz <deg/s>` | turns about its own x / upright axis, as its matrix turns it **[I]** (degrees per second fits the lighthouse and police lights); a positive rate is right-handed in dobs.rom's (x, z, y) axes, left-handed in world axes (every plane's pointed nose leads that way; the converter turned them right-handed in world until 2026-10-21 and they flew tail first) | looping `MOVE_` (with its collision and `start` if it has them) |
 | `flipbook <fps>` | steps through `<name>_1..n` at that rate; negative: once, on its start event (breaking glass, the finish sign) | one `MOVE_` per frame, shown by scale steps; an event flipbook is `mode = "once"` with its `start` |
 | `alpha 0` / `alpha 1` | blending mode (not decoded) | the texture's own alpha |
@@ -511,6 +511,50 @@ every arcade car, so it lands on Rush 2's roster mean, as the N64 roster's avera
 inertia follow the mass by the N64's frame formula (2425 and 412500). Tire curves, rear grip, drive flags and
 drivetrain inertia are the N64 2049 car's. Steering, yaw damping and the SUSPENSION and TIRES settings are Rush 2's
 mean, as for the N64 cars. It was dropped: the cars now drive as their base car (docs/car_mods.md#rush-2049-arcade-cars).
+
+## Coins and keys on the arcade versions
+
+The arcade versions of the six Rush 2049 race tracks and of the SF Rush tracks (Rush The Rock, docs/sfrush_arcade.md)
+carry the N64 course's own coins or keys where the arcade track has the same spot. They are the course's: same record
+names, so same bits in the profile's masks (src/collectibles.cpp). One taken on either version counts on both, and
+the Progress tab and unlocks don't change. The arcade's own `coin` score pickups stay left out (dobs.rom above).
+
+- **Which spots.** `tools/arcade_collectibles.py` compares each N64 pickup against the arcade track's roaddat.rom. The
+  N64 position is used as it is: the arcade data is in the N64 games' world frame (Axes). It keeps a pickup when:
+  - the highest floor under it (within 2 ft above it) is within 3 ft of the N64's;
+  - at 6 or more of 8 points 30 ft around it, the floors match in the same way, or both have none;
+  - no arcade wall comes within 4 ft of it (floor to pickup) where the N64 has none.
+  `--write` makes `src/arcade2049/arcade_collectibles.inc`. Its source: 2049 placement file 120 + k (GOLDCOIN /
+  SILVERCOIN in record order, as the converter numbers them) and Rush 1 placement asset t (KEYL, key number at +0x4A,
+  section position added).
+- **Kept (2026-11-08).** Coins: Marina 11 of 16, Haight 3, Civic 8, Metro 12, Mission 13, Presidio 8 (55 of 96).
+  Keys: Golden Gate 6 of 6, Embarcadero 4 of 7, Market 7 of 8, Downtown 8 of 8, The Heights 6 of 8, Sunset 5 of 8,
+  The Rock 0 of 8 (36 of 53). Haight's hidden areas and The Rock are laid out differently in the arcade. Most others
+  dropped have no arcade floor at that height (rooftops and ledges the N64 port added). The Dreamcast's coins are the
+  N64's, except two Metro gold coins 6-10 ft higher; arcade versions use the N64's.
+- **The track.** Only the game-built arcade mods get them (`rush2049_arcade`, `sfrush_arcade`, by track folder).
+  track.glb and track.toml can't place collectibles, so other custom tracks still have none.
+  `rush2::arcade2049::collectible_extras` (src/arcade2049/arcade_collectibles.cpp) hands the custom track converter
+  their models and records (`track_mod::Extras::models` / `records`).
+  - Models: 2049 file 68's GOLDCOING_COIN and SILVERCOINS_COI (`track2049::convert_file`), or SF Rush asset 12's
+    KEYL1 (`track1::convert_container`), each with behaviour 8.
+  - Records: KEYS0-7 / KEYG0-7, or KEY1-8, at their world position, as children of the nearest opaque section. That
+    section's box and radius grow to hold them.
+  - The models and records are in the conversion's cache key. Without the 2049 source (coins) or the SF Rush ROM
+    (keys), the version has none.
+- **In the race.** `collectibles.cpp` takes the raced version's course at the race's object setup
+  (`rush2_collect_race_reset`) and counts its pickups as that course's. The coin rules are the stock tracks': 9 ft
+  pickup radius, glow, the 2049 sound. On an SF Rush course's version, `track2049.cpp` points KEY1-8 at KEYL1 and
+  turns on SF Rush's key hit test (`track1::set_redirects` with `rush1_hits`), as on the N64 course.
+- **Pause box.** It counts only the pickups the race placed (`collectibles::race_pickups`). When the version has
+  fewer than the course, the course's total follows in brackets: Haight Arcade shows `0/3 (8)` for its silver coins.
+  A kind with none placed has no row; a version with none has no box.
+- **Test.** `RUSH2_TEST_ARCADE_SPOT=<record>,x,y,z` moves one pickup, e.g. onto the start straight, to take it on a
+  short drive:
+  - `tools/test_race.py marina_arcade --drones 0 --env RUSH2_TEST_ARCADE_SPOT=KEYG2,1720,535,1873 --script "8:A:7,17:START" --shots 15,18.5`
+    gives `1/4 (8)`;
+  - `golden_gate_arcade` with `KEY3,-1639,276,5880` gives `1/6`.
+  The first run after a build converts the track again, and the race starts ~8 s later.
 
 ## Arcade checkpoints
 

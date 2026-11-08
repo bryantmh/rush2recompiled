@@ -3575,6 +3575,35 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
     }
 
+    // The game's own models for its records (Extras::models: the arcade versions' coins and keys), copied as the
+    // stock sky is. A record whose model couldn't be copied is left out.
+    struct ExtraCopy {
+        ModelCopy copy;
+        Section section;
+        uint16_t behaviour = 0;
+    };
+    std::vector<ExtraCopy> extra_copies;
+    for (const auto& em : extras.models) {
+        ExtraCopy ec;
+        std::string why;
+        if (!plan_copy(em.container, em.name, ec.copy, why)) {
+            report.error("The game's model " + em.name + " couldn't be copied: " + why + ".");
+            continue;
+        }
+        ec.section.name = em.name;
+        ec.section.radius = ec.copy.radius;
+        ec.behaviour = em.behaviour;
+        extra_copies.push_back(std::move(ec));
+    }
+    // The records draw these models (their class's model lookup is redirected to them): all or none.
+    std::vector<const rush2::track_mod::Extras::Record*> extra_records;
+    if (extra_copies.size() == extras.models.size()) {
+        for (const auto& r : extras.records) extra_records.push_back(&r);
+    }
+    if (!extra_records.empty()) {
+        report.info(std::to_string(extra_records.size()) + " collectible(s) of the course placed.");
+    }
+
     // ---- geometry container (docs/rush2049_research/geometry.md section 2) ----
     std::vector<uint8_t>& g = out.track.geometry;
     g.assign(0x28, 0);
@@ -3583,13 +3612,22 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         t.offset = uint32_t(g.size());
         g.insert(g.end(), t.texels.begin(), t.texels.end());
     }
-    if (stock_sky_model) {
-        for (const auto& [at, bytes] : sky_copy.blocks) {
+    // A copied model's texel and palette data, then (copy_loads) its texture-load lists in the load-list range.
+    auto copy_blocks = [&](ModelCopy& c) {
+        for (const auto& [at, bytes] : c.blocks) {
             align8(g);
-            sky_copy.moved[at] = uint32_t(g.size());
-            g.insert(g.end(), sky_copy.src->begin() + at, sky_copy.src->begin() + at + bytes);
+            c.moved[at] = uint32_t(g.size());
+            g.insert(g.end(), c.src->begin() + at, c.src->begin() + at + bytes);
         }
-    }
+    };
+    auto copy_loads = [&](ModelCopy& c) {
+        for (const auto& [at, bytes] : c.loads) {
+            c.moved[at] = uint32_t(g.size());
+            copy_list(c, at, bytes, g, 0, uint32_t(g.size()));
+        }
+    };
+    if (stock_sky_model) copy_blocks(sky_copy);
+    for (ExtraCopy& ec : extra_copies) copy_blocks(ec.copy);
     align8(g);
     uint32_t txld_start = uint32_t(g.size());
     std::vector<uint32_t> load_lists;
@@ -3604,12 +3642,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         add32(g, 0xDF000000);
         add32(g, 0);
     }
-    if (stock_sky_model) {
-        for (const auto& [at, bytes] : sky_copy.loads) {
-            sky_copy.moved[at] = uint32_t(g.size());
-            copy_list(sky_copy, at, bytes, g, 0, uint32_t(g.size()));
-        }
-    }
+    if (stock_sky_model) copy_loads(sky_copy);
+    for (ExtraCopy& ec : extra_copies) copy_loads(ec.copy);
     uint32_t empty_list = uint32_t(g.size());
     add32(g, 0xDF000000);
     add32(g, 0);
@@ -3622,6 +3656,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     if (!stris.empty() || stock_sky_model) names.push_back("SKYO1");
     for (const Mover& m : movers) if (!m.model.empty()) names.push_back(m.model);
     for (const BillboardModel& b : billboard_models) names.push_back(b.name);
+    for (const ExtraCopy& ec : extra_copies) names.push_back(ec.section.name);
     names.push_back(prefix + "FINISH");
     names.push_back(prefix + "FINISHB");
     std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return strncmp(a.c_str(), b.c_str(), 15) < 0; });
@@ -3694,41 +3729,69 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (size_t i : m.vtx_commands) m.list[i].second += base;
         for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
     }
-    if (stock_sky_model) {
-        const std::vector<uint8_t>& d = *sky_copy.src;
+    // A copied model's vertices (raised by `rise`, 1/16 ft; true if any hit the s16 limit), other lists and its own
+    // list, which `list` gets.
+    auto copy_model = [&](ModelCopy& c, float rise, uint32_t& list) {
+        const std::vector<uint8_t>& d = *c.src;
+        bool clipped = false;
         align8(g);
         uint32_t vtx_base = uint32_t(g.size());
-        if (sky_copy.vtx1 > sky_copy.vtx0) {
-            g.insert(g.end(), d.begin() + sky_copy.vtx0, d.begin() + sky_copy.vtx1);
+        if (c.vtx1 > c.vtx0) {
+            g.insert(g.end(), d.begin() + c.vtx0, d.begin() + c.vtx1);
             // The relocator's mirror pass follows the vertices from the list's first G_VTX while bit 15 of their +6
             // halfword says another follows (geometry.md 4.2): end the chain at the copy's last vertex.
             g[g.size() - 16 + 6] &= 0x7F;
-            // Sky models keep their world height (StockSky::ground): raised as far as this track's start is above
-            // the source track's, in 1/16 ft.
-            float rise = ((gates.empty() ? 0.0f : gates[0].pos[1]) - stock_sky(settings.sky)->ground) * 16.0f;
-            bool clipped = false;
-            for (size_t at = vtx_base; at + 16 <= g.size(); at += 16) {
+            for (size_t at = vtx_base; rise != 0.0f && at + 16 <= g.size(); at += 16) {
                 long y = std::lround(int16_t(uint16_t(g[at + 2] << 8 | g[at + 3])) + rise);
                 clipped |= y < -32768 || y > 32767;
                 y = std::clamp(y, -32768l, 32767l);
                 g[at + 2] = uint8_t(uint16_t(y) >> 8);
                 g[at + 3] = uint8_t(y);
             }
-            if (clipped) {
-                report.warning("The stock sky " + settings.sky + " is squashed at the game's height limit: FINISH (at " +
-                               fmt_ft(gates[0].pos[1]) + " high) is too far above or below the sky's own track.");
-            }
         }
-        for (const auto& [at, bytes] : sky_copy.subs) {
+        for (const auto& [at, bytes] : c.subs) {
             align8(g);
-            sky_copy.moved[at] = uint32_t(g.size());
+            c.moved[at] = uint32_t(g.size());
             g.insert(g.end(), d.begin() + at, d.begin() + at + bytes);
         }
         align8(g);
+        list = uint32_t(g.size());
+        copy_list(c, c.list, c.list_bytes, g, vtx_base, list);
+        return clipped;
+    };
+    if (stock_sky_model) {
+        // Sky models keep their world height (StockSky::ground): raised as far as this track's start is above the
+        // source track's, in 1/16 ft.
+        float rise = ((gates.empty() ? 0.0f : gates[0].pos[1]) - stock_sky(settings.sky)->ground) * 16.0f;
         sky_model.name = "SKYO1";
-        sky_model.list = uint32_t(g.size());
         sky_model.radius = sky_copy.radius;
-        copy_list(sky_copy, sky_copy.list, sky_copy.list_bytes, g, vtx_base, sky_model.list);
+        if (copy_model(sky_copy, rise, sky_model.list)) {
+            report.warning("The stock sky " + settings.sky + " is squashed at the game's height limit: FINISH (at " +
+                           fmt_ft(gates[0].pos[1]) + " high) is too far above or below the sky's own track.");
+        }
+    }
+    for (ExtraCopy& ec : extra_copies) copy_model(ec.copy, 0.0f, ec.section.list);
+    // Each extra record is a child of the opaque section nearest it (the one whose cell it is in, if any), as a
+    // stock track's keys are children of their section: the game culls and draws them with it, so the section's box
+    // and radius grow to hold it (a coin over a jump can be far above the section's ground).
+    std::map<int, std::vector<const rush2::track_mod::Extras::Record*>> children_of;
+    for (const auto* r : extra_records) {
+        Vec3 p = { r->pos[0], r->pos[1], r->pos[2] };
+        int best = -1;
+        for (size_t s = 0; s < sections.size(); s++) {
+            if (sections[s].late) continue;
+            if (best < 0 || dist_xz(sections[s].origin, p) < dist_xz(sections[size_t(best)].origin, p)) best = int(s);
+        }
+        if (best < 0) continue;
+        Section& s = sections[size_t(best)];
+        constexpr float margin = 10.0f;     // ft around the record's point
+        Vec3 rel = sub(p, s.origin);
+        for (int c = 0; c < 3; c++) {
+            s.lo[c] = std::min(s.lo[c], rel[c] - margin);
+            s.hi[c] = std::max(s.hi[c], rel[c] + margin);
+        }
+        s.radius = std::max(s.radius, length(rel) + margin);
+        children_of[best].push_back(r);
     }
     for (Mover& mv : movers) {
         if (mv.model.empty()) continue;
@@ -3783,12 +3846,16 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (const Section& s : sections) if (s.name == names[i]) sec = &s;
         for (const Mover& mv : movers) if (mv.model == names[i]) sec = &mv.section;
         for (const BillboardModel& bm : billboard_models) if (bm.name == names[i]) sec = &bm.section;
+        uint16_t behaviour = 0;                      // a plain model
+        for (const ExtraCopy& ec : extra_copies) {
+            if (ec.section.name == names[i]) { sec = &ec.section; behaviour = ec.behaviour; }
+        }
         uint32_t r = model_table + uint32_t(i) * 0x34;
         put32(g, r, 1);                              // one LOD
         put32(g, r + 4 + 8, sec ? sec->list : empty_list);
         add_name(g, names[i]);
         addf(g, sec ? sec->radius : 1.0f);
-        add16(g, 0);                                 // behaviour: plain model
+        add16(g, behaviour);
         add16(g, 0);
     }
     const uint32_t header[10] = { model_table, name_table, texture_table, palette_table, uint32_t(names.size()), 2, 0,
@@ -3806,6 +3873,13 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     for (size_t j = 0; j < movers.size(); j++) if (!movers[j].model.empty()) mover_records.push_back(int(j));
     size_t first_billboard = sections.size() + 1 + mover_records.size();
     size_t records = first_billboard + billboards.size();
+    // The extra records follow the top-level chain, each section's together (the stock files' pre-order).
+    std::map<int, size_t> first_child;
+    size_t child_at = records;
+    for (const auto& [s, kids] : children_of) {
+        first_child[s] = child_at;
+        child_at += kids.size();
+    }
     for (size_t i = 0; i < records; i++) {
         bool is_finish = i == sections.size();
         const Mover* mv = i > sections.size() && i < first_billboard ? &movers[mover_records[i - sections.size() - 1]] : nullptr;
@@ -3833,10 +3907,26 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             out.track.prop_records.push_back(r);
         }
         add16(pl, uint16_t(i + 1 < records ? int16_t(i + 1) : int16_t(-1)));
-        add16(pl, 0xFFFF);
+        auto child = first_child.find(int(i));
+        add16(pl, !is_finish && !mv && !bb && child != first_child.end() ? uint16_t(child->second) : 0xFFFF);
         add32(pl, 0);
         for (int k = 0; k < 6; k++) addf(pl, is_finish || mv || bb ? 0.0f : (k < 3 ? sections[i].lo[k] : sections[i].hi[k - 3]));
         if (mv) out.track.path_records.push_back({ int(mv - movers.data()), 0, int(i) });
+    }
+    // A class record (a key) holds its world position: the placement walker makes a breakable's position relative to
+    // its parent (func_80081790), as with the stock tracks' keys (src/rush1/track1_convert.cpp).
+    for (const auto& [s, kids] : children_of) {
+        for (size_t j = 0; j < kids.size(); j++) {
+            const auto& r = *kids[j];
+            add_name(pl, r.name);
+            for (float f : r.m) addf(pl, f);
+            for (float f : r.pos) addf(pl, f);
+            add32(pl, 0x40);
+            add16(pl, uint16_t(j + 1 < kids.size() ? int16_t(first_child[s] + j + 1) : int16_t(-1)));
+            add16(pl, 0xFFFF);
+            add32(pl, 0);
+            for (int k = 0; k < 6; k++) addf(pl, 0.0f);
+        }
     }
 
     // ---- moving objects' paths: a 2049 file with one PTHD chunk (movers.md; movers::parse_paths reads it) ----

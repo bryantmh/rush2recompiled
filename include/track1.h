@@ -54,6 +54,8 @@ namespace rush2::track1 {
     // translated and flattened as convert_track does. Its texture table is left out (a record doesn't say whether its
     // data is texels or a load list); the models' lists load their textures themselves.
     bool convert_container(const std::vector<uint8_t>& rom, int index, std::vector<uint8_t>& out, std::string& error);
+    // The container of the race objects every track uses (cones, meters, trees, the key KEYL1).
+    constexpr int shared_objects_asset = 12;
 
     // A Rush 1 track converted to the files of a Rush 2 track slot (src/rush1/track1_convert.cpp, port of
     // tools/rush1/track1.py).
@@ -100,10 +102,11 @@ namespace rush2::track1 {
                          std::vector<uint8_t>& out);
 
     // Breakable redirects as an SF Rush track's (record -> model it draws, Rush 2 piece -> model) for another game's
-    // track in the host slot (California Speed, src/rush2049/track2049.cpp), with Rush 2's own hit test; cleared again
-    // with clear_redirects, which leaves an applied SF Rush track's alone.
+    // track in the host slot (California Speed, src/rush2049/track2049.cpp), with Rush 2's own hit test, or SF Rush's
+    // with rush1_hits (an arcade version of an SF Rush course: its keys, src/arcade2049/arcade_collectibles.cpp);
+    // cleared again with clear_redirects, which leaves an applied SF Rush track's alone.
     void set_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
-                       const std::map<std::string, std::string>& pieces);
+                       const std::map<std::string, std::string>& pieces, bool rush1_hits = false);
     void clear_redirects();
 
     // Converts every track into the disk cache (those not there yet) and keeps their lap times for record_seed. Any
