@@ -47,7 +47,7 @@ namespace rush2::rom2049 {
         bool damaged = false;
         std::vector<uint8_t> scuff;
         // Smaller than the disc's image. The texture pack replaces these; the rest are drawn at the disc's size
-        // already and are only listed for the Dreamcast Textures option's N64 matching and its dump.
+        // already and are only listed for the dump.
         bool shrunk = false;
     };
 

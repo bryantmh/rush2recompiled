@@ -292,16 +292,6 @@ void rush2::assets::set_patcher(uint8_t* rdram, Patcher p) {
     }
 }
 
-namespace {
-    // Whether asset `index` is a car's model (any car type's), which rush2::origin tags as one.
-    bool car_asset(int index) {
-        for (int type = 0; type < rush2::car_types::types; type++) {
-            if (type != 22 && rush2::car2049::car_asset(type) == index) return true;
-        }
-        return false;
-    }
-}
-
 // Start of func_80077F20 / func_80077F84: $a0 = ROM offset, $a1 = destination. Returns true (with $v0 = size) if
 // the asset was served from a replacement. Either way the destination's range is tagged with the game its data
 // comes from (rush2::origin).
@@ -315,8 +305,7 @@ extern "C" int rush2_asset_decompress(uint8_t* rdram, recomp_context* ctx) {
         // Rush 2's own asset: its size from the size table, found by its ROM offset.
         for (int i = 0; i < asset_slots; i++) {
             if ((uint32_t)MEM_W(0, (int32_t)(asset_offsets + i * 4)) == rom) {
-                rush2::origin::tag((uint32_t)dest, (uint32_t)MEM_W(0, (int32_t)(asset_sizes + i * 4)), rush2::origin::Game::Rush2,
-                                   car_asset(i));
+                rush2::origin::tag((uint32_t)dest, (uint32_t)MEM_W(0, (int32_t)(asset_sizes + i * 4)), rush2::origin::Game::Rush2);
                 break;
             }
         }
@@ -327,10 +316,9 @@ extern "C" int rush2_asset_decompress(uint8_t* rdram, recomp_context* ctx) {
     for (size_t i = 0; i < data.size(); i++) {
         MEM_B(0, dest + (int32_t)i) = data[i];
     }
-    bool car = car_asset(fake->second);
-    rush2::origin::tag((uint32_t)dest, (uint32_t)data.size(), rush2::origin::Game::Rush2, car);
+    rush2::origin::tag((uint32_t)dest, (uint32_t)data.size(), rush2::origin::Game::Rush2);
     for (const rush2::assets::Span& s : r.spans) {
-        rush2::origin::tag((uint32_t)dest + s.offset, s.size, s.game, car);
+        rush2::origin::tag((uint32_t)dest + s.offset, s.size, s.game);
     }
     ctx->r2 = (int32_t)data.size();
     return 1;

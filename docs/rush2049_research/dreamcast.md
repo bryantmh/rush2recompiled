@@ -13,7 +13,7 @@ Source until 2026-11-05; default Dreamcast Disc, which is what a disc chosen bef
 one in use for everything but the race tracks' versions (`wings.cpp resolved_choice`, `rush2::wings::source_enabled`);
 selecting a ROM or disc points Primary Source at it (and Enabled Source at Both if it left that one out)
 (src/rush2049/wings.cpp `load_chosen_source`). Switching it takes effect without a restart: the source changes at once, the
-Dreamcast Textures follow (`set_texture_sources`), the next race converts its track again (track2049.cpp
+disc's full-size textures follow (`set_texture_sources`), the next race converts its track again (track2049.cpp
 `loaded_source`), battle tuning is read again, and the cars and their physics are rebuilt the next time the game is
 in the menus or track select (car2049.cpp `check_source`, game state 0-1, when no car is loaded from the old assets).
 The track select's dioramas, sounds, songs, movers and props already follow the source in use.
@@ -37,7 +37,7 @@ converted to N64 files and its tables to N64 code segments on the fly, so no con
 | Sound effects and songs | disc's own (see Audio); all 20 disc songs in the Sound tab while the disc is the source |
 | Wing sound | disc sound 0x4D at the N64's pitch [I] |
 | Cars | convert, with the disc's own paint jobs (see Car paint) |
-| Full-size textures | the Dreamcast Textures option (Graphics tab): a texture pack built from the disc replaces the scaled-down ones, and with the N64 ROM as the source the N64 textures that are the disc's pictures (see Full-size textures) |
+| Full-size textures | a texture pack built from the disc replaces the scaled-down ones whenever a disc is installed (see Full-size textures) |
 | Track select | the disc's thumbnails at full size (its converted file has them at 32 x 32) |
 | Draw state | the disc's clamp / flip per texture; the sky drawn as the N64's (see Draw state) |
 | Menus, wings, battle arenas in game | untested |
@@ -211,29 +211,24 @@ fit TMEM; the full-size images are drawn in their place (next section).
 tint, and `shrunk` for the ones it scaled down); `DcSource` keeps the list (and a `dc_file_N_textures` blob beside each
 cached file).
 
-The disc's images are drawn in place of its scaled-down textures whenever the disc is the source, and with the N64 ROM
-as the source when the Dreamcast Textures option is on (Graphics tab, on by default, `dreamcast_textures` in
-graphics.json; hot-swappable). The option is grayed out with the disc as the source or no disc stored
-(`rush2::upscale::set_dreamcast_option_state`, called by wings.cpp `set_rom`). `src/rush2049dc/rush2049_dc_pack.cpp` keeps every one of them in
+The disc's images are drawn in place of its scaled-down textures whenever a disc is installed: with the disc as the
+source, and with the N64 ROM as the source, for the race tracks' Dreamcast versions (wings.cpp `set_rom` passes the
+stored disc to `set_texture_sources`). `src/rush2049dc/rush2049_dc_pack.cpp` keeps every one of them in
 `<app folder>/track_cache/dc_textures`: one DDS with mipmaps per distinct image (named by content key), `images` (each
-image's size, kind (scaled down, paint job, damaged), an 8 x 8 thumbnail and the RT64 hashes its textures are drawn
-with) and a `stamp` (format, disc key, build) written last. It's built once per disc and build: in the background, it
+image's size, kind (scaled down, damaged) and the RT64 hashes its textures are drawn with) and a `stamp` (format,
+disc key, build) written last. It's built once per disc and build: in the background, it
 converts every file (which also fills the file cache), then hashes each texture. USA disc: 4999 images for 6529
 textures.
 
-- **Disc as the source**: `rt64.json` (hash version 5) replaces each scaled-down texture with its image. recompui loads
+- `rt64.json` (hash version 5) replaces each scaled-down texture with its image. recompui loads
   the folder through `set_generated_texture_pack` (lib/patches/RecompFrontend.patch) ahead of the mod packs, so a pack
   the player enables wins, and RT64 streams it like any other. Textures drawn at the disc's size already aren't in it
   (they are upscaled like any texture) unless the player installed an upscale of them.
-- **N64 ROM as the source, disc stored, option on**: src/texture_upscale.cpp offers every kept 3D texture loaded from Rush 2049
-  data (`rush2::origin`, below) to `rush2::rom2049::dc::match`, and draws a match with its disc image (an RT64 live
-  replacement, which installed packs also override). See Matching N64 textures.
+- The N64 ROM's own textures are left as they are (see Matching N64 textures, removed).
 - The player's upscales of the disc images (Install Upscaled from `upscaled/rush2049dc`) are kept in
-  `texture_upscale/dreamcast/<key>.dds`, linked into the folder's `upscaled/` and used in place of the disc's image in
-  both modes.
-- Dump Textures writes only the disc images in use to `dump/rush2049dc`: with the disc as the source those drawn from
-  the pack or drawn at the disc's size already (each texture's RT64 hash looked up in `images`), with the N64 ROM those
-  matched.
+  `texture_upscale/dreamcast/<key>.dds`, linked into the folder's `upscaled/` and used in place of the disc's image.
+- Dump Textures writes the disc's images (but the damaged car textures') to `dump/rush2049dc` by disc file and texture
+  name (`dump_images`).
 
 `replacement_hash` (src/rush2049dc/rush2049_dc_model.cpp) is the hash RT64 gives the texture when it is drawn from the converter's
 own load list (`add_load_list`): LOADBLOCK into TMEM as RT64's RDP runs it (`loadToTMEMCommon`: 64-bit words with the
@@ -241,7 +236,7 @@ load tile's line of 0, words swapped (address ^ 4) on every other row as the dxt
 into TMEM's lower and upper halves), then `TMEMHasher::hash` on the render tile (RGBA, line `(w * 2 + 7) >> 3`,
 w x h, no TLUT). Checked in game on track 1: every scaled-down texture drawn had its hash in the pack.
 
-The upscaler leaves the pack's textures alone (`in_texture_pack`), and the textures drawn with a matched disc image.
+The upscaler leaves the pack's textures alone (`in_texture_pack`).
 
 ### Replacement texel centers [V]
 
@@ -258,34 +253,21 @@ same lines as the game.
 The pack's rt64.json gives its textures the shift "center" (an RT64 shift added in lib/patches/rt64.patch,
 `ReplacementShift::Center`, tile flag `centered`): `(s + 0.5) * k - 0.5`, the middle of each N64 texel's block of the
 image, which is exactly where the disc samples for any `k` (and for a player's upscale of a disc image). RT64's
-hardware-sampler paths (mipmaps) already put "half" there and take "center" plus half a texel. Other packs, the
-upscaler's and the N64-source matches' live replacements keep "half".
+hardware-sampler paths (mipmaps) already put "half" there and take "center" plus half a texel. Other packs and the
+upscaler's live replacements keep "half".
 
-### Matching N64 textures [V]
+### Matching N64 textures (removed 2026-11-07)
 
-The N64's Rush 2049 textures are the disc's art redrawn in 16 or 256 colors, at a quarter or less of the texels and
-often at another aspect (the UVs make up for it), sometimes mirrored or recropped. Texel differences can't tell a
-match from a lookalike: a real pair's mean largest-channel difference is 10-25, a dark or flat lookalike's lower. What
-does is structure. `match` compares, for each disc image at least the texture's size (not paint jobs or damaged car
-textures) whose thumbnail brightness correlates 0.5 or more, the image box-averaged to the texture's size: the
-Pearson correlation of brightness over texels opaque in both must be 0.84 or more, the texture's brightness spread 6 or
-more (flat ones can't be told), at most a fifth of texels opaque in one and clear in the other (the N64's cutouts are
-hard where the disc's fade: trees differ in 9-16%), the average colors within 40 a channel, and for an N64 I or IA
-texture (tinted by the draw) a gray image. The best correlation wins. A texture from a car's model (its asset tagged
-a car by `rush2::origin::car_at`, src/assets.cpp) only matches images from the disc's car files (`CARn`, `CARnPJm`),
-and any other texture only the rest: a car's painted panel is mostly flat shading, and by structure alone the Locust
-LX's side matched TRACK1's STATE02 (a window over trees) at 0.861 and DM3's CONCRETE2_SNOW at 0.864 (issue #46, the
-side drawn as a green and white picture).
-
-Measured on Marina (N64 source, `RUSH2_TEXTURE_DUMP`, tmp tools comparing dump/rush2049 with dump/rush2049dc): true
-pairs reach 0.84 (building fronts and walls 0.98+, the road 0.93, trees 0.87-0.93, recropped vents 0.85); the
-nearest lookalikes are 0.82 and below. 146 of the 425 Rush 2049 textures drawn match; the rest have no disc image of
-the same picture (different art, or a part of a larger image, which a whole-image comparison doesn't find). Results
-are kept in `matches_v5` (N64 content key, image key or 0); loading deletes `matches_v4`, an older matcher's.
-
-A matched image larger than the texture is drawn as it is. One the same size (the road: 64 x 64 on both, full color
-on the disc) is upscaled in the texture's place when upscaling is on (its own upscaler entry, `disc_upscale`).
-`RUSH2_DC_MATCH_LOG=1` logs every comparison.
+With the N64 ROM as the source, a Dreamcast Textures option (Graphics tab) used to offer every Rush 2049 texture
+drawn in 3D to a matcher (`dc::match`) that looked for the disc image with the same picture (brightness correlation
+of the image scaled down to the texture's size, 0.84 or more, plus transparency and average color checks) and drew
+that image in the texture's place. It was removed: the race tracks' Dreamcast versions can be raced side by side with
+the N64 versions, so the N64 versions keep their own textures, and a likeness test can pass a wrong picture, which
+then stayed for good (results were saved in `matches_v5`). The Rock arcade, a custom track loaded as a Rush 2049
+track, had its four sunset sky panels matched to one lavender disc wall, drawn over the sky all race. Loading the
+disc's images deletes the old `matches_v4` and `matches_v5` files; the `dreamcast_textures` key in a saved
+graphics.json is ignored. Dump Textures names Rush 2049's N64 textures by their model again, and moves a player's
+upscales saved under the disc names the matcher gave to the new names (`follow_renames`, src/texture_upscale.cpp).
 
 ### Texture origin (dump folders) [V]
 
@@ -293,8 +275,8 @@ on the disc) is upscaled in the texture's place when upscaling is on (its own up
 through `rush2_asset_decompress` (src/assets.cpp): a replacement carries its game (`assets::replace` spans: SF Rush
 track geometry, Rush 2049 or Rush 2049 DC track geometry, 2049 cars and parts), Rush 2's own assets clear the range.
 The RT64 texture observer gets the RDRAM address of the last load into the tile's TMEM
-(`rice.lastLoadOpByTMEM[tmem].texture.address`, lib/patches/rt64.patch), and the upscaler records the tag found
-there. The track select's container (asset 3) mixes Rush 2's, 2049's and SF Rush's dioramas and is left as Rush 2.
+(`rice.lastLoadOpByTMEM[tmem].texture.address`, lib/patches/rt64.patch), and the texture census reports the tag
+found there. The track select's container (asset 3) mixes Rush 2's, 2049's and SF Rush's dioramas and is left as Rush 2.
 
 ### Track select art from the disc [V]
 

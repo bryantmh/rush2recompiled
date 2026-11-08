@@ -457,7 +457,7 @@ where dumps from before the per-game folders went.
   `hud/pause_2/1STPLACE~pause_2`. Checked on a copy of a real folder with 1,948 flat `rush2` upscales: every one
   matched a name, and Install packed 1,407 `rush2` textures. The rest are car paint bases, installed through their
   paint jobs, and copies the upscaler made of names that used to repeat (`1STPLACE-2`).
-- Upscales of the disc's images in `user_texture_pack/rush2049dc` go to the Dreamcast Textures instead
+- Upscales of the disc's images in `user_texture_pack/rush2049dc` go to the disc's texture pack instead
   (`generated_texture_cache/dreamcast`), drawn wherever the disc's images are.
 
 For the rest it then:

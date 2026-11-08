@@ -1062,7 +1062,7 @@ void rush2::init_config() {
                            graphics::options::api_option } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id }, true },
             { "Effects", { ambient_occlusion_option::id, sky_fog_option::id, car_lighting_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
-            { "Textures", { rush2::upscale::dreamcast_option_id, rush2::upscale::interface_option_id,
+            { "Textures", { rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id }, true },
         }, rush2::upscale::add_buttons);

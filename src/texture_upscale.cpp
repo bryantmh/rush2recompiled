@@ -16,26 +16,23 @@
 // that replaces the same texture wins. HQ2x and HQ4x run hqx (lib/hqx) on the CPU. Custom runs any command line on a
 // folder of images.
 //
-// Dreamcast Textures (src/rush2049dc/rush2049_dc_pack.cpp): with a Dreamcast Rush 2049 disc as the source, the
-// textures it scaled down to fit TMEM are drawn from its texture pack of the disc's images, so they aren't upscaled
-// here. With the N64 ROM as the source, each kept Rush 2049 texture (RGBA or CI) is first offered to
-// rush2::rom2049::dc::match; one drawn with a disc image instead (a live replacement) isn't upscaled either. When the
-// option or the source changes (rush2::rom2049::dc::texture_generation), those textures go back to being upscaled
-// or matched again.
+// Dreamcast textures (src/rush2049dc/rush2049_dc_pack.cpp): with a Dreamcast Rush 2049 disc installed, the textures
+// its files scaled down to fit TMEM (the disc as the source, or the race tracks' Dreamcast versions with the N64 ROM
+// as the source) are drawn from its texture pack of the disc's images, so they aren't upscaled here. When the source
+// or the disc changes (rush2::rom2049::dc::texture_generation), those textures are seen again.
 //
 // For upscalers without a command line (Topaz Gigapixel's app, say): Dump Textures writes every texture of every
 // model the game can draw, read from the ROMs and named after its model file and model (rush2::catalog,
 // docs/asset_catalog.md), as asset_dump/textures/<game>/<file path>/<name>.png (rush2, sfrush, rush2049: the game
 // whose data the texture comes from), the session's other 3D textures beside them (car paint jobs as
 // <name>~<key>.png, the rest as unnamed/<key>.png), and the disc images in use into dump/rush2049dc by disc file and
-// texture name (Rush 2049's N64 textures take the name of the disc image they match). names.txt maps
+// texture name. names.txt maps
 // each image to its content key, hashes.txt each key to the RT64 hashes it replaces (the catalog's, computed from the
 // ROM, and the ones drawn). The user saves upscaled copies (any size, file names starting with the image's) into
 // asset_dump/user_texture_pack/<the same path>, and Install Upscaled Textures turns those into the texture pack mod
 // "rush2_custom_textures" (a folder in the mods folder, enabled right away) plus a shareable .rtz of it; a paint job
-// without an upscale of its own gets its texture's, recolored. The disc images' upscales go to the Dreamcast Textures
-// instead (rush2::rom2049::dc::add_upscale), so they're drawn wherever the disc's images are, and only while the
-// option is on. At startup, on the worker thread, migrate_folders moves the older texture_upscale/ layout into
+// without an upscale of its own gets its texture's, recolored. The disc images' upscales go to the disc's texture
+// pack instead (rush2::rom2049::dc::add_upscale), so they're drawn wherever the disc's images are. At startup, on the worker thread, migrate_folders moves the older texture_upscale/ layout into
 // asset_dump/ (Dump New Textures' originals back into the dump), and upscales named by key move to their names, in
 // whichever game folder names them.
 
@@ -85,7 +82,6 @@ namespace rush2::upscale {
 
 const char* const mode_option_id = "texture_upscaling";
 const char* const command_option_id = "texture_upscale_command";
-const char* const dreamcast_option_id = "dreamcast_textures";
 const char* const interface_option_id = "upscale_interface";
 const char* const car_colors_option_id = "keep_car_colors";
 
@@ -122,7 +118,6 @@ namespace {
     }
 
     using rush2::rom2049::dc::TextureMode;
-    enum class DcState : uint8_t { Unknown, Pending, None, Matched };
 
     std::atomic<uint32_t> builtin_car_scale = 0; // builtin_scale(): set_mode.
 
@@ -165,33 +160,7 @@ namespace {
         bool ready = false;         // Upscaled in the current mode; its hashes get the replacement as they show up.
         bool failed = false;        // Nothing usable came out for it in the current mode.
         uint64_t index_key = 0;     // A paletted texture's index_key, else 0.
-        rush2::origin::Game origin = rush2::origin::Game::Rush2; // Where it was first loaded from.
-        uint8_t fmt = 0;            // The tile's G_IM_FMT.
-        bool car = false;           // Loaded from a car's model (rush2::origin::car_at).
-        DcState dc = DcState::Unknown; // N64 Dreamcast Textures: whether a disc image is drawn in its place.
-        uint64_t dc_image = 0;
-        bool disc_upscale = false;  // Upscales a matched disc image for the N64 textures in hashes.
     };
-
-    // Whether an entry is offered to the N64 Dreamcast Textures match: a Rush 2049 texture.
-    bool dc_candidate(const Entry& entry) {
-        return entry.origin == rush2::origin::Game::Rush2049;
-    }
-
-    // An I or IA texture, which the draw tints.
-    bool intensity(const Entry& entry) {
-        return entry.fmt == 3 || entry.fmt == 4;
-    }
-
-    // The key of the entry that upscales a disc image matched to an N64 texture of its size.
-    uint64_t dc_upscale_key(uint64_t image) {
-        return image ^ 0xD15C0000D15C0000ull;
-    }
-
-    // An entry its disc image or a pending match keeps from being upscaled.
-    bool dc_held(const Entry& entry) {
-        return entry.dc == DcState::Pending || entry.dc == DcState::Matched;
-    }
 
     // What the observer knows of an RT64 hash.
     struct Seen {
@@ -200,7 +169,7 @@ namespace {
         uint32_t frames = 0;
         bool ui = false;
         bool kept = false;          // Decoded already (key is 0 when it wasn't worth keeping).
-        bool dc_packed = false;     // Left to the Dreamcast Textures' pack; seen again when it changes.
+        bool dc_packed = false;     // Left to the disc's texture pack; seen again when it changes.
         bool derived = false;       // A 3D draw handed to rush2::derive (at first sight).
     };
 
@@ -303,7 +272,7 @@ namespace {
             clear_requested = true;
             pending.clear();
             for (auto& [key, entry] : entries) {
-                entry.queued = (mode != Mode::Off) && !skip_ui(entry) && !entry.ready && !entry.failed && !dc_held(entry);
+                entry.queued = (mode != Mode::Off) && !skip_ui(entry) && !entry.ready && !entry.failed;
                 if (entry.queued) {
                     pending.push_back(key);
                 }
@@ -330,7 +299,7 @@ namespace {
                 entry.ready = false;
                 entry.failed = false;
                 entry.dependents.clear();
-                entry.queued = (mode != Mode::Off) && !skip_ui(entry) && !dc_held(entry);
+                entry.queued = (mode != Mode::Off) && !skip_ui(entry);
                 if (entry.queued) {
                     pending.push_back(key);
                 }
@@ -520,9 +489,6 @@ namespace {
                 entry.edge_s = edge_of(tile.cms, tile.masks);
                 entry.edge_t = edge_of(tile.cmt, tile.maskt);
                 entry.ui = ui_keys.count(key) != 0 || !world;
-                entry.origin = rush2::origin::at(j.address);
-                entry.car = rush2::origin::car_at(j.address);
-                entry.fmt = tile.fmt;
                 if (j.tlut != 0) {
                     entry.index_key = index_key(indices, j.width, j.height, tile.siz);
                     // The first palette variant of these indices is the one that gets upscaled.
@@ -536,22 +502,7 @@ namespace {
             if (!world && !entry.ui) {
                 mark_ui(key);
             }
-            if (!entry.ui && dc_mode != TextureMode::Off && dc_candidate(entry)) {
-                if (entry.dc == DcState::Unknown) {
-                    entry.dc = DcState::Pending;
-                    dc_pending.push_back(key);
-                    dc_new = true;
-                    changed.notify_all();
-                }
-                if (entry.dc == DcState::Matched) {
-                    draw_dc(hash, entry.dc_image);
-                    changed.notify_all();
-                }
-                if (dc_held(entry)) {
-                    return;
-                }
-            }
-            if (skip_ui(entry) || mode == Mode::Off || entry.failed || dc_held(entry)) {
+            if (skip_ui(entry) || mode == Mode::Off || entry.failed) {
                 return;
             }
             if (entry.ready) {
@@ -779,6 +730,11 @@ namespace {
 
         size_t dump_named() {
             std::error_code ec;
+            // The last dump's names, for follow_renames: the folder goes before this dump writes its own.
+            std::map<std::string, std::vector<DumpName>> old_names;
+            for (const std::string& folder : dump_folders()) {
+                if (!folder.empty()) old_names[folder] = read_dump_names(dump_dir() / folder);
+            }
             std::filesystem::remove_all(dump_dir(), ec);
             std::filesystem::remove_all(covered_dir(), ec);
             std::unordered_map<uint64_t, Named> named;       // By content key.
@@ -800,12 +756,9 @@ namespace {
                 std::unique_lock lock(mutex);
                 dump_phase = "Naming textures...";
             }
-            // With a Dreamcast disc stored and Dreamcast Textures on, a Rush 2049 N64 texture matched to a disc image
-            // takes the disc's texture name, which every texture has (docs/asset_catalog.md).
-            const bool dc_names = rush2::rom2049::dc::texture_mode() == TextureMode::N64;
-            if (dc_names || rush2::rom2049::dc::texture_mode() == TextureMode::Disc) {
-                // The names (and the disc's folder) mustn't depend on how far the disc's images are built: a dump
-                // made before they are ready would name textures otherwise, and upscales of it wouldn't install.
+            if (rush2::rom2049::dc::texture_mode() != TextureMode::Off) {
+                // The disc's folder mustn't depend on how far the disc's images are built: a dump made before they
+                // are ready would leave them out, and their upscales wouldn't install.
                 {
                     std::unique_lock lock(mutex);
                     dump_phase = "Waiting for the Dreamcast images...";
@@ -822,7 +775,6 @@ namespace {
                     dump_phase = "Naming textures...";
                 }
             }
-            size_t matched = 0;
             // The cars' containers (with their triangles) and their textures' keys, for the half-body sheets.
             std::vector<SheetJob> sheet_jobs;
             for (const rush2::catalog::Entry& e : containers) {
@@ -856,19 +808,7 @@ namespace {
                         file = it->second + rush2::catalog::file_name(t.name.substr(mip)); // Follows its texture.
                     }
                     else {
-                        std::string name = t.name;
-                        if (dc_names && game == rush2::origin::Game::Rush2049 && mip == std::string::npos) {
-                            uint64_t image_key = 0;
-                            bool intensity = t.fmt == 3 || t.fmt == 4;
-                            bool car = e.path.rfind("cars/", 0) == 0;
-                            if (rush2::rom2049::dc::match(t.image, t.key, intensity, car, image_key) == rush2::rom2049::dc::Match::Found) {
-                                std::string disc = rush2::rom2049::dc::image_name(image_key);
-                                if (!disc.empty()) {
-                                    name = disc;
-                                    matched++;
-                                }
-                            }
-                        }
+                        const std::string& name = t.name;
                         // File names are unique in a game folder, so upscales still install after a tool such as
                         // Gigapixel writes them all into one folder: a name another model file already has for a
                         // different image takes this file's name ("SHEEN0~DM2"), one used twice in a file a number.
@@ -916,9 +856,6 @@ namespace {
                 std::unique_lock lock(mutex);
                 dump_phase.clear();
             }
-            if (dc_names) {
-                printf("[upscale] catalog: %zu Rush 2049 textures named from the Dreamcast disc\n", matched);
-            }
             for (const auto& [key, n] : named) {
                 std::filesystem::path file = dump_dir() / n.folder / std::filesystem::u8path(n.path + ".png");
                 std::filesystem::create_directories(file.parent_path(), ec);
@@ -933,6 +870,7 @@ namespace {
                 std::filesystem::path dir = dump_dir() / folder;
                 std::filesystem::create_directories(dir, ec);
                 std::filesystem::create_directories(upscaled_dir() / folder, ec);
+                follow_renames(folder, old_names[folder], names[folder]);
                 write_dump_names(dir, names[folder]);
                 write_dump_index(dir, hashes[folder]);
                 count += names[folder].size();
@@ -976,6 +914,61 @@ namespace {
                 else if (read_file(file) == read_file(target)) {
                     std::filesystem::remove(file, ec); // Saved twice (the pushed builds filed some under two games).
                 }
+            }
+        }
+
+        // Upscales in a game folder of user_texture_pack whose texture the new dump names otherwise (the names the
+        // earlier Dreamcast matching gave Rush 2049's N64 textures, now their own) move to the new name, the rest of
+        // the file name after the old one kept, so they still install. old: the folder's names.txt before this dump.
+        void follow_renames(const std::string& folder, const std::vector<DumpName>& old,
+                            const std::map<std::string, DumpName>& now) {
+            std::unordered_map<uint64_t, std::string> new_path;
+            for (const auto& [path, n] : now) new_path.emplace(n.key, n.path);
+            // Every old path -> its new path, and every old file name -> its new one (empty: unchanged), since install
+            // finds an upscale by its path or, from an upscaler that wrote everything into one folder, its file name.
+            std::map<std::string, std::string> by_path, by_file;
+            auto leaf = [](const std::string& p) { return p.substr(p.rfind('/') + 1); };
+            bool any = false;
+            for (const DumpName& n : old) {
+                auto it = new_path.find(n.key);
+                bool renamed = it != new_path.end() && it->second != n.path && !now.count(n.path);
+                by_path.emplace(n.path, renamed ? it->second : std::string());
+                by_file.emplace(leaf(n.path), renamed ? leaf(it->second) : std::string());
+                any = any || renamed;
+            }
+            if (!any) return;
+            // The longest old name s starts with, as install matches them (null: none).
+            auto longest = [](const std::map<std::string, std::string>& m, const std::string& s)
+                -> const std::pair<const std::string, std::string>* {
+                auto it = m.upper_bound(s);
+                while (it != m.begin()) {
+                    --it;
+                    if (s.rfind(it->first, 0) == 0) return &*it;
+                    if (it->first.compare(0, 1, s, 0, 1) != 0) break;
+                }
+                return nullptr;
+            };
+            std::error_code ec;
+            std::filesystem::path root = upscaled_dir() / folder;
+            std::vector<std::filesystem::path> files;
+            for (const auto& file : std::filesystem::recursive_directory_iterator(root, ec)) {
+                if (file.is_regular_file()) files.push_back(file.path());
+            }
+            for (const std::filesystem::path& file : files) {
+                std::string stem = relative_stem(file, root);
+                std::string dir = stem.substr(0, stem.rfind('/') + 1), name = leaf(stem);
+                std::string renamed;
+                if (const auto* hit = longest(by_path, stem)) {
+                    if (!hit->second.empty()) renamed = hit->second + stem.substr(hit->first.size());
+                }
+                else if (const auto* hit = longest(by_file, name); hit != nullptr && !hit->second.empty()) {
+                    renamed = dir + hit->second + name.substr(hit->first.size());
+                }
+                if (renamed.empty()) continue;
+                std::filesystem::path target = root / std::filesystem::u8path(renamed + path_utf8(file.extension()));
+                if (std::filesystem::exists(target, ec)) continue;
+                std::filesystem::create_directories(target.parent_path(), ec);
+                std::filesystem::rename(file, target, ec);
             }
         }
 
@@ -1127,7 +1120,7 @@ namespace {
 
             std::vector<PackTexture> textures;
             std::set<uint64_t> done;
-            // The disc images' upscales go to the Dreamcast Textures, while they can tell their images.
+            // The disc images' upscales go to the disc's texture pack, while it can tell its images.
             bool disc_images = rush2::rom2049::dc::texture_mode() != TextureMode::Off;
             std::vector<std::pair<uint64_t, std::filesystem::path>> disc_upscales;
             for (const std::string& folder : dump_folders()) {
@@ -1289,14 +1282,11 @@ namespace {
         bool busy = false;
         std::string busy_message;
         std::string message;
-        // Dreamcast Textures: the mode and generation last seen, how many kept 3D textures its pack has replaced (for
-        // the log), entries waiting for match (dc_new: some since the worker last looked) and (hash, image) to draw.
+        // The disc's texture pack: the mode and generation last seen, and how many kept 3D textures it has replaced
+        // (for the log).
         TextureMode dc_mode = TextureMode::Off;
         uint64_t dc_generation = 0;
         size_t source_packed = 0, source_logged = 0;
-        std::deque<uint64_t> dc_pending;
-        bool dc_new = false;
-        std::vector<std::pair<uint64_t, uint64_t>> dc_applies;
         // Dump Textures, running in the background.
         std::atomic<bool> dumping = false;
         std::atomic<size_t> dump_done = 0, dump_count = 0;
@@ -1375,160 +1365,11 @@ namespace {
             }
         }
 
-        // Gives an entry back to the upscaler (mutex held): its upscale drawn again, or queued.
-        void restore_upscale(uint64_t key, Entry& entry) {
-            if (mode == Mode::Off || skip_ui(entry) || entry.failed) {
-                return;
-            }
-            if (entry.ready) {
-                for (uint64_t hash : entry.hashes) {
-                    applies.emplace_back(hash, key);
-                }
-            }
-            else if (!entry.queued) {
-                entry.queued = true;
-                pending.push_back(key);
-            }
-            changed.notify_all();
-        }
-
-        // The Dreamcast Textures changed (mutex held): disc images drawn so far come off, textures left to its pack
-        // are seen again, and every texture is matched again or upscaled.
+        // The source or the disc changed (mutex held): textures left to the disc's pack are seen again.
         void dc_reset(TextureMode new_mode) {
             dc_mode = new_mode;
-            dc_pending.clear();
-            dc_applies.clear();
-            // The disc images' upscales are made again for whatever matches now.
-            for (auto& [key, entry] : entries) {
-                if (entry.disc_upscale) {
-                    entry.hashes.clear();
-                    entry.queued = false;
-                }
-            }
-            for (auto& [key, entry] : entries) {
-                bool held = dc_held(entry);
-                if (entry.dc == DcState::Matched) {
-                    removals.insert(removals.end(), entry.hashes.begin(), entry.hashes.end());
-                }
-                entry.dc = DcState::Unknown;
-                entry.dc_image = 0;
-                if (entry.ui) {
-                    continue;
-                }
-                if (dc_mode != TextureMode::Off && dc_candidate(entry)) {
-                    entry.dc = DcState::Pending;
-                    dc_pending.push_back(key);
-                    dc_new = true;
-                }
-                else if (held) {
-                    restore_upscale(key, entry);
-                }
-            }
             for (auto it = seen_hashes.begin(); it != seen_hashes.end();) {
                 it = it->second.dc_packed ? seen_hashes.erase(it) : std::next(it);
-            }
-        }
-
-        // Worker: asks rush2::rom2049::dc::match about the textures waiting for it.
-        void run_matches() {
-            std::vector<std::pair<uint64_t, Image>> todo;
-            std::vector<bool> todo_intensity, todo_car;
-            uint64_t for_generation;
-            {
-                std::unique_lock lock(mutex);
-                dc_new = false;
-                for_generation = dc_generation;
-                while (!dc_pending.empty() && todo.size() < 64) {
-                    uint64_t key = dc_pending.front();
-                    dc_pending.pop_front();
-                    auto it = entries.find(key);
-                    if (it != entries.end() && it->second.dc == DcState::Pending) {
-                        todo.emplace_back(key, it->second.image);
-                    todo_intensity.push_back(intensity(it->second));
-                    todo_car.push_back(it->second.car);
-                    }
-                }
-            }
-            for (size_t i = 0; i < todo.size(); i++) {
-                uint64_t image = 0;
-                auto result = rush2::rom2049::dc::match(todo[i].second, todo[i].first, todo_intensity[i], todo_car[i], image);
-                // A disc image no larger than the texture is upscaled like it would have been (unless the player
-                // upscaled it themselves): its own entry, made here, off the lock.
-                Image disc;
-                bool upscale_disc = result == rush2::rom2049::dc::Match::Found &&
-                                    !rush2::rom2049::dc::upscaled_by_player(image) &&
-                                    rush2::rom2049::dc::original_image(image, disc) &&
-                                    disc.width <= todo[i].second.width && disc.height <= todo[i].second.height;
-                std::unique_lock lock(mutex);
-                if (for_generation != dc_generation) {
-                    return; // dc_reset queued them all again.
-                }
-                if (result == rush2::rom2049::dc::Match::NotReady) {
-                    // The disc's images are still being built: these wait for the next round.
-                    for (size_t j = todo.size(); j-- > i;) {
-                        dc_pending.push_front(todo[j].first);
-                    }
-                    return;
-                }
-                Entry& entry = entries[todo[i].first];
-                if (entry.dc != DcState::Pending) {
-                    continue;
-                }
-                if (result == rush2::rom2049::dc::Match::Found) {
-                    entry.dc = DcState::Matched;
-                    entry.dc_image = image;
-                    if (upscale_disc) {
-                        auto [it, inserted] = entries.try_emplace(dc_upscale_key(image));
-                        Entry& up = it->second;
-                        if (inserted) {
-                            up.image = std::move(disc);
-                            up.edge_s = entry.edge_s;
-                            up.edge_t = entry.edge_t;
-                            up.origin = rush2::origin::Game::Rush2049DC; // dumped from the disc's images instead
-                            up.dc = DcState::None;
-                            up.disc_upscale = true;
-                        }
-                        Entry& matched = entries[todo[i].first];
-                        up.hashes.insert(up.hashes.end(), matched.hashes.begin(), matched.hashes.end());
-                        restore_upscale(dc_upscale_key(image), up);
-                    }
-                    Entry& matched = entries[todo[i].first];
-                    for (uint64_t hash : matched.hashes) {
-                        draw_dc(hash, image);
-                    }
-                }
-                else {
-                    entry.dc = DcState::None;
-                    restore_upscale(todo[i].first, entry);
-                }
-            }
-        }
-
-        // Draws hash with its disc image (mutex held): the upscale of it once there is one, else the image.
-        void draw_dc(uint64_t hash, uint64_t image) {
-            auto up = entries.find(dc_upscale_key(image));
-            if (up != entries.end()) {
-                if (std::find(up->second.hashes.begin(), up->second.hashes.end(), hash) == up->second.hashes.end()) {
-                    up->second.hashes.push_back(hash);
-                }
-                if (mode != Mode::Off && up->second.ready) {
-                    applies.emplace_back(hash, up->first);
-                    return;
-                }
-            }
-            dc_applies.emplace_back(hash, image);
-        }
-
-        // Worker: draws the textures with their disc images.
-        void apply_dc(const std::vector<std::pair<uint64_t, uint64_t>>& todo) {
-            for (const auto& [hash, image] : todo) {
-                uint64_t content = rush2::rom2049::dc::image_content(image);
-                std::vector<uint8_t> bytes;
-                if (content == 0 ||
-                    (!RT64::hasLiveReplacementContent(content) && !rush2::rom2049::dc::image_file(image, bytes, content))) {
-                    continue;
-                }
-                RT64::addLiveReplacement(hash, content, bytes);
             }
         }
 
@@ -1609,8 +1450,7 @@ namespace {
                 "  rush2049    the Rush 2049 tracks' and cars' (from the N64 ROM)\n"
                 "  rush2049dc  the Rush 2049 Dreamcast disc's textures at their full size, by disc file and\n"
                 "              texture name (with a disc installed)\n"
-                "Inside a game folder, textures are named after the file and model they belong to (Rush 2049's by\n"
-                "the Dreamcast disc's texture names, when a disc is installed and Dreamcast Textures is on):\n"
+                "Inside a game folder, textures are named after the file and model they belong to:\n"
                 "  cars/PICKUP/TRK_D0_1.png       a texture with its own name in the game files\n"
                 "  tracks/ALCATRAZ/ALCATRAZL3136.2.png   the second texture model ALCATRAZL3136 brings\n"
                 "  ....mip2.png                   a smaller copy the game draws in the distance (mipmap)\n"
@@ -1641,7 +1481,7 @@ namespace {
                 "3. Press Install Upscaled Textures in Settings > Graphics. The pack shows up in the mods menu as\n"
                 "   \"Custom Upscaled Textures\". It is mods/rush2_custom_textures.rtz, the file to share.\n"
                 "   The Dreamcast images' upscales aren't in it: they're drawn wherever the disc's images are (with the\n"
-                "   disc as the source, or matching N64 textures), while Dreamcast Textures is on.\n";
+                "   disc as the source, or the race tracks' Dreamcast versions).\n";
             write_file(dump_dir() / "README.txt", std::vector<uint8_t>(text.begin(), text.end()));
         }
 
@@ -1659,7 +1499,7 @@ namespace {
                     std::unique_lock lock(mutex);
                     changed.wait_for(lock, std::chrono::milliseconds(500), [this]() {
                         return clear_requested || !removals.empty() || !applies.empty() || !new_ui_keys.empty() ||
-                               !exact_applies.empty() || dc_new || !dc_applies.empty() ||
+                               !exact_applies.empty() ||
                                dc_generation != rush2::rom2049::dc::texture_generation() ||
                                (!pending.empty() && mode != Mode::Off && catalog_known());
                     });
@@ -1684,26 +1524,10 @@ namespace {
                 if (clear) {
                     RT64::clearLiveReplacements();
                     rush2::derive::packs_changed(); // That took the derived replacements off: they are made again.
-                    // That took the disc images off too.
-                    std::unique_lock lock(mutex);
-                    for (const auto& [key, entry] : entries) {
-                        if (entry.dc == DcState::Matched) {
-                            for (uint64_t hash : entry.hashes) {
-                                draw_dc(hash, entry.dc_image);
-                            }
-                        }
-                    }
                 }
                 for (uint64_t hash : to_remove) {
                     RT64::removeLiveReplacement(hash);
                 }
-                run_matches();
-                std::vector<std::pair<uint64_t, uint64_t>> to_dc;
-                {
-                    std::unique_lock lock(mutex);
-                    to_dc.swap(dc_applies);
-                }
-                apply_dc(to_dc);
                 {
                     std::unique_lock lock(mutex);
                     if (source_packed != source_logged) {
@@ -1762,7 +1586,7 @@ namespace {
                     entry.queued = false; // A car texture: the derived replacements upscale its base (builtin_scale).
                     continue;
                 }
-                if (!entry.queued || skip_ui(entry) || entry.ready || dc_held(entry)) {
+                if (!entry.queued || skip_ui(entry) || entry.ready) {
                     entry.queued = false;
                     continue;
                 }
@@ -1808,8 +1632,7 @@ namespace {
             {
                 std::unique_lock lock(mutex);
                 auto it = entries.find(key);
-                if (for_generation != generation || it == entries.end() || skip_ui(it->second) ||
-                    it->second.dc == DcState::Matched) {
+                if (for_generation != generation || it == entries.end() || skip_ui(it->second)) {
                     return;
                 }
             }
@@ -2019,32 +1842,7 @@ namespace {
     }
 }
 
-namespace {
-    // Whether Dreamcast Textures is grayed out (set_dreamcast_option_state), and the config to show it in, once the
-    // tabs are made.
-    std::mutex dreamcast_state_mutex;
-    bool dreamcast_disabled = true;
-    recomp::config::Config* dreamcast_config = nullptr;
-}
-
 void add_options(recomp::config::Config& config) {
-    config.add_bool_option(
-        dreamcast_option_id,
-        "Dreamcast Textures",
-        "With the N64 ROM as the Rush 2049 source and a Rush 2049 Dreamcast disc installed too (Games tab), draws each "
-        "N64 texture that is the same picture as a disc texture with the disc's image, up to four times the size and in "
-        "full color, and the race tracks' Dreamcast versions with the disc's own textures at full size; the rest stay "
-        "as they are. Texture packs you install take priority, and upscaling handles everything the disc doesn't "
-        "replace. Upscales of the disc's images (Your Own Upscales, rush2049dc) are drawn in their place.<br/><br/>"
-        "Unavailable without a disc, and with the disc as the source, which always does this. The first time, the "
-        "disc's images take a minute or so to prepare in the background.",
-        true
-    );
-    config.add_option_change_callback(dreamcast_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            rush2::rom2049::dc::set_textures_enabled(std::get<bool>(cur_value));
-        });
-
     config.add_enum_option(
         mode_option_id,
         "Texture Upscaling",
@@ -2129,23 +1927,7 @@ void add_options(recomp::config::Config& config) {
         });
 }
 
-void set_dreamcast_option_state(bool disc_source, bool disc_stored) {
-    {
-        std::lock_guard lock{ dreamcast_state_mutex };
-        dreamcast_disabled = disc_source || !disc_stored;
-    }
-    if (dreamcast_config != nullptr) {
-        dreamcast_config->update_option_disabled(dreamcast_option_id, dreamcast_disabled);
-    }
-}
-
 void apply_loaded_options(recomp::config::Config& config) {
-    dreamcast_config = &config;
-    {
-        std::lock_guard lock{ dreamcast_state_mutex };
-        config.update_option_disabled(dreamcast_option_id, dreamcast_disabled);
-    }
-    rush2::rom2049::dc::set_textures_enabled(std::get<bool>(config.get_option_value(dreamcast_option_id)));
     apply_interface(std::get<bool>(config.get_option_value(interface_option_id)));
     rush2::derive::set_keep_car_colors(std::get<bool>(config.get_option_value(car_colors_option_id)));
     apply_config(config.get_option_value(mode_option_id), config.get_option_value(command_option_id));

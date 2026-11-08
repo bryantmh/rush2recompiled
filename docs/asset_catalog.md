@@ -314,8 +314,8 @@ every texture a race draws is replaced by the pack or derived from it, none untr
 - **SF Rush stripes on Rush 2 cars** are derived from the panel's upscale by recoloring, so their edges follow the
   panel's texels, not an upscale of the Rush 1 decal.
 - **Raw TMEM:** textures RT64 draws from raw TMEM aren't cataloged.
-- **Dreamcast names:** the N64 2049 textures take the disc's texture names only when a disc is installed and its
-  image is matched (`dc::match`); otherwise they are named by model.
+- **Dreamcast names:** only the disc's own images (`dump/rush2049dc`) carry the disc's texture names; the N64 2049
+  textures are named by model.
 - **Model dump textures:** the 2049 files converted on their own keep 2049's lists as drawn, so lit models' vertex
   colors are their normals (written white); Rush 2 and 2049 car paint comes out gray, as in the texture dump.
 - **`_all.glb`** puts every model at the origin, so a car's damage levels and wheels overlap there; the per-model

@@ -49,7 +49,7 @@ Add the Rush 2049 ROM to get:
 - **2049 stunt scoring.** Set Stunt Scoring on the Games tab to score tricks the Rush 2049 way: flips, rolls, helicopter spins and wheelies build a combo with a multiplier, and a wreck loses it. The stunt display comes with it.
 - **Battle arenas.** Eight deathmatch arenas in the BATTLE row, with weapons, pickups, and arrows pointing to the other cars. Computer-controlled drones can fill the arenas, and weapons can also be turned on in regular arena races with a cheat. The track select's BATTLE row turns any race into a battle race: a row of weapon and power-up pickups on every checkpoint line past the start, and drones that grab them and shoot.
 - **Coins.** Collect 2049's coins, which are counted per player in the Progress tab and count toward unlocks.
-- **Dreamcast disc** Rush 2049 can also be loaded from a Dreamcast disc image instead of the N64 ROM, and a Dreamcast Textures option uses the disc's textures with the N64 version.
+- **Dreamcast disc** Rush 2049 can also be loaded from a Dreamcast disc image instead of the N64 ROM, and with a disc installed the race tracks' Dreamcast versions can be raced alongside or in place of the N64 versions.
 
 ### San Francisco Rush
 

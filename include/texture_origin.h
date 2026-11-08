@@ -13,13 +13,10 @@ namespace rush2::origin {
     // The dump folder of a game's textures: rush2, sfrush, rush2049, rush2049dc.
     const char* folder(Game game);
 
-    // [address, address + size) now holds data from game, a car's model when car. Rush2 forgets what was there (Rush 2
-    // is the default).
-    void tag(uint32_t address, uint32_t size, Game game, bool car = false);
+    // [address, address + size) now holds data from game. Rush2 forgets what was there (Rush 2 is the default).
+    void tag(uint32_t address, uint32_t size, Game game);
     // The game whose data is at address (any segment: the low 24 bits are what counts).
     Game at(uint32_t address);
-    // Whether the data at address is a car's model (tagged so), for the Dreamcast Textures match.
-    bool car_at(uint32_t address);
 }
 
 #endif

@@ -51,14 +51,12 @@ namespace rush2::rom2049::dc {
 
     // The disc's textures at their full size (src/rush2049dc/rush2049_dc_pack.cpp), kept in
     // <app folder>/track_cache/dc_textures (built in the background once per disc and build). With a disc as the
-    // source (Disc mode), or the N64 ROM as the source with a disc stored and the Dreamcast Textures option (Settings >
-    // Graphics) on (N64 mode), both of these apply, since the track select offers the race tracks' N64 and Dreamcast
-    // versions with either source: the disc's scaled-down textures are drawn from those images, a texture pack RT64
-    // loads like any other, which installed packs override; and an N64 texture whose picture is a disc texture's,
-    // scaled down, is drawn with the disc's image instead (match, used by src/texture_upscale.cpp as live
-    // replacements). Images the player upscaled from the dump (rush2049dc) take the disc's images' place in both.
-    void set_textures_enabled(bool enabled);
-    // The Rush 2049 source in use, and the stored disc pack (empty path: none) for N64 matching.
+    // source (Disc mode), or the N64 ROM as the source with a disc stored (N64 mode, since the track select offers the
+    // race tracks' N64 and Dreamcast versions with either source), the disc's scaled-down textures are drawn from
+    // those images, a texture pack RT64 loads like any other, which installed packs override. The N64 ROM's own
+    // textures are left as they are. Images the player upscaled from the dump (rush2049dc) take the disc's images'
+    // place.
+    // The Rush 2049 source in use, and the stored disc pack (empty path: none).
     void set_texture_sources(std::shared_ptr<const Source> active, const std::filesystem::path& disc_pack);
 
     enum class TextureMode { Off, Disc, N64 };
@@ -68,22 +66,6 @@ namespace rush2::rom2049::dc {
     // Whether the texture pack in use (Disc mode) replaces the texture with this RT64 hash.
     bool in_texture_pack(uint64_t hash);
 
-    // N64 mode: the disc image that is the same picture as an N64 texture (decoded, content key n64_key; intensity:
-    // an I or IA texture, which only takes a gray image), at least its size. NotReady while the images are still
-    // being built. Called off the display list thread: it can take a few milliseconds.
-    enum class Match { NotReady, None, Found };
-    // car: the texture is a car model's, which only a car's image (from the disc's CARn files) can match, and only
-    // such a texture can match one.
-    Match match(const rush2::upscale::Image& n64, uint64_t n64_key, bool intensity, bool car, uint64_t& image_key);
-    // Whether the player installed an upscale of the image (drawn as it is, never upscaled again).
-    bool upscaled_by_player(uint64_t image_key);
-    // A disc image's DDS (the player's upscale of it if they installed one) and a key naming its contents.
-    bool image_file(uint64_t image_key, std::vector<uint8_t>& dds, uint64_t& content);
-    // Just the key naming its contents (0: no such image), to skip reading a file RT64 has already.
-    uint64_t image_content(uint64_t image_key);
-    // The disc's name of an image: its texture record's name (the first texture drawn with it). Empty if unknown.
-    std::string image_name(uint64_t image_key);
-
     // Dump and install (Settings > Graphics > Your Own Upscales). dump_images writes every disc image as
     // <disc file>/<texture name>.png into dir (docs/asset_catalog.md), counting them in done, except the damaged car
     // textures, which are made from the undamaged ones, and, without interface, the interface files' (HUD, HUDBATTLE,
@@ -92,7 +74,7 @@ namespace rush2::rom2049::dc {
                        std::vector<std::pair<std::string, uint64_t>>* named = nullptr);
     // Whether key names a disc image, and its full-size original.
     bool is_image(uint64_t key);
-    // Whether the disc's images are built and loaded, so match and dump_images can answer.
+    // Whether the disc's images are built and loaded, so dump_images can answer.
     bool images_ready();
     bool original_image(uint64_t key, rush2::upscale::Image& image);
     // Replaces the player's installed upscales: begin, add each, then end (which puts them in use).

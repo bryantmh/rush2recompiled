@@ -192,9 +192,6 @@ namespace rush2::upscale {
     void add_exact_image(std::vector<uint8_t> indices, Image image);
     extern const char* const mode_option_id;
     extern const char* const command_option_id;
-    // Dreamcast Textures (rush2::rom2049::dc::set_textures_enabled), in the same group of the Graphics tab. It is
-    // grayed out with the disc as the Rush 2049 source (whose textures are always the disc's) or no disc stored.
-    extern const char* const dreamcast_option_id;
     // Upscale Interface: off, interface textures (menus, HUD, maps, text) are left out of upscaling, the derived
     // replacements and Dump Textures.
     extern const char* const interface_option_id;
@@ -204,7 +201,6 @@ namespace rush2::upscale {
     // The built-in upscaler's scale while it's HQ2x or HQ4x, else 0: rush2::derive then makes the cars' upscales
     // itself where no pack has one (Base car textures get the derived replacements' paint, stripes and decals).
     uint32_t builtin_scale();
-    void set_dreamcast_option_state(bool disc_source, bool disc_stored);
 }
 
 #endif
