@@ -18,6 +18,9 @@
 // probe count, size and bake time, how much neighbouring probes differ (mean and 95th percentile of the largest face
 // difference between a probe and the one a cell over in x), and with --path the replay scores at the default Params.
 //
+// --fill builds Fill Scenery Gaps' ground underlay (src/scenery_fill_build.cpp) instead and prints its size, and writes
+// tmp/scenery_fill/<TRACK>.glb: the track as placed with the underlay (node SCENERYFILL) for tools/glb_view.py.
+//
 // Reads RUSH2_ROM (default rush2.us.recomp.z64 in the project root). Build from Git Bash:
 //   cmd //c "tools\car_probes_test.bat"   (writes tmp\probes_test\car_probes_test.exe)
 #define STB_IMAGE_IMPLEMENTATION
@@ -40,6 +43,7 @@
 #include "assets.h"
 #include "car_probes.h"
 #include "rush2049_rom.h"
+#include "scenery_fill.h"
 #include "track2049_convert.h"
 
 using namespace rush2::catalog;
@@ -305,6 +309,7 @@ int main(int argc, char** argv) {
     bool compare = false;
     bool dump = false;
     bool sky = false;
+    bool fill = false;
     int trace_car = -1;
     std::vector<float> above;
     for (int a = 1; a < argc; a++) {
@@ -312,6 +317,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[a], "--compare") == 0) compare = true;
         else if (strcmp(argv[a], "--dump") == 0) dump = true;
         else if (strcmp(argv[a], "--sky") == 0) sky = true;
+        else if (strcmp(argv[a], "--fill") == 0) fill = true;
         else if (strcmp(argv[a], "--trace") == 0 && a + 1 < argc) trace_car = atoi(argv[++a]);
         else if (strcmp(argv[a], "--above") == 0 && a + 3 < argc) for (int k = 0; k < 3; k++) above.push_back((float)atof(argv[++a]));
         else tracks.push_back(argv[a]);
@@ -377,6 +383,70 @@ int main(int argc, char** argv) {
         std::vector<const Container*> containers = { &track, &shared[0], &shared[1] };
         std::vector<Placement> placements = read_placement(placement);
 
+        if (fill) {
+            rush2::scenery_fill::BuildStats st;
+            rush2::scenery_fill::Mesh mesh = rush2::scenery_fill::build(containers, placements, &st);
+            size_t bytes = mesh.serialize().size(), strips = 0;
+            for (const auto& c : mesh.chunks) strips += c.strips.size();
+            printf("%s: %zu ground triangles, %zu cells covered; drawn %zu fine + %zu coarse cells = %zu quads, %zu vertices, "
+                   "%zu strips in %zu chunks, %zu textures, %zu KB, %.2f s\n", label.c_str(), st.triangles, st.covered, st.fine,
+                   st.coarse, st.quads, st.vertices, strips, mesh.chunks.size(), mesh.textures.size(), bytes / 1024, st.seconds);
+            rush2::scenery_fill::Mesh back;
+            if (!back.deserialize(mesh.serialize())) printf("  serialize round trip failed\n");
+            // The track with the underlay as one more model, placed at the origin (vertices in 1/16 ft).
+            Container view = track;
+            Model model;
+            model.name = "SCENERYFILL";
+            model.lods.resize(1);
+            int base = (int)view.textures.size();
+            for (const auto& t : mesh.textures) {
+                rush2::catalog::Texture ct;
+                ct.name = "FILL_" + t.name;
+                ct.width = t.width;
+                ct.height = t.height;
+                ct.image = rush2::scenery_fill::image_of(t);
+                view.textures.push_back(std::move(ct));
+            }
+            for (const auto& c : mesh.chunks) {
+                for (const auto& strip : c.strips) {
+                    rush2::catalog::Mesh m;
+                    m.texture = base + strip.texture;
+                    const auto& t = mesh.textures[size_t(strip.texture)];
+                    auto vert = [&](const rush2::scenery_fill::Vertex& v) {
+                        rush2::catalog::Vertex o;
+                        for (int k = 0; k < 3; k++) o.position[k] = v.pos[k] * 16.0f;
+                        o.uv[0] = v.st[0] / t.width;
+                        o.uv[1] = v.st[1] / t.height;
+                        for (int k = 0; k < 3; k++) o.color[k] = v.rgb[k];
+                        o.color[3] = 255;
+                        return o;
+                    };
+                    for (size_t i = 0; i + 1 < strip.top.size(); i++) {
+                        const rush2::scenery_fill::Vertex* q[4] = { &strip.top[i], &strip.top[i + 1], &strip.bottom[i + 1], &strip.bottom[i] };
+                        for (int k : { 0, 1, 2, 0, 2, 3 }) m.vertices.push_back(vert(*q[k]));
+                    }
+                    model.lods[0].meshes.push_back(std::move(m));
+                }
+            }
+            view.models.push_back(std::move(model));
+            std::vector<Placement> placed = placements;
+            Placement p;
+            p.name = "SCENERYFILL";
+            const float identity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+            memcpy(p.matrix, identity, sizeof(identity));
+            memset(p.position, 0, sizeof(p.position));
+            placed.push_back(p);
+            std::string file = "tmp/scenery_fill/" + label + ".glb";
+            std::replace(file.begin(), file.end(), ' ', '_');
+            std::replace(file.begin(), file.end(), '#', 'k');
+            auto glb = rush2::catalog::write_glb(view, label, placed);
+            if (FILE* f = fopen(file.c_str(), "wb")) {
+                fwrite(glb.data(), 1, glb.size(), f);
+                fclose(f);
+            }
+            else printf("  can't write %s (make the folder)\n", file.c_str());
+            continue;
+        }
         if (sky) {
             // The sky models' average color (vertex color x texture average, alpha-weighted).
             for (const Container* c : containers) {

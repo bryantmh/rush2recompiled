@@ -131,6 +131,9 @@ namespace rush2::probes {
     // Once per view in a race (game thread): starts the raced track's bake when it changes and moves each race car's
     // cube toward the probes at the car. False until the track's probes are ready (draw the cars as Original then).
     bool update(uint8_t* rdram);
+    // The raced track's geometry: its asset (0x33 + track slot) and where the game loaded it, from the slot records.
+    // False outside a race's track slots. (Fill Scenery Gaps, src/scenery_fill.cpp, keys its underlay on it too.)
+    bool raced_track(uint8_t* rdram, int& asset, uint32_t& address);
     // Out of a race: drops the copies (models load again for the next race).
     void reset();
     // Race car `car`'s part list `dl`, drawn by scene node `node` whose world rotation is `rot` (rows): a copy with its

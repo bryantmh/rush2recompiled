@@ -1460,6 +1460,17 @@ func = "race_load_track_800A5110"
 before_vram = 0x800A5110
 text = "    rush2_track49_race_start(rdram, ctx);"
 
+# Fill Scenery Gaps (src/scenery_fill.cpp): the scene nodes the track's placement walk makes are the track's models.
+[[patches.hook]]
+func = "race_load_track_800A5110"
+before_vram = 0x800A5704
+text = "    rush2_scenery_fill_walk_begin(rdram, ctx);"
+
+[[patches.hook]]
+func = "race_load_track_800A5110"
+before_vram = 0x800A570C
+text = "    rush2_scenery_fill_walk_end(rdram, ctx);"
+
 [[patches.instruction]]
 func = "trackselect_setup_carousel_rows_803AB0E4"
 vram = 0x803AB0EC

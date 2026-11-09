@@ -67,6 +67,10 @@ void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx);
 // Sky Fog (src/sky_fog.cpp), from rush2_model_draw: model_draw_8007AA48 about to call a node's model ($s7 node, $fp
 // list); marks the sky model as the sky.
 void rush2_sky_fog_model_draw(uint8_t* rdram, recomp_context* ctx);
+// Fill Scenery Gaps (src/scenery_fill.cpp): race_load_track_800A5110 around its placement_walk_80081790 call, so the
+// scene nodes the track's placements made are known.
+void rush2_scenery_fill_walk_begin(uint8_t* rdram, recomp_context* ctx);
+void rush2_scenery_fill_walk_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_root_modelview(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_poly(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_poly_vtx(uint8_t* rdram, recomp_context* ctx);

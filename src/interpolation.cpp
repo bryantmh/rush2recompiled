@@ -28,6 +28,7 @@
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
 #include "scene_nodes.h"
+#include "scenery_fill.h"
 #include "world_polygons.h"
 
 namespace {
@@ -431,6 +432,8 @@ void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx) {
         sky_plane_prev[cur_view] = sky_plane_cur[cur_view];
     }
     sky_plane_cur[cur_view].valid = false;
+    // Fill Scenery Gaps draws its ground once per view (src/scenery_fill.cpp).
+    rush2::scenery_fill::view_begin(rdram, cur_view);
 }
 
 // func_8007C624, after the projection G_MTX (load) is written at $v0. This is the first matrix of the view, so
@@ -713,6 +716,12 @@ bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* project
     *projection = view_projection[view];
     *lookat = view_lookat[view];
     return true;
+}
+
+// A view's generation (bumped at each camera cut), for matrix group ids of models drawn under the view alone
+// (src/scenery_fill.cpp).
+uint32_t rush2_interp_view_generation(uint32_t view) {
+    return view < max_views ? views[view].gen : 0;
 }
 
 // The current view and the generation of the node being drawn, for other code that adds matrices under it

@@ -90,6 +90,22 @@ namespace rush2::catalog {
     };
     std::vector<Placement> read_placement(const std::vector<uint8_t>& file);
 
+    // A triangle of a placed model's first LOD in world space (feet: models are drawn at 1/16 scale, v * matrix / 16 +
+    // position with row vectors), for work on a track as placed (src/car_probes_bake.cpp, src/scenery_fill_build.cpp).
+    struct PlacedTriangle {
+        float v[3][3];
+        const Vertex* source[3];    // The model's vertices: uv and color.
+        const Container* container;
+        const Model* model;
+        const Mesh* mesh;
+        bool mirrored;              // The placement's matrix mirrors, so its front faces wind the other way.
+    };
+    // Calls fn for every triangle the placements draw. A record draws the model of its name among `containers` (the
+    // track's first, then the shared ones) as the game looks it up: an exact name, else the shortest model name starting
+    // with the record's (a class: CONE1 -> CONE1O1).
+    void for_each_placed_triangle(const std::vector<const Container*>& containers, const std::vector<Placement>& placements,
+                                  const std::function<void(const PlacedTriangle&)>& fn);
+
     // Reads a Rush 2 model container (file offsets, as stored). geometry: also collect the triangles (for write_glb).
     // paint_records: show a painted texture with the file's paint palette record when it has some (SF Rush's cars:
     // the RED one) instead of the gray ramp; for the model dump's SF Rush files only, as the texture dump's recoloring

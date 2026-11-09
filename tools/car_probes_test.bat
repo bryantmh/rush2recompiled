@@ -10,7 +10,7 @@ set "SHIM=tools\rush2049\cpp_test"
 call tools\vsenv.bat clang-cl /nologo /O2 /std:c++20 /EHsc -march=nehalem -Wno-everything /DNOMINMAX ^
     /I include /I "%SHIM%\shim" /I %MINIZ% /I lib\N64ModernRuntime\N64Recomp\include /I lib\hqx ^
     /I lib\rt64\src /I lib\rt64\src\contrib ^
-    tools\car_probes_test.cpp src\car_probes_bake.cpp src\asset_catalog_walk.cpp src\texture_upscale_images.cpp ^
+    tools\car_probes_test.cpp src\car_probes_bake.cpp src\scenery_fill_build.cpp src\asset_catalog_walk.cpp src\texture_upscale_images.cpp ^
     "%SHIM%\inflate_shim.cpp" src\rush2049\track2049_convert.cpp src\rush2049\rush2049_rom.cpp src\rush2049\wings_rom.cpp ^
     lib\hqx\hq2x.c lib\hqx\hq4x.c ^
     %MINIZ%\miniz.c %MINIZ%\miniz_tinfl.c %MINIZ%\miniz_tdef.c %MINIZ%\miniz_zip.c ^

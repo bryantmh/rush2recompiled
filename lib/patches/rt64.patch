@@ -37,10 +37,10 @@ index 79dfc38..8f33330 100644
  build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/PostProcessPS.hlsl")
 diff --git a/include/rt64_extended_gbi.h b/include/rt64_extended_gbi.h
-index d387090..9bae535 100644
+index d387090..030f145 100644
 --- a/include/rt64_extended_gbi.h
 +++ b/include/rt64_extended_gbi.h
-@@ -80,7 +80,11 @@
+@@ -80,7 +80,12 @@
  #define G_EX_SETVERTEXSEGMENT_V1        0x000031
  #define G_EX_SETTEXCOORDWRAPPOINT_V1    0x000032
  #define G_EX_SETRECTASPECT_V1           0x000033
@@ -49,11 +49,12 @@ index d387090..9bae535 100644
 +#define G_EX_SETCARREFLECTION_V1        0x000035
 +#define G_EX_SETSKYFOG_V1               0x000036
 +#define G_EX_SETSKYDRAW_V1              0x000037
-+#define G_EX_MAX                        0x000038
++#define G_EX_SETTWOSIDEDWALLS_V1        0x000038
++#define G_EX_MAX                        0x000039
  
  #define G_EX_ORIGIN_NONE            0x800
  #define G_EX_ORIGIN_LEFT            0x0
-@@ -579,4 +583,40 @@ typedef union {
+@@ -579,4 +584,51 @@ typedef union {
          PARAM(aspect, 2, 0) \
      )
  
@@ -91,6 +92,17 @@ index d387090..9bae535 100644
 +    G_EX_COMMAND1(cmd, \
 +        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETSKYDRAW_V1, 24, 0), \
 +        PARAM(on, 1, 0) \
++    )
++
++// Rush 2 recomp: while on (1), each triangle drawn with back-face culling whose face is within about 17 degrees of
++// vertical in the modelview's axes (y up) is also drawn wound the other way, so it shows its texture from behind too
++// (open-backed facades and walls seen past the original 4:3 view), unless the frame has something else on its plane
++// that is seen from behind (RSP::drawIndexedTri). 2: the draws only count as that something else (no copies of
++// their own). 0: off. Lasts until the next two-sided walls command.
++#define gEXSetTwoSidedWalls(cmd, on) \
++    G_EX_COMMAND1(cmd, \
++        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETTWOSIDEDWALLS_V1, 24, 0), \
++        PARAM(on, 2, 0) \
 +    )
 +
  #endif // RT64_EXTENDED_GBI
@@ -287,7 +299,7 @@ index 4857f22..5646b55 100644
  
      NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::InternalColorFormat, {
 diff --git a/src/gbi/rt64_gbi_extended.cpp b/src/gbi/rt64_gbi_extended.cpp
-index 20c0d4d..f21beab 100644
+index 20c0d4d..50a4dc9 100644
 --- a/src/gbi/rt64_gbi_extended.cpp
 +++ b/src/gbi/rt64_gbi_extended.cpp
 @@ -4,6 +4,8 @@
@@ -299,7 +311,7 @@ index 20c0d4d..f21beab 100644
  #include "../include/rt64_extended_gbi.h"
  
  namespace RT64 {
-@@ -331,6 +333,30 @@ namespace RT64 {
+@@ -331,6 +333,34 @@ namespace RT64 {
              state->rdp->setRectAspect(aspect);
          }
  
@@ -327,10 +339,14 @@ index 20c0d4d..f21beab 100644
 +            state->rdp->setSkyDraw((*dl)->p1(0, 1) != 0);
 +        }
 +
++        void setTwoSidedWallsV1(State *state, DisplayList **dl) {
++            state->rsp->extended.twoSidedWalls = uint8_t((*dl)->p1(0, 2));
++        }
++
          void noOpHook(State *state, DisplayList **dl) {
              uint32_t magicNumber = (*dl)->p0(0, 24);
              if (magicNumber == RT64_HOOK_MAGIC_NUMBER) {
-@@ -439,6 +465,10 @@ namespace RT64 {
+@@ -439,6 +469,11 @@ namespace RT64 {
              Map[G_EX_SETVERTEXSEGMENT_V1] = &setVertexSegmentV1;
              Map[G_EX_SETTEXCOORDWRAPPOINT_V1] = &setTexcoordWrapPointV1;
              Map[G_EX_SETRECTASPECT_V1] = &setRectAspectV1;
@@ -338,6 +354,7 @@ index 20c0d4d..f21beab 100644
 +            Map[G_EX_SETCARREFLECTION_V1] = &setCarReflectionV1;
 +            Map[G_EX_SETSKYFOG_V1] = &setSkyFogV1;
 +            Map[G_EX_SETSKYDRAW_V1] = &setSkyDrawV1;
++            Map[G_EX_SETTWOSIDEDWALLS_V1] = &setTwoSidedWallsV1;
              MapInitialized = true;
          }
      }
@@ -734,10 +751,21 @@ index 6051f4e..690d3b2 100644
  
          // Dump memory contents into a file if the process is active.
 diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
-index ee2030b..cbd0ad5 100644
+index ee2030b..bca4525 100644
 --- a/src/hle/rt64_rsp.cpp
 +++ b/src/hle/rt64_rsp.cpp
-@@ -992,6 +992,12 @@ namespace RT64 {
+@@ -4,7 +4,10 @@
+ 
+ #include "rt64_rsp.h"
+ 
++#include <algorithm>
+ #include <cassert>
++#include <cmath>
++#include <cstring>
+ 
+ #include "../include/rt64_extended_gbi.h"
+ #include "common/rt64_common.h"
+@@ -992,6 +995,12 @@ namespace RT64 {
          fog.offset = offset;
          fogChanged = true;
      }
@@ -750,11 +778,221 @@ index ee2030b..cbd0ad5 100644
      
      void RSP::setTexture(uint8_t tile, uint8_t level, uint8_t on, uint16_t sc, uint16_t tc) {
          textureState.tile = tile;
+@@ -1128,8 +1137,158 @@ namespace RT64 {
+             maxMatrix = std::max(maxMatrix, worldIndices[globalIndex]);
+         }
+ 
++        // Rush 2 recomp: Two-Sided Walls (gEXSetTwoSidedWalls). A culled triangle standing near vertical in the
++        // modelview's axes (the game keeps the view's rotation in the projection, so these are the world's, y up) is
++        // drawn again wound the other way, with the same vertices: whichever side faces the camera survives the
++        // culling, with the front's texture and colors. Only where nothing else is already there to be seen from
++        // behind: no copy for a triangle with any of these on its plane over it (all the frame's marked draws, in any
++        // order: a copy made before one turns up is made degenerate, drawing nothing, so the count stays the same
++        // every frame for interpolation's matching):
++        // - a modeled back: a triangle facing the other way within 16 units (1 ft) of its plane, culled or not;
++        // - a two-sided surface: a triangle drawn without culling, either way it faces, within 16 units;
++        // - a layered face: a triangle facing the same way on the same plane (within 2 units) overlapping it with
++        //   area (an arrow over a sign board): their copies would fight each other from behind.
++        bool twoSidedCopy = false;
++        if ((extended.twoSidedWalls != 0) && !rawGlobalIndices) {
++            const auto &posFloats = workload.drawData.posFloats;
++            const auto &worldTransforms = workload.drawData.worldTransforms;
++            float w[3][3];
++            for (int i = 0; i < 3; i++) {
++                const uint32_t g = globalIndices[i];
++                const interop::float4x4 &m = worldTransforms[worldIndices[g]];
++                for (int k = 0; k < 3; k++) {
++                    w[i][k] = posFloats[g * 3 + 0] * m[0][k] + posFloats[g * 3 + 1] * m[1][k] + posFloats[g * 3 + 2] * m[2][k] + m[3][k];
++                }
++            }
++            const float e1[3] = { w[1][0] - w[0][0], w[1][1] - w[0][1], w[1][2] - w[0][2] };
++            const float e2[3] = { w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2] };
++            const float nx = e1[1] * e2[2] - e1[2] * e2[1];
++            const float ny = e1[2] * e2[0] - e1[0] * e2[2];
++            const float nz = e1[0] * e2[1] - e1[1] * e2[0];
++            const float lengthSq = nx * nx + ny * ny + nz * nz;
++            // |n.y| / |n| under 0.3: the face is within about 17 degrees of vertical.
++            if ((lengthSq > 1e-12f) && (ny * ny < 0.09f * lengthSq)) {
++                if ((extended.twoSidedWorkload != workloadCursor) || (faceIndices.size() < extended.twoSidedFaceCount)) {
++                    extended.twoSidedSeen.clear();
++                    extended.twoSidedWorkload = workloadCursor;
++                }
++
++                const bool culled = (geometryMode & cullBothMask) != 0;
++                const float length = std::sqrt(lengthSq);
++                const float un[3] = { nx / length, ny / length, nz / length };
++                const float distance = un[0] * w[0][0] + un[1] * w[0][1] + un[2] * w[0][2];
++                const float twoPi = 6.28318530718f;
++                const int32_t yaw = int32_t(std::floor((std::atan2(un[2], un[0]) + twoPi / 2.0f) / twoPi * 128.0f)) & 127;
++                const float bucket = 8.0f;
++                auto planeKey = [](int32_t y, int32_t d) { return (uint64_t(uint32_t(y & 127)) << 32) | uint64_t(uint32_t(d)); };
++                decltype(extended.twoSidedSeen)::mapped_type::value_type entry;
++                memcpy(entry.v, w, sizeof(w));
++                entry.distance = distance;
++                entry.culled = culled;
++                entry.copyAt = UINT32_MAX;
++
++                // Triangles in this one's plane: across (horizontal, along the face) and up.
++                const float tl = std::sqrt(un[0] * un[0] + un[2] * un[2]);
++                const float tx = un[2] / tl, tz = -un[0] / tl;
++                auto project = [&](const float (*p)[3], float out[3][2]) {
++                    for (int i = 0; i < 3; i++) {
++                        out[i][0] = p[i][0] * tx + p[i][2] * tz;
++                        out[i][1] = p[i][1];
++                    }
++                };
++                // Overlapping in the plane: no separating edge with a gap of `slack` or more (slack < 0: they must
++                // overlap by more than -slack along every edge).
++                auto overlaps = [](const float (*a)[2], const float (*b)[2], float slack) {
++                    const float (*tris[2])[2] = { a, b };
++                    for (const float (*t)[2] : tris) {
++                        for (int e = 0; e < 3; e++) {
++                            float ax = -(t[(e + 1) % 3][1] - t[e][1]), ay = t[(e + 1) % 3][0] - t[e][0];
++                            float len = std::sqrt(ax * ax + ay * ay);
++                            if (len < 1e-6f) {
++                                continue;
++                            }
++
++                            ax /= len;
++                            ay /= len;
++                            float minA = 1e30f, maxA = -1e30f, minB = 1e30f, maxB = -1e30f;
++                            for (int i = 0; i < 3; i++) {
++                                float pa = a[i][0] * ax + a[i][1] * ay, pb = b[i][0] * ax + b[i][1] * ay;
++                                minA = std::min(minA, pa);
++                                maxA = std::max(maxA, pa);
++                                minB = std::min(minB, pb);
++                                maxB = std::max(maxB, pb);
++                            }
++
++                            if (std::max(minB - maxA, minA - maxB) >= slack) {
++                                return false;
++                            }
++                        }
++                    }
++
++                    return true;
++                };
++
++                float mine[3][2];
++                project(w, mine);
++                bool blocked = false;
++                // facing: +1 the same way, -1 the other way. A two-sided triangle's entries are kept under both.
++                auto search = [&](int32_t keyYaw, float keyDistance, int32_t facing) {
++                    const int32_t center = int32_t(std::floor(keyDistance / bucket));
++                    for (int32_t dy = -1; dy <= 1; dy++) {
++                        for (int32_t dd = -3; dd <= 3; dd++) {
++                            auto it = extended.twoSidedSeen.find(planeKey(keyYaw + dy, center + dd));
++                            if (it == extended.twoSidedSeen.end()) {
++                                continue;
++                            }
++
++                            for (auto &other : it->second) {
++                                // other.distance is along its own normal: the same plane facing the other way is at
++                                // -distance.
++                                const bool layered = (facing > 0) && culled && other.culled;
++                                if (std::fabs(other.distance - keyDistance) > (layered ? 2.0f : 16.0f)) {
++                                    continue;
++                                }
++
++                                float theirs[3][2];
++                                project(other.v, theirs);
++                                if (!overlaps(mine, theirs, layered ? -0.5f : 1.0f)) {
++                                    continue;
++                                }
++
++                                blocked = true;
++                                if (other.copyAt != UINT32_MAX) {
++                                    faceIndices[other.copyAt + 1] = faceIndices[other.copyAt];
++                                    faceIndices[other.copyAt + 2] = faceIndices[other.copyAt];
++                                    other.copyAt = UINT32_MAX;
++                                }
++                            }
++                        }
++                    }
++                };
++
++                search(yaw, distance, 1);
++                search(yaw + 64, -distance, -1);
++                if (culled && !blocked && (extended.twoSidedWalls == 1)) {
++                    entry.copyAt = uint32_t(faceIndices.size());
++                    faceIndices.push_back(globalIndices[2]);
++                    faceIndices.push_back(globalIndices[1]);
++                    faceIndices.push_back(globalIndices[0]);
++                    twoSidedCopy = true;
++                }
++
++                extended.twoSidedSeen[planeKey(yaw, int32_t(std::floor(distance / bucket)))].push_back(entry);
++                if (!culled) {
++                    auto flipped = entry;
++                    flipped.distance = -distance;
++                    extended.twoSidedSeen[planeKey(yaw + 64, int32_t(std::floor(-distance / bucket)))].push_back(flipped);
++                }
++
++                extended.twoSidedFaceCount = faceIndices.size();
++            }
++        }
++
+         bool visibleTri = true;
+-        const bool usesCulling = geometryMode & cullBothMask;
++        const bool usesCulling = (geometryMode & cullBothMask) && !twoSidedCopy;
+         if (usesCulling) {
+             const hlslpp::float3 U = posScreen[globalIndices[1]] - posScreen[globalIndices[0]];
+             const hlslpp::float3 V = posScreen[globalIndices[2]] - posScreen[globalIndices[0]];
+@@ -1159,7 +1318,7 @@ namespace RT64 {
+             }
+         }
+ 
+-        drawCall.triangleCount++;
++        drawCall.triangleCount += twoSidedCopy ? 2 : 1;
+     }
+ 
+     void RSP::drawIndexedTri(uint32_t a, uint32_t b, uint32_t c) {
+@@ -1291,6 +1450,10 @@ namespace RT64 {
+         extended.baseSegmentAddresses = {};
+         extended.vertexSegmentEnabled = {};
+         extended.forceBranch = false;
++        extended.twoSidedWalls = 0;
++        extended.twoSidedSeen.clear();
++        extended.twoSidedWorkload = -1;
++        extended.twoSidedFaceCount = 0;
+     }
+ 
+     void RSP::setGBI(GBI *gbi) {
 diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
-index 61bb3b1..bce1d31 100644
+index 61bb3b1..61511c0 100644
 --- a/src/hle/rt64_rsp.h
 +++ b/src/hle/rt64_rsp.h
-@@ -280,6 +280,7 @@ namespace RT64 {
+@@ -6,6 +6,8 @@
+ 
+ #include <array>
+ #include <bitset>
++#include <unordered_map>
++#include <vector>
+ #include <stdint.h>
+ 
+ #include "common/rt64_common.h"
+@@ -227,6 +229,20 @@ namespace RT64 {
+             std::array<uint32_t, G_EX_VERTEX_MAX> baseSegmentAddresses;
+             std::array<bool, G_EX_VERTEX_MAX> vertexSegmentEnabled;
+             bool forceBranch;
++            // Rush 2 recomp: gEXSetTwoSidedWalls. This frame's near-vertical triangles in marked draws by their plane
++            // (the facing's yaw in 128 steps, the plane's distance in steps of 8 units; one drawn without culling also
++            // under the other facing), each with its corners and where its copy's indices are in the workload's
++            // faceIndices (UINT32_MAX: none, or cancelled).
++            uint8_t twoSidedWalls;
++            struct TwoSidedEntry {
++                uint32_t copyAt;
++                float v[3][3];
++                float distance;
++                bool culled;
++            };
++            std::unordered_map<uint64_t, std::vector<TwoSidedEntry>> twoSidedSeen;
++            int twoSidedWorkload;
++            size_t twoSidedFaceCount;
+         } extended;
+ 
+         RSP(State *state);
+@@ -280,6 +296,7 @@ namespace RT64 {
          void setLookAt(uint8_t index, uint32_t address);
          void setLookAtVectors(interop::float3 x, interop::float3 y);
          void setFog(int16_t mul, int16_t offset);

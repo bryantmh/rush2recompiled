@@ -1000,6 +1000,60 @@ std::vector<Placement> read_placement(const std::vector<uint8_t>& file) {
     return out;
 }
 
+void for_each_placed_triangle(const std::vector<const Container*>& containers, const std::vector<Placement>& placements,
+                              const std::function<void(const PlacedTriangle&)>& fn) {
+    std::vector<std::map<std::string, size_t>> names(containers.size());
+    for (size_t c = 0; c < containers.size(); c++) {
+        for (size_t m = 0; m < containers[c]->models.size(); m++) names[c].emplace(containers[c]->models[m].name, m);
+    }
+    // The record's model: an exact name in the first container that has it, else the shortest name starting with it.
+    auto find = [&](const std::string& name) -> const Model* {
+        if (name.empty()) return nullptr;
+        for (size_t c = 0; c < containers.size(); c++) {
+            if (auto it = names[c].find(name); it != names[c].end()) return &containers[c]->models[it->second];
+        }
+        for (size_t c = 0; c < containers.size(); c++) {
+            const Model* best = nullptr;
+            for (auto it = names[c].lower_bound(name); it != names[c].end() && it->first.rfind(name, 0) == 0; ++it) {
+                const Model* m = &containers[c]->models[it->second];
+                if (!best || m->name.size() < best->name.size()) best = m;
+            }
+            if (best) return best;
+        }
+        return nullptr;
+    };
+    auto container_of = [&](const Model* model) -> const Container* {
+        for (const Container* c : containers) {
+            if (!c->models.empty() && model >= &c->models.front() && model <= &c->models.back()) return c;
+        }
+        return nullptr;
+    };
+
+    PlacedTriangle t{};
+    for (const Placement& p : placements) {
+        const Model* model = find(p.name);
+        if (!model || model->lods.empty()) continue;
+        const float* m = p.matrix;
+        float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+        t.container = container_of(model);
+        t.model = model;
+        t.mirrored = det < 0;
+        for (const Mesh& mesh : model->lods[0].meshes) {
+            t.mesh = &mesh;
+            for (size_t i = 0; i + 2 < mesh.vertices.size(); i += 3) {
+                for (int v = 0; v < 3; v++) {
+                    const Vertex& vx = mesh.vertices[i + v];
+                    t.source[v] = &vx;
+                    for (int k = 0; k < 3; k++) {
+                        t.v[v][k] = (vx.position[0] * m[0 * 3 + k] + vx.position[1] * m[1 * 3 + k] + vx.position[2] * m[2 * 3 + k]) / 16.0f + p.position[k];
+                    }
+                }
+                fn(t);
+            }
+        }
+    }
+}
+
 // glTF 2.0 binary (https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html): a JSON chunk and one BIN chunk.
 Container single_model(const Container& container, size_t m) {
     Container out;

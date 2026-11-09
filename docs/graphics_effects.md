@@ -13,6 +13,7 @@ runs. It is a change to RT64, kept in `lib/patches/rt64.patch` (edit under `lib/
 | Car Reflections (`car_reflections`) | 5% to 100%, steps of 5 | 70% | `RT64::CarReflectionStrength` (0 to 1) |
 | Car Lighting (`car_lighting`) | Original, Light Probes | Original | none: game side only (`rush2::probes::set_mode`, [Car light probes](#car-light-probes)) |
 | Sky Fog (`sky_fog`) | Off, On | Off | none: the game marks each race view with `gEXSetSkyFog` ([Sky fog](#sky-fog)) |
+| Fill Scenery Gaps (`scenery_fill`) | Off, On | Off (Enhanced setup: On) | none: `gEXSetTwoSidedWalls` around the track's models, and the game draws the ground underlay ([Fill scenery gaps](#fill-scenery-gaps)) |
 
 The option lives in `src/config.cpp` (`add_ambient_occlusion_option`). The global is
 declared in `lib/rt64/src/common/rt64_enhancement_configuration.h` and read every frame by
@@ -336,6 +337,86 @@ or a w not above 0: the dome's prim depth 0x7FFE included) and returns the fog c
 
 Limits: blended draws without depth writes drawn before a Rush 2 dome (under its rim) are hazed as sky; the haze
 follows the camera's height, not the world's (the world's fog doesn't either).
+
+## Fill scenery gaps
+
+Settings > Graphics > Fill Scenery Gaps = **On** (Off is the original game; the Enhanced setup turns it on,
+`rules()` in src/setup.cpp): the tracks were built for a 4:3 view from the road, so a wide screen, a high camera or
+the wings see past where the scenery ends, sky under the edges of the ground and through open-backed buildings. Two
+parts, both decided per frame (hot-swappable). Code: `src/scenery_fill.cpp` (game), `src/scenery_fill_build.cpp`
+(the underlay, nothing of the game), `include/scenery_fill.h`.
+
+**Which draws are the track.** `race_load_track_800A5110` calls `placement_walk_80081790` at 0x800A5704, which makes a
+scene node per placement record; the scene node count (0x800FAE58) before the call and after it returns (hooks at
+0x800A5704 and 0x800A570C, `rush2_scenery_fill_walk_begin` / `_end`) bounds the track's nodes: sections, props,
+signs. The sky model (`sky_setup_800A45A8`) and the cars are made elsewhere. `rush2::scenery_fill::model_draw` (from
+`rush2_model_draw`, model_draw_8007AA48 at 0x8007AF84, $s7 = node) acts on those nodes only, in a race (game states
+3, 6, 9, 10).
+
+**Two-sided walls** (RT64, `lib/patches/rt64.patch`): each track node's model list is called between
+`gEXSetTwoSidedWalls(1)` and `(0)` (`G_EX_SETTWOSIDEDWALLS_V1` 0x38). In `RSP::drawIndexedTri`, a triangle drawn with
+culling on whose face is within about 17 degrees of vertical (|n.y| < 0.3 |n|, from its vertices through the world
+transform: the game keeps the view's rotation in the projection matrix, so the modelview's axes are the world's, y up)
+gets its indices pushed again in reverse order: whichever side faces the camera survives the culling, with the front's
+texture and vertex colors. Exact per triangle, no shader change (the render flag word is full). **A face that already
+has a back side is left alone.** Every other model in a race is called between `gEXSetTwoSidedWalls(2)` and `(0)`:
+its triangles are seen but get no copies. The frame's near-vertical triangles in marked draws are kept by plane
+(facing yaw in 128 steps, plane distance in steps of 8 units) with their corners, and a triangle gets no copy, and
+copies already made there are made degenerate (so the triangle count stays the same every frame, which frame
+interpolation matches draws by), when its plane has over it (overlap in the plane, by separating axes):
+- a modeled back: a triangle facing the other way within 16 units (1 ft), culled or not;
+- a two-sided surface: a triangle drawn without culling, either facing, within 16 units;
+- a layered face: a culled triangle facing the same way within 2 units, overlapping by more than half a unit (an arrow
+  over a sign board): their copies would fight each other from behind.
+History (2026-11-08): copies fought or beat real backs three times. Hawaii's start banner (its back isn't split into
+the same triangles as its front, so matching exact corners missed it), and Civic Dreamcast's blinking arrow signs
+(z-fighting with the plane match limited to culled backs 1/8 ft away); the user's rule: zero unintended z-fighting.
+
+**Extended ground.** A ground underlay built from the raced track's own models (the same inputs as the
+[car light probes](#car-light-probes): the slot's geometry and placement assets as loaded, `rush2::probes::raced_track`,
+and the shared containers 0x12 and 0x14, through `rush2::catalog::for_each_placed_triangle`):
+1. A 32 ft grid over the ground and 4000 ft past it. A cell is covered where an upward-facing triangle (normal y over
+   0.5) lies over its center; it takes the lowest such surface's height, vertex color and texture.
+2. Heights and colors of the rest by pull-push (a pyramid of averages, then each empty cell blended from the level
+   above): the ground carries on smoothly from its edges and flattens far away.
+3. Textures: the ground textures covering the most cells (up to 8, each at least 2% of the ground), each one's coverage
+   pull-pushed the same way; each cell takes the strongest. Big areas (grass, water, sand) carry on. Taking the
+   nearest covered cell's texture instead drew roads that reach the edge on out as stripes.
+4. Drawn: the fine layer, the empty cells within 10 cells (320 ft) of the ground and the covered cells beside them;
+   the coarse layer, 256 ft cells with no ground in them that the fine layer doesn't fill, out to the margin, under the
+   fine layer where they overlap so no gap opens between them.
+5. **Never through the track**: every triangle drawn, whichever way it faces, sets a floor on each cell it overlaps (a
+   lower bound of its height there: the larger of its plane's lowest at the cell's corners and its lowest vertex). A
+   fine corner sits 2 ft under the heights and floors of its four cells, a coarse corner 6 ft under every fine corner of
+   its four coarse cells, so every quad (a mix of its corners) stays under everything over its cell. Heights from
+   upward faces alone let the sheet come up through embankments and walls falling away from a road's edge (Chinatown,
+   reported 2026-11-08).
+
+The textures are the track's own, re-encoded in their own format and palette (`encode_texture`, checked by decoding
+them as RT64 does, `image_of`, against the catalog's image), so texture packs replace them by content
+([derived replacements](texture_upscaling.md)); textures that aren't a power of two or don't fit one TMEM load are
+left out. Texel size in the world comes from the texture's upward triangles (world area over UV area); the coarse
+layer doubles it until a cell fits a vertex's s10.5 range. Output: chunks (16 x 16 fine or 4 x 4 coarse cells) of
+strips (rows of up to 15 quads, 32 vertices). The stock tracks build in about 0.02 s to 0.5 to 2.5 MB, 10,000 to
+40,000 quads.
+
+**Game side.** `view_begin` (from `rush2_interp_view_begin`) starts a worker when the raced track changes: it loads
+the underlay from the track cache (`scenery_fill_<hash>` blob, keyed on the inputs' bytes and `build_version`) or
+builds and saves it, then writes it into one of two 4 MB arenas from `recomp::alloc` (above 16 MB, used in turn so a new
+track never overwrites the one drawn): per texture a load list (TEXTLUT, LOADTLUT, LOADBLOCK, render tile), per chunk
+its vertices (s16 in 1/16 ft from the chunk's center) and a list of G_VTX / G_TRI2. In each view, before the first
+track model drawn (after the sky models, which draw first without depth; before the rest of the world), `model_draw`
+calls the view's list between `gEXSetRDRAMExtended(1)` and `(0)`: the chunks in front of the camera and within the
+view's far plane (view +0x38 times the draw distance factor), each in a matrix group of its own
+(0x7vgggccc: view, view generation, chunk) under a float matrix loaded as the whole modelview (translate (center -
+camera) x 16, times the view's root modelview), as `src/rush2049/battle_render.cpp` does. Its render state sits
+between `gEXPush/PopGeometryMode`, `OtherMode` and `CombineMode`: 2-cycle, TEXEL0 x SHADE, `G_RM_FOG_SHADE_A` +
+`G_RM_AA_ZB_OPA_SURF2`, fog and depth like the track, no culling (a mirrored race needs none); the palette cache
+(0x80111954) is cleared after, as the battle models do.
+
+Offline: `tools/car_probes_test.cpp --fill [TRACK ...]` (build with `tools\car_probes_test.bat`) prints each track's
+underlay size and writes `tmp/scenery_fill/<TRACK>.glb`, the track with the underlay as node SCENERYFILL, for
+`tools/glb_view.py`.
 
 ## Soft particles (removed)
 

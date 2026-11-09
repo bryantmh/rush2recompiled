@@ -229,15 +229,6 @@ namespace {
         return info;
     }
 
-    // The slot record of the raced track's geometry: its asset (0x33 + slot) and load address.
-    bool raced_track(uint8_t* rdram, int& asset, uint32_t& address) {
-        int32_t index = MEM_W(0, (int32_t)geometry_record);
-        if (index < 0 || index >= slot_record_count) return false;
-        uint32_t r = slot_records + uint32_t(index) * slot_record_size;
-        asset = (int)((uint32_t)MEM_W(0, (int32_t)r) >> 24);
-        address = (uint32_t)MEM_W(4, (int32_t)r);
-        return asset >= first_geometry && asset < first_geometry + track_slots;
-    }
 
     // Bakes (or loads) the probes of the track in geometry asset `asset`, for bake generation `generation`.
     // track49: the raced Rush 2049 track's k (its painted colours go into the probes), 0 for none.
@@ -292,6 +283,15 @@ namespace {
     float luminance(const float c[3]) {
         return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
     }
+}
+
+bool raced_track(uint8_t* rdram, int& asset, uint32_t& address) {
+    int32_t index = MEM_W(0, (int32_t)geometry_record);
+    if (index < 0 || index >= slot_record_count) return false;
+    uint32_t r = slot_records + uint32_t(index) * slot_record_size;
+    asset = (int)((uint32_t)MEM_W(0, (int32_t)r) >> 24);
+    address = (uint32_t)MEM_W(4, (int32_t)r);
+    return asset >= first_geometry && asset < first_geometry + track_slots;
 }
 
 void set_mode(Mode mode) {

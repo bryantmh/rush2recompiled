@@ -173,29 +173,6 @@ namespace {
         }
     }
 
-    // The model a placement record draws, by name as write_glb finds it: an exact name, else the shortest model name
-    // starting with it.
-    struct ModelRef {
-        const Container* container = nullptr;
-        size_t model = 0;
-    };
-    ModelRef find_model(const std::vector<const Container*>& containers,
-                        const std::vector<std::map<std::string, size_t>>& names, const std::string& name) {
-        if (name.empty()) return {};
-        for (size_t c = 0; c < containers.size(); c++) {
-            if (auto it = names[c].find(name); it != names[c].end()) return { containers[c], it->second };
-        }
-        for (size_t c = 0; c < containers.size(); c++) {
-            ModelRef best;
-            for (auto it = names[c].lower_bound(name); it != names[c].end() && it->first.rfind(name, 0) == 0; ++it) {
-                if (!best.container || it->first.size() < containers[c]->models[best.model].name.size()) {
-                    best = { containers[c], it->second };
-                }
-            }
-            if (best.container) return best;
-        }
-        return {};
-    }
 }
 
 void Cube::eval(const float n[3], float out[3]) const {
@@ -385,10 +362,6 @@ bool ProbeSet::deserialize(const std::vector<uint8_t>& data) {
 std::shared_ptr<ProbeSet> bake(const std::vector<const Container*>& containers, const std::vector<Placement>& placements,
                                BakeStats* stats, const BakeParams& params, const PaintSource* paint) {
     auto start = std::chrono::steady_clock::now();
-    std::vector<std::map<std::string, size_t>> names(containers.size());
-    for (size_t c = 0; c < containers.size(); c++) {
-        for (size_t m = 0; m < containers[c]->models.size(); m++) names[c].emplace(containers[c]->models[m].name, m);
-    }
     // Each texture's average color, and how much of it is see-through (cutouts: trees, fences) to leave out.
     std::map<std::pair<const Container*, int>, std::array<float, 4>> albedo;
     auto texture_color = [&](const Container* c, int t) {
@@ -413,41 +386,30 @@ std::shared_ptr<ProbeSet> bake(const std::vector<const Container*>& containers, 
 
     // The world's triangles: v * matrix / 16 + position (row vectors; models are drawn at 1/16 scale).
     std::vector<Tri> tris;
-    for (const Placement& p : placements) {
-        ModelRef ref = find_model(containers, names, p.name);
-        if (!ref.container || ref.container->models[ref.model].lods.empty()) continue;
-        const float* m = p.matrix;
-        float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
-        for (const auto& mesh : ref.container->models[ref.model].lods[0].meshes) {
-            auto a = texture_color(ref.container, mesh.texture);
-            if (a[3] < 0.6f) continue;
-            for (size_t i = 0; i + 2 < mesh.vertices.size(); i += 3) {
-                float w[3][3];
-                float vc[3] = {};
-                for (int v = 0; v < 3; v++) {
-                    const auto& vx = mesh.vertices[i + v];
-                    for (int k = 0; k < 3; k++) {
-                        w[v][k] = (vx.position[0] * m[0 * 3 + k] + vx.position[1] * m[1 * 3 + k] + vx.position[2] * m[2 * 3 + k]) / 16.0f + p.position[k];
-                        // A lit LOD's vertex colors are its normals.
-                        vc[k] += (mesh.lit ? 0.7f : vx.color[k] / 255.0f) / 3.0f;
-                    }
-                }
-                Tri t;
-                for (int k = 0; k < 3; k++) {
-                    t.a[k] = w[0][k];
-                    t.e1[k] = w[1][k] - w[0][k];
-                    t.e2[k] = w[2][k] - w[0][k];
-                    t.light[k] = vc[k] * a[k] * bounce_gain;
-                }
-                // Clockwise front faces: the front normal is e2 x e1 (turned for a mirroring placement).
-                float n[3] = { t.e2[1] * t.e1[2] - t.e2[2] * t.e1[1], t.e2[2] * t.e1[0] - t.e2[0] * t.e1[2], t.e2[0] * t.e1[1] - t.e2[1] * t.e1[0] };
-                float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                if (len < 1e-6f) continue;
-                for (int k = 0; k < 3; k++) t.n[k] = n[k] / len * (det < 0 ? -1.0f : 1.0f);
-                tris.push_back(t);
+    rush2::catalog::for_each_placed_triangle(containers, placements, [&](const rush2::catalog::PlacedTriangle& pt) {
+        auto a = texture_color(pt.container, pt.mesh->texture);
+        if (a[3] < 0.6f) return;
+        float vc[3] = {};
+        for (int v = 0; v < 3; v++) {
+            for (int k = 0; k < 3; k++) {
+                // A lit LOD's vertex colors are its normals.
+                vc[k] += (pt.mesh->lit ? 0.7f : pt.source[v]->color[k] / 255.0f) / 3.0f;
             }
         }
-    }
+        Tri t;
+        for (int k = 0; k < 3; k++) {
+            t.a[k] = pt.v[0][k];
+            t.e1[k] = pt.v[1][k] - pt.v[0][k];
+            t.e2[k] = pt.v[2][k] - pt.v[0][k];
+            t.light[k] = vc[k] * a[k] * bounce_gain;
+        }
+        // Clockwise front faces: the front normal is e2 x e1 (turned for a mirroring placement).
+        float n[3] = { t.e2[1] * t.e1[2] - t.e2[2] * t.e1[1], t.e2[2] * t.e1[0] - t.e2[0] * t.e1[2], t.e2[0] * t.e1[1] - t.e2[1] * t.e1[0] };
+        float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (len < 1e-6f) return;
+        for (int k = 0; k < 3; k++) t.n[k] = n[k] / len * (pt.mirrored ? -1.0f : 1.0f);
+        tris.push_back(t);
+    });
     auto set = std::make_shared<ProbeSet>();
     if (tris.empty()) return set;
     Bvh bvh;
