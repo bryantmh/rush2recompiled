@@ -1,0 +1,443 @@
+# Function registry for sfrush_ps1. Format and tooling: tools/names.py (docstring). Keep sorted; run `names.py fmt`.
+
+[[func]]
+vram = 0x800142C4
+name = "special_car_setup"
+desc = "Sets the car type 0x800B2BEC for the special car gp+0x28: STARSKY 6, JEEP 5, JETCAR 3, MINI 4, BBUS 1, TAXI 0, PIGGY 2 (and white paint), UFO 7."
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#cars"
+
+[[func]]
+vram = 0x80014F38
+name = "clut_upload_shaded"
+sig = "void clut_upload_shaded(s32 x, s32 y, u8 *gfx)"
+desc = "Uploads the 16-color CLUT at gfx+8 to VRAM (x, y) and 31 copies under it, each a step brighter or darker per channel (gp+0x98 picks), for distance shading."
+consts = "0x20 = rows; 0x1A / 1 = channel clamp"
+status = "inferred"
+area = "render"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x800155F8
+name = "props_place"
+sig = "void props_place(void)"
+desc = "Fills the prop array 0x80108810 (0x2C each: state, kind, position, rotation, model, texture table) from 16-byte records (x, y, height in 0.1 ft, kind; -1 ends): 0x800A55B4 for track 2, 0x800A58B4 for track 4 (kind 0 cone gp+0xD60, 1 tram gp+0xD64, 2 T2K003 gp+0xD6C), plus 0x800A59C4's records for the current track (gp+0xE28) when gp+0x3C is set (the hidden pickups, kind 8)."
+status = "verified"
+area = "track"
+ref = "docs/sfrush_ps1.md#props"
+
+[[func]]
+vram = 0x80018198
+name = "race_clock"
+sig = "void race_clock(void)"
+desc = "Counts gp+0x148 a frame; at 61 it takes a second off the time left gp+0x144 (set per track by 0x80015D64)."
+consts = "0x3D = frames a second"
+status = "verified"
+area = "race"
+ref = "docs/sfrush_ps1.md#race-times"
+
+[[func]]
+vram = 0x8002C208
+name = "screen_setup"
+sig = "void screen_setup(s32 w, s32 h, s32 proj, ...)"
+desc = "Sets the screen up: 320 x 240 and the GTE projection distance (SetGeomScreen, 250 in a race)."
+status = "inferred"
+area = "render"
+ref = "docs/sfrush_ps1.md#sky"
+
+[[func]]
+vram = 0x8002FCB0
+name = "sky_draw"
+sig = "void sky_draw(void)"
+desc = "Places and colors the background quads each frame: grey 128 (gp+0x844, 0x810, 0x7FC; 64 at night) at the top of the screen to 250 (gp+0xCAC, 0xC8C, 0xC88) at the horizon line 0x80107768/0x80107778, 250 under it (night: 0, 0, 25), per view of the split screen."
+status = "verified"
+area = "render"
+ref = "docs/sfrush_ps1.md#sky"
+
+[[func]]
+vram = 0x80030930
+name = "car_paint_load"
+sig = "void car_paint_load(s32 color)"
+desc = "Loads the paint page CARSGFX/<color>.GFX (0 blue, 1 green, 2 red, 3 yellow, 4 white, 5 purple, 6 orange, ...; CARSGFXN at night)."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#cars"
+
+[[func]]
+vram = 0x80030C18
+name = "car_load"
+desc = "Loads the cars: the wreck model (cars/dead.psv or ufodead), the paint page, each car's PSV and GFX textures at hard-coded RECTs per player slot."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#cars"
+
+[[func]]
+vram = 0x800369B8
+name = "track_chunk_fixup"
+sig = "void track_chunk_fixup(Chunk *chunk, s32 road)"
+desc = "Turns a road/scenery chunk's 0x28-byte faces into 0x1C-byte draw records in place: CLUT id from 0x800A7B08[face byte 3], tpage and v offset from the texture table (0x800A7478 when 0x800B34F8 == 1, else 0x800A77C0) entry face+0x1C, UVs stored v then u, +0x22 kept."
+consts = "0x28 = face size; 0x1C = draw record size"
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#track-geometry"
+
+[[func]]
+vram = 0x80036C40
+name = "track_load_geometry"
+desc = "Loads the track's road (T<n>ROAD2) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#track-geometry"
+
+[[func]]
+vram = 0x80037C2C
+name = "track1_load_pages"
+desc = "Track 1's texture pages (T1PAGE, S, N variants by 0x800B2710 / 0x800B2768) uploaded chunk by chunk at hard-coded RECTs."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x80038644
+name = "track2_load_pages"
+desc = "Track 2's texture pages at hard-coded RECTs (see track1_load_pages)."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x80039048
+name = "track3_load_pages"
+desc = "Track 3's texture pages at hard-coded RECTs (see track1_load_pages)."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x80039A88
+name = "track4_load_pages"
+desc = "Track 4's texture pages at hard-coded RECTs (see track1_load_pages); replayed by src/sfrush_ps1/ps1_track.cpp scan."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x8003A4A0
+name = "track1_load_cluts"
+desc = "Track 1's CLUT chunks (T1CLUT, S, N) placed with clut_upload_shaded at hard-coded (x, y)."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x8003AF18
+name = "track2_load_cluts"
+desc = "Track 2's CLUT chunks (see track1_load_cluts)."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x8003B990
+name = "track3_load_cluts"
+desc = "Track 3's CLUT chunks (see track1_load_cluts)."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x8003C408
+name = "track4_load_cluts"
+desc = "Track 4's CLUT chunks (see track1_load_cluts); replayed by src/sfrush_ps1/ps1_track.cpp scan."
+status = "inferred"
+area = "track"
+ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x8003DBCC
+name = "sky_prims_init"
+sig = "void sky_prims_init(u8 *frame)"
+desc = "Sets up a frame packet's background primitives: flat quads at +0x18 and +0x30, gouraud quads at +0x48 and +0x6C (placed and colored each frame by func_8002FCB0)."
+status = "verified"
+area = "render"
+ref = "docs/sfrush_ps1.md#sky"
+
+[[func]]
+vram = 0x8003E714
+name = "model_prepare"
+sig = "void model_prepare(Psv *model, s32 scale)"
+desc = "Scales a loaded PSV's vertices to integers of coordinate x scale / 64 (0.1 ft) and turns them 90 degrees about x into the GTE frame."
+status = "verified"
+area = "render"
+ref = "docs/sfrush_ps1.md#cars"
+
+[[func]]
+vram = 0x8003F188
+name = "smoke_puffs"
+desc = "Draws the smoke and dust puffs with ART/CLOUD64.GFX (VRAM 0x380, 0), its CLUT row by distance (0x800B2F44 + 0x3B)."
+status = "inferred"
+area = "render"
+ref = "docs/sfrush_ps1.md#sky"
+
+[[func]]
+vram = 0x80041244
+name = "props_update"
+sig = "void props_update(s32 car)"
+desc = "Draws and runs the props for a car's view: knocks a cone away when the car hits it; on track 4 runs each tram back and forth along x between 6397 and 22115 at 24 a frame (state 1 up, 2 down) and wrecks (car +0x352 |= 0x8000) any car within 0xE8 along and 0x60 across it; spins the pickups."
+consts = "0x18FD/0x5663 = tram ends (x, 0.1 ft); 0x18 = tram step a frame; 0xE8/0x60 = tram's wreck box half sizes"
+status = "verified"
+area = "track"
+ref = "docs/sfrush_ps1.md#props"
+
+[[func]]
+vram = 0x8004AA58
+name = "file_load"
+sig = "void file_load(const char *name, s32 size, s32 zero, void *dest)"
+desc = "Reads a disc file (path as in the exe's strings, e.g. T4ROAD/T4ROAD2.DAT) into dest."
+status = "inferred"
+area = "os"
+ref = "docs/sfrush_ps1.md#disc"
+
+[[func]]
+vram = 0x8004B120
+name = "wheel_model_load"
+desc = "Loads COLLDAT3/WHEEL.PSV (the wheel model, gp+0xCB0) and clears the per-car wheel tables 0x80110330 / 0x800E9938."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#wheels"
+
+[[func]]
+vram = 0x8004B230
+name = "car_wheels"
+sig = "void car_wheels(s32 view)"
+desc = "Places each car's four wheels (0x800A9CD0 offsets per car type, the special cars' tweaks, 0.9 ft down, turned by car +0x39C, added to the position >> 8) for the ground queries and draws COLLDAT3/WHEEL.PSV there; none for the UFO."
+consts = "30/51 = base offsets, 0.1 ft; 9 = height"
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#wheels"
+
+[[func]]
+vram = 0x8004D12C
+name = "ground_height_query"
+desc = "Ground height under (x, z) in the current collision chunk (0x800B31C8): walks the ground records (0x20 or 0x28 by FLAGS & 7, skipping one after FLAGS & 0x40), bounds test with 15 units of slack, then the quad test func_800509C4."
+status = "inferred"
+area = "collision"
+ref = "docs/sfrush_ps1.md#collision"
+
+[[func]]
+vram = 0x8004FBFC
+name = "track4_load_tables"
+sig = "void track4_load_tables(void)"
+desc = "Loads track 4's COLLDAT4 tables: BOUNDS.DAT (0x310 bytes, 49 sector boxes) to 0x800D8168, TRACK4.CPF to 0x80113490, then the collision map."
+status = "verified"
+area = "track"
+ref = "docs/sfrush_ps1.md#collision"
+
+[[func]]
+vram = 0x8004FD98
+name = "race_frame"
+sig = "void race_frame(void)"
+desc = "One game frame of a race: the cars' physics (func_8005F234) and each car's speed, car +0x30 = horizontal |velocity| / 32, and odometer."
+status = "inferred"
+area = "race"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x80054130
+name = "checkpoint_passed"
+sig = "void checkpoint_passed(s32 car, s32 gate)"
+desc = "A car passed a gate: for the leading human player adds the gate's time (gp+0xC60 table, byte per gate; track 4 0x800B2AE8 = 26, 29, 11, 32) to the clock gp+0x144, +5 on track 4 forward for the first 2 gates (gp+0x424 counts passes), +4/+3 at difficulty 5/6 (0x800B288C), +8 if gp+0x40, -2 if 0x800B3160 = 2; a lap gate with laps left -1 ends the race."
+status = "verified"
+area = "race"
+ref = "docs/sfrush_ps1.md#checkpoints"
+
+[[func]]
+vram = 0x80054630
+name = "checkpoint_test"
+sig = "void checkpoint_test(s32 car)"
+desc = "Each car each frame: tests plane k of TRACK<n>.CPF (k = car +0x300) while the car's sector (+0x2FC) is one of gate k's (per-track lists; track 4: 0x800B2B18 counts, 0x800B2B1C sectors, 0x800AA3D8 first index); n.p < d passes it forward (0x800B271C = 1), the other way backward; gate 0 counts the lap (+0x68)."
+status = "verified"
+area = "race"
+ref = "docs/sfrush_ps1.md#checkpoints"
+
+[[func]]
+vram = 0x800554F0
+name = "car_sector"
+sig = "s32 car_sector(s32 car)"
+desc = "The car's sector: the last BOUNDS.DAT box (0x800D8168, count gp+0xE90; s32 x min, x max, y min, y max) holding its x and y, stored at car +0x2FC (with fixes for overlapping boxes on track 2)."
+status = "verified"
+area = "race"
+ref = "docs/sfrush_ps1.md#checkpoints"
+
+[[func]]
+vram = 0x80055678
+name = "path_load"
+sig = "void path_load(u8 track)"
+desc = "Loads the drone corridor's two lines: PATHDAT/EXTDAT (forward) or REVPATH/EXTRDAT (backward, by 0x800B271C) to gp+0xE38 / gp+0xBA0, point count gp+0x454."
+status = "inferred"
+area = "ai"
+ref = "docs/sfrush_ps1.md#ai-paths"
+
+[[func]]
+vram = 0x8005AD28
+name = "car_walls"
+desc = "Tests the cars against the collision map's walls: A records (0x18) and the raised B records (0x20), each B only while the car's center (height - 8) is over its first height (+0x18); collects the hits at 0x8010AF08 (0x20 each)."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#collision"
+
+[[func]]
+vram = 0x8005B340
+name = "car_physics_row"
+sig = "void car_physics_row(u8 car)"
+desc = "Copies the car type's row of 0x800AA4D4 (44 bytes; drones, car +0x2FF set, row 0) into gp+0x4C0..0x4D8 and the gear thrusts 0x800AA8D8[4]; the steering rate gp+0x4C4 gains 20 - 2 x class under each of speeds 300, 270, 200 and 150."
+consts = "44 = row size; 0x12C/0x10E/0xC8/0x96 = speed bands"
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005BF58
+name = "thrust_direction"
+sig = "void thrust_direction(Car *car, u8 index)"
+desc = "Builds the thrust direction 0x800ED780 (256 long): the car matrix +0x39C turned by the front wheel angle car +0x9A."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005D190
+name = "car_integrate"
+sig = "void car_integrate(void)"
+desc = "Moves every car: position += velocity x step / 128 (step by class 0x80/0x84/0x88/0x94; drones the player's class, 0x90 for class 3, plus 6 after their first 40 frames), then velocity += the frame's forces (0x800ED0FC). As the player's car the UFO doubles them under speed 100 and halves the vertical one above; PIGGY halves them over 301 and quarters them over 351."
+consts = "0x80/0x84/0x88/0x94 = class steps; 0x64/0x12D/0x15F = speeds; 0x408 = car stride"
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005D96C
+name = "car_steer"
+sig = "void car_steer(Car *car, u8 index)"
+desc = "Turns the car's heading 0x800AA824 by the steering rate gp+0x4C4 (times the direction of travel) while left or right is held, and nudges it at speed for types 6 and 7."
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005E0CC
+name = "car_gravity"
+sig = "void car_gravity(u8 car)"
+desc = "While not all four wheels are down (0x80103228 flags), adds gravity gp+0x4EC (200 with car +0x3DC set) to the vertical force; with all four down, takes the velocity along the car's up axis off the forces."
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005E34C
+name = "tire_forces"
+sig = "void tire_forces(u8 car)"
+desc = "Per touching wheel: the car-frame velocity / 32 x 8; sideways friction x (gp+0x4CC + up to 64, x 1.09) / 256, along the car x gp+0x4D0 / 256 (x4 or x2 on surface 1 by speed; x2 class 2 and x4 class 3 while sliding, car +0x350); turned to the world, the part along the ground normal taken off, added to the forces; the turn they give at height gp+0x4D4 (func_800608E0)."
+consts = "0x4000 = grip clamp; 0x2800/0x5000 = wheel offsets for the turn"
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005EAC0
+name = "car_damp_yaw"
+sig = "void car_damp_yaw(u8 car)"
+desc = "Takes the angular velocity (0x8010CAD8) about the car's up axis down by >> gp+0x4C0 (a quarter of it in the air)."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005ED90
+name = "car_damp_x"
+sig = "void car_damp_x(u8 car)"
+desc = "Takes the angular velocity about the car's x axis down by >> gp+0x4C1 while it is on the ground."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005EF98
+name = "car_damp_z"
+sig = "void car_damp_z(u8 car)"
+desc = "Takes the angular velocity about the car's z axis down by >> gp+0x4C2 while it is on the ground."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8005F234
+name = "car_tick"
+sig = "void car_tick(void)"
+desc = "Per-frame physics of every car: its type row (func_8005B340), gravity (func_8005E0CC), tire forces (func_8005E34C), angular damping (func_8005EAC0/ED90/EF98), the thrust direction (func_8005BF58), steering (func_8005D96C), then with the throttle the heading 0x800ED780 x gp+0x4E4 / 16 added to the forces 0x800ED0FC (with the brake x gp+0x4E8 / 8 taken off), and func_8005D190 moves the cars."
+consts = "gp+0x4E4 = gear thrust; gp+0x4E8 = 14 brake; 0xC8 = force stride per car"
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x80064D48
+name = "car_hit_damage"
+desc = "Damages a car hit at a speed / 10 (types 6 and 7: / 9) of 7 or more (sets car +0x352 bit 0x8000)."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x800671F8
+name = "car_speed_metric"
+sig = "void car_speed_metric(u8 car)"
+desc = "Stores |velocity| / 4 (all three axes) in 0x8010CA10[car], the speed the gearbox works from."
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x80067298
+name = "car_gear_thrust"
+sig = "void car_gear_thrust(u8 car)"
+desc = "The tachometer from the speed against the gear's range (0x800AA8B8, 2 s32 per gear), and the thrust gp+0x4E4 = 0x800AA8D8[gear], 8, 6 or 5 in gears 1-3 when the speed is under the gear's range."
+status = "verified"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x800675A8
+name = "car_shift"
+sig = "void car_shift(u8 car)"
+desc = "Picks the gear 0x800B3230[car]: automatic against 0x800AA8A8.. thresholds, or from the shift buttons."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x8008C038
+name = "car_collision_push"
+desc = "Scales the push between two colliding cars by each one's class: 192, 200, 208, 218 / 128."
+status = "inferred"
+area = "car"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x80090DB4
+name = "vsync"
+sig = "s32 vsync(s32 mode)"
+desc = "PsyQ VSync: 0 waits for the next vertical blank."
+status = "verified"
+area = "lib"
+ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x80092C58
+name = "load_image"
+sig = "void LoadImage(RECT *rect, u32 *pixels)"
+desc = "libgpu LoadImage: uploads pixels to VRAM at rect (x, y, w, h halfwords)."
+status = "inferred"
+area = "render"
+ref = "docs/sfrush_ps1.md#textures"

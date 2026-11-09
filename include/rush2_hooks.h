@@ -577,6 +577,8 @@ void rush2_online_present_end(uint8_t* rdram, recomp_context* ctx);
 int rush2_online_sim_view(uint8_t* rdram, uint32_t car_state, int view);
 int rush2_online_body_kind(uint8_t* rdram, recomp_context* ctx, int car, int kind);
 int rush2_online_wheels_shown(uint8_t* rdram, uint32_t physics_car, int view, int shown);
+uint32_t rush2_mod_car_wheel_scale(uint8_t* rdram, int type, uint32_t scale_bits);
+void rush2_mod_car_shadows(uint8_t* rdram);
 uint32_t rush2_online_arrow_views(uint8_t* rdram, int car, uint32_t flags);
 int rush2_online_arrow_view(uint8_t* rdram, int view);
 int rush2_online_hud_views(uint8_t* rdram, int views);

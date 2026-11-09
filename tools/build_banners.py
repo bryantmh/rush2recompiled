@@ -13,6 +13,8 @@ in the renderer: rush2::upscale::add_exact_image), so the quantizing only shows 
 
   python tools/build_banners.py [--preview DIR]     (--preview also saves every banner as DIR/<game>_trackN.png)
   python tools/build_banners.py --arcade             (only the arcade tracks' pictures, below)
+  python tools/build_banners.py --ps1                (only the PS1 SF Rush logos: assets/sfrush_ps1/chinatown_logo.png and the cars' <id>_name.png,
+                                                     its name in SF Rush's lettering; src/sfrush_ps1, docs/sfrush_ps1.md)
 
 --arcade writes the pictures the game's Rush 2049 arcade track mod ships (assets/arcade2049/, src/arcade2049,
 docs/arcade2049.md):
@@ -183,7 +185,23 @@ def round_preview(path):
     return im
 
 
+def ps1_logos():
+    os.makedirs(os.path.join(ROOT, "assets", "sfrush_ps1"), exist_ok=True)
+    out = os.path.join(ROOT, "assets", "sfrush_ps1", "chinatown_logo.png")
+    banner_font.render_fit("Chinatown", "sfrush").convert("RGBA").save(out)
+    print("Wrote", os.path.relpath(out, ROOT))
+    # The PS1 cars' car select name logos (128 x 32, as Rush 2's), by their new car ids (src/sfrush_ps1/ps1_cars.cpp).
+    for car_id, name in (("PS1STARSKY", "STARSKY"), ("PS1JEEP", "JEEP"), ("PS1JETCAR", "JET CAR"), ("PS1MINI", "MINI"),
+                         ("PS1BUS", "CITY BUS"), ("PS1POLICE", "POLICE"), ("PS1UFO", "UFO")):
+        out = os.path.join(ROOT, "assets", "sfrush_ps1", car_id + "_name.png")
+        banner_font.render(name, "sfrush", (128, 32)).convert("RGBA").save(out)
+        print("Wrote", os.path.relpath(out, ROOT))
+
+
 if __name__ == "__main__":
+    if "--ps1" in sys.argv:
+        ps1_logos()
+        sys.exit(0)
     if "--arcade" in sys.argv:
         arcade_logos()
         sys.exit(0)

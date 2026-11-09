@@ -321,6 +321,8 @@ void a49::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
     const std::string text = description(game);
     rush2::ui::OptionsPage::Heading heading = page->add_heading(game.title, status_note(game), text);
     Element* row = page->add_row(text);
+    // Both buttons on one line at full size: the Games tab's column is a few pixels short of them at add_row's 16 gap.
+    row->set_gap(12.0f);
     Button* build = context.create_element<Button>(row, "Build and Install", ButtonStyle::Secondary);
     build->add_pressed_callback([&game]() {
         std::filesystem::path data = data_dir(game);

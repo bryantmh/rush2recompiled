@@ -329,8 +329,12 @@ Game rush2::game_filter::track_game(int t) {
 
 Game rush2::game_filter::car_game(int type) {
     if (type < rush2::car2049::rush2_types) return Game::Rush2;
-    // A mod's car (src/car_mods.cpp); the app's Rush 2049 arcade cars are 2049's.
-    if (rush2::car_types::is_mod(type)) return rush2::car2049::mod_car_from_2049(type) ? Game::Rush2049 : Game::Custom;
+    // A mod's car (src/car_mods.cpp); the app's Rush 2049 arcade cars are 2049's, its PlayStation SF Rush cars SF Rush's.
+    if (rush2::car_types::is_mod(type)) {
+        return rush2::car2049::mod_car_from_2049(type)     ? Game::Rush2049
+               : rush2::car2049::mod_car_from_sfrush(type) ? Game::SFRush
+                                                           : Game::Custom;
+    }
     return rush2::car_types::is_2049(type) ? Game::Rush2049 : Game::CalSpeed;
 }
 

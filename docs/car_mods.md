@@ -49,8 +49,8 @@ The glb:
   Rush 2's, at the stock car's positions, so the body should fit the stock car's wheel arches.
 - **Meshes:** every node's meshes, with its transform (TRS or matrix). Positions, normals, UVs, indices. Any number of
   triangles.
-- **Materials:** `pbrMetallicRoughness.baseColorTexture` is the image. A material's `extras.rush2_paint` (an image
-  index) is its paint mask: red is the MAIN COLOR weight, green the ACCENT COLOR weight. A grayscale mask (every
+- **Materials:** `pbrMetallicRoughness.baseColorTexture` is the image. A material's `extras.rush2_paint` (a texture
+  index, as `baseColorTexture`'s) is its paint mask: red is the MAIN COLOR weight, green the ACCENT COLOR weight. A grayscale mask (every
   texel gray) is all MAIN (`decode_mask`). Without a mask, the texture is drawn as it is (not painted).
 - **Lighting:** the converter bakes a fixed light from the normals into the vertex colors, as Rush 2's cars are unlit.
 
@@ -205,6 +205,12 @@ Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any 
 | `base` | The Rush 2 car it starts from, by its prefix (see the table in [Mod format](#mod-format)). The new car takes its physics, engine sound, tire curves, TORQUE, options and anything else not set here. Default `PICKUP`. |
 | `wheels` | The front and rear right wheel centers, in the glb's space (1/16 ft units). The left wheels mirror them (the sign of x doesn't matter). They move both the drawn wheels and the physics' wheel points. Default: the base car's. Rush 2's own wheels sit at y 3.2 (front) and 4.0 (rear), x 44 and z ±62.7. |
 | `wheel_scale` | Front and rear wheel model sizes, as Rush 2's TIRE SIZE (most of its cars use 1.0, the Pickup 1.25; stock 0.8 to 1.5). It changes only how big the wheels are drawn. A player's TIRE SIZE for the car starts here. Default: the base car's. |
+| `no_wheels` | `true` hides the car's four wheels, in races and on the car select (it still drives on them). Default `false`. |
+| `no_wings` | `true` hides the car's wings: they still open in the air and steer it there, unseen. Default `false`. |
+| `no_skid_marks` | `true`: the car's wheels lay no tire marks. Default `false`. |
+| `no_wheel_dust` | `true`: the car's wheels throw no dust, smoke or spray (its own effects, such as sparks, stay). Default `false`. |
+| `round_shadow` | A radius in feet: the car's shadow is a soft disc that wide around its middle (a hovering saucer's), on the ground under its wheels, in place of the box between them. Default: the game's shadow. |
+| `logo` | A 128 x 32 PNG in `rush2/new_cars/` drawn as the car's car select name logo instead of `name` in Rush 2049's lettering (the SF Rush PlayStation cars use it for SF Rush's lettering). Default: none. |
 | `box` | The box the car hits other cars with: front, rear, half width, height in feet. Default: from the mesh, about a quarter foot inside each end, at least 3 ft to a side, 3 ft high. Stock cars run 5.25 to 8 ft front and rear, half width 3 (the Caddy 3.25). |
 | `main_color`, `accent_color` | The colors a new player starts the car in, 0-31 (Rush 2's color list). Default: the base car's. Unused with `schemes`. |
 | `schemes` | Color schemes: a list of glb file names in `rush2/new_cars/` (up to 16), in STYLE order. Without it the car is `<ID>.glb` with paint colors. |

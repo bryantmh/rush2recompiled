@@ -184,6 +184,10 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_install.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_checkpoints.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_collectibles.cpp
+    ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_disc.cpp
+    ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_track.cpp
+    ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_cars.cpp
+    ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_install.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.engine.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.offset.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.rectclip.cpp
@@ -286,6 +290,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/menus2049.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/stunt2049.cpp
     ${CMAKE_SOURCE_DIR}/src/arrows.cpp
+    ${CMAKE_SOURCE_DIR}/src/mod_car_shadow.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_audio.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049_texanim.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/car2049.cpp

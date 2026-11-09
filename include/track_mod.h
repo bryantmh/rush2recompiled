@@ -90,6 +90,7 @@ namespace rush2::track_mod {
         // rush2_track49_gravity), for each gravity cheat setting.
         std::string gravity = "rush2";
         std::optional<float> start_time;
+        std::optional<float> finish_time;                     // what crossing the finish adds (start_time if unset)
         std::vector<std::array<float, 3>> checkpoint_time;   // per checkpoint: first lap, later laps (third unused)
         std::vector<float> best_times;
         std::array<uint8_t, 3> fog = { 0xA0, 0xB8, 0xD0 };

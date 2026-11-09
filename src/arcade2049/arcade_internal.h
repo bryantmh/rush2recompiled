@@ -156,6 +156,10 @@ namespace rush2::arcade2049 {
     // PNG bytes of w x h RGBA.
     std::vector<uint8_t> png(const std::vector<uint8_t>& rgba, int w, int h);
 
+    // Per corner of a triangle list (3 corners a triangle): the face normals of the triangles sharing the corner's point
+    // (to 1/1000) within `crease` degrees of this one, averaged (arcade_cars.cpp; the PS1 cars use it too).
+    std::vector<V3> smooth_normals(const std::vector<V3>& P, double crease = 60.0);
+
     // ---------------------------------------------------------------------------------------------- glb writer
     // A minimal glTF 2.0 binary writer: meshes, materials with embedded PNGs, Empties and node animations.
     class Glb {
@@ -180,6 +184,8 @@ namespace rush2::arcade2049 {
         // wrap: glTF sampler (wrapS, wrapT). Returns the material's index.
         int material(const std::string& name, std::optional<int> image, const std::string& alpha_mode, bool double_sided,
                      std::array<int, 2> wrap);
+        // Gives a material a paint mask (extras.rush2_paint, docs/car_mods.md#new-cars): red MAIN, green ACCENT.
+        void paint_mask(int material, int image);
         int textured_mesh(const std::string& name, const std::vector<Prim>& prims, const std::optional<Trs>& trs = {});
         // A mesh with the default material and zero uvs; attrs: custom float attributes, one value per vertex.
         int mesh(const std::string& name, const std::vector<V3>& verts, const std::vector<V3>& normals,

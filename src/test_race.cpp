@@ -8,6 +8,7 @@
 // - RUSH2_TEST_RACE_LAPS=<n>, RUSH2_TEST_RACE_DRONES=<n>: the track select's LAPS and DRONES (the race keeps the saved
 //   ones otherwise).
 // - RUSH2_TEST_RACE_FOG=<1-4>: the track select's FOG (settings +0xE, the race's 0x800D1FA8).
+// - RUSH2_TEST_RACE_COLOR=<0-31>: every player's car in that MAIN COLOR (checking a car's paint).
 // - RUSH2_TEST_RACE_BACKWARD=1: the track select's BACKWARD on (settings +0xC, copied to 0x80119848 by
 //   menu_settings_to_race_globals_80094698 at 0x800947C0).
 // - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
@@ -151,6 +152,16 @@ namespace {
             MEM_B(5, entry) = (int8_t)call(rdram, ctx, car_record_get_stripe_color_800B25D0, (int32_t)profile, cars[p]);
         }
         rush2::race_setup::fill_player_rows(rdram, ctx, players);
+        // RUSH2_TEST_RACE_COLOR=<0-31>: every player's car in that MAIN COLOR (its car table entry and its player row of
+        // the MAIN table), for checking a car's paint: a new player's record holds the colors the car had when it was
+        // made, a mod car's its base car's when the mod loaded later.
+        if (const char* color = env("RUSH2_TEST_RACE_COLOR")) {
+            int c = std::atoi(color);
+            for (int p = 0; p < players; p++) {
+                MEM_B(2, (int32_t)(car_table + p * car_entry_size)) = (int8_t)c;
+                MEM_B(0, (int32_t)(rush2::car_types::table(rush2::car_types::main_color) + (p + 1) * rush2::car_types::types + cars[p])) = (int8_t)c;
+            }
+        }
         MEM_H(0, (int32_t)num_players) = (int16_t)players;
         MEM_H(0, (int32_t)num_views) = (int16_t)players;
         // ONE RACE's game mode: the race start turns a race on a stunt track or arena into stunt mode itself.

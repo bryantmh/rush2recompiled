@@ -1033,13 +1033,14 @@ static void path_race_time(uint8_t* rdram) {
     }
     bool mod = hosting_mod(rdram);
     // A custom track with times in its track.toml: start_time is the clock at the start and also what crossing the
-    // finish line adds; checkpoint_time[n - 1] is what CHECKPOINT_n adds on lap 1 and on later laps (Rush 2 has no
+    // finish line adds (finish_time instead when it's set); checkpoint_time[n - 1] is what CHECKPOINT_n adds on lap 1 and on later laps (Rush 2 has no
     // separate lap 3+ time). The author's times stand (forward; a backward race's checkpoints come in the other order).
     if (mod && mod_settings.start_time && MEM_B(0, (int32_t)backward) == 0) {
         int16_t start = (int16_t)std::lround(*mod_settings.start_time);
         MEM_H(0, (int32_t)header) = start;
-        MEM_H(0, (int32_t)(header + 0xC + 0x1E)) = start;
-        MEM_H(0, (int32_t)(header + 0xC + 0x20)) = start;
+        int16_t finish = mod_settings.finish_time ? (int16_t)std::lround(*mod_settings.finish_time) : start;
+        MEM_H(0, (int32_t)(header + 0xC + 0x1E)) = finish;
+        MEM_H(0, (int32_t)(header + 0xC + 0x20)) = finish;
         for (int i = 1; i < count && i - 1 < (int)mod_settings.checkpoint_time.size(); i++) {
             const auto& t = mod_settings.checkpoint_time[i - 1];
             MEM_H(0, (int32_t)(header + 0xC + i * 0x50 + 0x1E)) = (int16_t)std::lround(t[0]);

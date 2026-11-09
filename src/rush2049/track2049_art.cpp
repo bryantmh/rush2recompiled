@@ -1858,11 +1858,13 @@ namespace {
         // 2049's band suits its tracks, which spread over many thousand units; a custom track can pack its stretches
         // much closer (Wario Stadium's switchbacks run 76 units apart, center to center), and the 200 unit band then
         // runs into the stretch beside it. Its band is at most 0.7 of the closest gap between stretches side by side
-        // (the rings cut corners a little), never wider than 2049's and never under 1/200 of the extent so it still
-        // shows (a path that tight overlaps a little). The lift above the road is half the band's half width, as 2049's.
+        // (the rings cut corners a little), and never under 1/40 of the extent (the preview is drawn the same size
+        // whatever the extent), so it reads as a solid line on the track select (1/200 left a path with close stretches,
+        // such as an out-and-back arm, a hairline, and 1/80 was still thin; a path that tight overlaps a little). The
+        // lift above the road is half the band's half width, as 2049's.
         if (fit && !battle) {
             float clearance = spine_clearance(spine, true);
-            half_width = std::clamp(clearance * 0.35f, float(extent) * 0.005f, tube_half_width);
+            half_width = std::max(float(extent) / 40.0f, std::min(clearance * 0.35f, tube_half_width));
             lift = half_width * 0.5f;
         }
 
@@ -2219,8 +2221,8 @@ namespace {
     constexpr float preview_tilt = 0.52359878f;                    // 0x803B92DC: -pi/6 about x
     constexpr float preview_disc_x = 176.0f, preview_disc_y = 32.0f; // func_800B3704(name, 0xB0, 0x20, 0)
     constexpr float preview_disc_depth = 150.0f;                   // behind the model (its far edge is about 125)
-    constexpr int preview_strip_h = 16;                            // 128 x 16 CI8 texels per TMEM load (2 KB)
-    constexpr int preview_strip_shown = 14;                        // rows drawn from each: a row either side for filtering
+    constexpr int preview_strip_bytes = 2048;                      // CI8 texels per TMEM load (128 x 16 for 2049's)
+    constexpr int preview_max_width = rush2::track2049::route_picture_max_w;   // texels: 512, four rows a load
 
 
     // Object `name` of file 60 (a flat track select outline): its LOD 0 vertices (2049 units) and triangles.
@@ -2318,23 +2320,31 @@ namespace {
         });
     }
 
-    // The screenshot: w (128) x h CI8 `indices` with `palette` in 128 x 16 strips, translucent (its corners are clear),
+    // The screenshot: w (128; at most preview_max_width) x h CI8 `indices` with `palette`, shown show_w x show_h of
+    // 2049's screen pixels (0: w x h, as 2049 draws its own) centered where 2049 draws its 128 x 128 sprite. Drawn in
+    // strips of as many rows as one TMEM load holds (16 of 128 texels), translucent (2049's corners are clear),
     // z-compared but not written, after the model so the model hides it.
     void preview_screenshot(Miniature& mini, TrackModel& m, const std::vector<uint8_t>& indices,
-                            std::array<uint16_t, 256> palette, int w, int h) {
+                            std::array<uint16_t, 256> palette, int w, int h, float show_w = 0, float show_h = 0) {
+        if (w <= 0 || w > preview_max_width || h <= 0) return;
+        if (show_w <= 0 || show_h <= 0) show_w = float(w), show_h = float(h);
         // Clear entries black, so filtering darkens the round edge instead of fringing it with the key colour.
         for (uint16_t& c : palette) {
             if (!(c & 1)) c = 0;
         }
-        // Strips of preview_strip_h rows starting a row above the preview_strip_shown rows each draws, so the
-        // filter has both neighbours at the seams: the image with its first and last rows repeated around it.
-        const int strips = (h + preview_strip_shown - 1) / preview_strip_shown;
+        // Rows of `line` 64-bit words (padded clear past w), strip_h of them a load, starting a row above the
+        // strip_h - 2 rows each strip draws, so the filter has both neighbours at the seams: the image with its first
+        // and last rows repeated around it.
+        const int line = (w + 7) / 8, stride = line * 8;
+        const int strip_h = preview_strip_bytes / stride, shown = strip_h - 2;
+        const int strips = (h + shown - 1) / shown;
         Bytes& texels = m.parts[texels_part];
         align(texels, 8);
         const uint32_t at = uint32_t(texels.size());
-        for (int row = -1; row < strips * preview_strip_shown + preview_strip_h - preview_strip_shown - 1; row++) {
+        for (int row = -1; row < strips * shown + 1; row++) {
             int r = std::clamp(row, 0, h - 1);
             texels.insert(texels.end(), indices.begin() + r * w, indices.begin() + (r + 1) * w);
+            texels.insert(texels.end(), size_t(stride - w), uint8_t(255));
         }
         const uint32_t pal = uint32_t(texels.size());
         for (uint16_t c : palette) push16(texels, c);
@@ -2350,27 +2360,30 @@ namespace {
         mini.command(0xF0000000, 0x073FC000);    // LOADTLUT 256 entries
         mini.command(0xE7000000, 0);
         const uint32_t clamp = (2u << 18) | (2u << 8);
+        const uint32_t dxt = uint32_t((2048 + line - 1) / line);    // 2049's 128 wide: 0x80
         const float d = preview_disc_depth / rush2::track2049::preview_focal;
+        // 2049's sprite spans (preview_disc_x, preview_disc_y) + 128 x 128; texel rows show show_h / h pixels each.
+        const float sx0 = preview_disc_x + 64.0f - show_w * 0.5f, sx1 = sx0 + show_w;
+        const float sy0 = preview_disc_y + 64.0f - show_h * 0.5f, per_row = show_h / float(h);
         for (int strip = 0; strip < strips; strip++) {
-            mini.command(0xFD500000, at + uint32_t(strip * w * preview_strip_shown), texels_part); // SETTIMG CI 16-bit
+            mini.command(0xFD500000, at + uint32_t(strip * stride * shown), texels_part); // SETTIMG CI 16-bit
             mini.command(0xF5500000, 0x07000000 | clamp);   // SETTILE 7
             mini.command(0xE6000000, 0);                     // LOADSYNC
-            mini.command(0xF3000000, 0x073FF080);            // LOADBLOCK 1024 16-bit texels, 16 words per row
+            mini.command(0xF3000000, 0x07000000 | (uint32_t(preview_strip_bytes / 2 - 1) << 12) | dxt);  // LOADBLOCK
             mini.command(0xE7000000, 0);
-            mini.command(0xF5482000, clamp);                 // SETTILE 0: CI8, 16 words per row, TMEM 0
-            mini.command(0xF2000000, 0x001FC03C);            // SETTILESIZE 128 x 16
+            mini.command(0xF5400000 | (1u << 19) | (uint32_t(line) << 9), clamp);   // SETTILE 0: CI8, line words, TMEM 0
+            mini.command(0xF2000000, (uint32_t(w - 1) << 14) | uint32_t(strip_h - 1) << 2);   // SETTILESIZE w x strip_h
             Group quad;
-            int rows = std::min(preview_strip_shown, h - strip * preview_strip_shown);
-            float y0 = preview_disc_y + float(strip * preview_strip_shown), y1 = y0 + float(rows);
-            float x0 = preview_disc_x, x1 = preview_disc_x + float(w);
+            int rows = std::min(shown, h - strip * shown);
+            float y0 = sy0 + float(strip * shown) * per_row, y1 = y0 + float(rows) * per_row;
             auto corner = [&](float sx, float sy, float s, float t) {
                 float x = (sx - rush2::track2049::preview_center_x) * d, y = (rush2::track2049::preview_center_y - sy) * d;
                 return quad.add({ x * preview_units, y * preview_units, preview_disc_depth * preview_units, s, t, 255, 255, 255 });
             };
             // s runs against x: the menu camera's x is mirrored on screen, so texel 0 at x0 showed the picture
             // reversed (stock thumbnails and mod previews alike).
-            int a = corner(x0, y0, float(w), 1), b = corner(x1, y0, 0, 1);
-            int c = corner(x1, y1, 0, float(1 + rows)), e = corner(x0, y1, float(w), float(1 + rows));
+            int a = corner(sx0, y0, float(w), 1), b = corner(sx1, y0, 0, 1);
+            int c = corner(sx1, y1, 0, float(1 + rows)), e = corner(sx0, y1, float(w), float(1 + rows));
             quad.quad(a, b, c, e);
             emit_group(mini, quad);
         }
@@ -2593,8 +2606,8 @@ void rush2::track2049::quantize_ci8(const std::vector<std::array<uint8_t, 4>>& r
 }
 
 bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture,
-                                     std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers,
-                                     float& radius) {
+                                     int picture_w, int picture_h, std::vector<uint8_t>& blob, uint32_t& list,
+                                     std::vector<uint32_t>& pointers, float& radius) {
     Tube tube;
     if (!tube_from_path(path, false, tube, true)) return false;
     TrackModel m;
@@ -2602,13 +2615,16 @@ bool rush2::track2049::route_preview(const std::vector<uint8_t>& path, int color
     Miniature mini(no_geometry, m);
     preview_tube(tube, color, m);
     const PreviewPart model(m);
-    if (picture.size() == 128 * 128 * 4) {
-        std::vector<std::array<uint8_t, 4>> rgba(128 * 128);
+    if (picture_w > 0 && picture_w <= preview_max_width && picture_h > 0 &&
+        picture.size() == size_t(picture_w) * size_t(picture_h) * 4) {
+        std::vector<std::array<uint8_t, 4>> rgba(size_t(picture_w) * size_t(picture_h));
         for (size_t i = 0; i < rgba.size(); i++) rgba[i] = { picture[i * 4], picture[i * 4 + 1], picture[i * 4 + 2], picture[i * 4 + 3] };
         std::vector<uint8_t> indices;
         std::array<uint16_t, 256> palette{};
         quantize_picture(rgba, indices, palette);
-        preview_screenshot(mini, m, indices, palette, 128, 128);
+        // Shown in route_picture_w x route_picture_h of the track select's pixels, aspect kept.
+        float s = std::min(rush2::track2049::route_picture_w / float(picture_w), rush2::track2049::route_picture_h / float(picture_h));
+        preview_screenshot(mini, m, indices, palette, picture_w, picture_h, float(picture_w) * s, float(picture_h) * s);
     }
     if (!preview_finish(mini, m, model) || !flatten(m, blob, list, pointers)) return false;
     radius = m.radius / 16.0f;

@@ -24,6 +24,7 @@
 #include <cstring>
 #include <mutex>
 
+#include "car2049.h"
 #include "car_types.h"
 #include "recomp.h"
 
@@ -325,6 +326,10 @@ void rush2::wings::draw_car_body(uint8_t* rdram, recomp_context* ctx) {
 
     int car = car_for_node(rdram, (uint32_t)ctx->r23);
     if (car < 0) {
+        return;
+    }
+    // A mod car whose wings aren't drawn ("no_wings", the PS1 SF Rush UFO): they still work, unseen.
+    if (car < 8 && rush2::car2049::mod_car_wings_hidden(MEM_BU(0x7EA, (int32_t)(0x800F5470 + uint32_t(car) * 0x81C)))) {
         return;
     }
     Pose pose;

@@ -71,34 +71,6 @@ namespace {
                                            { 6.44, 6.64, 3 }, { 6.25, 6.75, 3 }, { 5.75, 6, 3 }, { 6.7, 6.97, 2.8 },
                                            { 6.25, 6, 3 }, { 6.75, 7, 3 }, { 6.5, 6.5, 3 }, { 6.25, 5.5, 3 } };
 
-    // Per corner of the triangles: the face normals of the triangles sharing the corner's point (to 1/1000) within
-    // `crease` degrees of this one, averaged.
-    std::vector<V3> smooth_normals(const std::vector<V3>& P, double crease = 60.0) {
-        size_t m = P.size() / 3;
-        std::vector<V3> fn(m);
-        for (size_t f = 0; f < m; f++) {
-            V3 n = cross(P[3 * f + 1] - P[3 * f], P[3 * f + 2] - P[3 * f]);
-            fn[f] = n * (1.0 / std::max(norm(n), 1e-9));
-        }
-        auto key = [](const V3& p) {
-            return std::array<int64_t, 3>{ std::llround(p[0] * 1000), std::llround(p[1] * 1000), std::llround(p[2] * 1000) };
-        };
-        std::map<std::array<int64_t, 3>, std::vector<size_t>> keys;
-        for (size_t f = 0; f < m; f++) for (int k = 0; k < 3; k++) keys[key(P[3 * f + k])].push_back(f);
-        double c = std::cos(crease * 3.14159265358979323846 / 180.0);
-        std::vector<V3> out(P.size());
-        for (size_t f = 0; f < m; f++) {
-            for (int k = 0; k < 3; k++) {
-                V3 n{};
-                for (size_t g : keys[key(P[3 * f + k])]) {
-                    if (dot(fn[g], fn[f]) >= c) n = n + fn[g];
-                }
-                out[3 * f + k] = n * (1.0 / std::max(norm(n), 1e-9));
-            }
-        }
-        return out;
-    }
-
     // The car's color schemes: its COL folders, in number order.
     std::vector<std::string> color_schemes(const std::filesystem::path& dir) {
         std::vector<std::pair<int, std::string>> found;
@@ -255,4 +227,30 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
         { "short_description", "Rush 2049 arcade cars" }, { "version", "1.0.0" }, { "authors", { "rush2-recomp" } },
         { "minimum_recomp_version", "0.0.0" } }.dump(4));
     return true;
+}
+
+std::vector<a49::V3> a49::smooth_normals(const std::vector<V3>& P, double crease) {
+    size_t m = P.size() / 3;
+    std::vector<V3> fn(m);
+    for (size_t f = 0; f < m; f++) {
+        V3 n = cross(P[3 * f + 1] - P[3 * f], P[3 * f + 2] - P[3 * f]);
+        fn[f] = n * (1.0 / std::max(norm(n), 1e-9));
+    }
+    auto key = [](const V3& p) {
+        return std::array<int64_t, 3>{ std::llround(p[0] * 1000), std::llround(p[1] * 1000), std::llround(p[2] * 1000) };
+    };
+    std::map<std::array<int64_t, 3>, std::vector<size_t>> keys;
+    for (size_t f = 0; f < m; f++) for (int k = 0; k < 3; k++) keys[key(P[3 * f + k])].push_back(f);
+    double c = std::cos(crease * 3.14159265358979323846 / 180.0);
+    std::vector<V3> out(P.size());
+    for (size_t f = 0; f < m; f++) {
+        for (int k = 0; k < 3; k++) {
+            V3 n{};
+            for (size_t g : keys[key(P[3 * f + k])]) {
+                if (dot(fn[g], fn[f]) >= c) n = n + fn[g];
+            }
+            out[3 * f + k] = n * (1.0 / std::max(norm(n), 1e-9));
+        }
+    }
+    return out;
 }

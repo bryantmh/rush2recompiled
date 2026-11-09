@@ -776,13 +776,20 @@ def _mix(a, b, t):
     return tuple(round(p + (q - p) * t) for p, q in zip(a, b))
 
 
-def _sf_shade(word, x, y, centre):
-    """The gold at (x, y) of the word (rows of booleans, the letters' 18 rows) under SUNSET's light."""
+def _sf_shade(word, x, y, centre, letter=None):
+    """The gold at (x, y) of the word (rows of booleans, the letters' 18 rows) under SUNSET's light. `letter` (the
+    same rows, each pixel's letter number) marks where two letters touch: the right one's first column there is a
+    light left face fading into its second, the line that keeps them apart (THE HEIGHTS' H and E)."""
     h, w = len(word), len(word[0])
 
     def g(i, j):
         return 0 <= i < w and 0 <= j < h and word[j][i]
     base = _mix(SF_GOLD, SF_PALE, math.exp(-((x - centre) / SF_SPREAD) ** 2))
+    if letter is not None and g(x - 1, y):
+        if letter[y][x - 1] != letter[y][x]:
+            return _mix(base, SF_TOP, 0.9)
+        if g(x - 2, y) and letter[y][x - 2] != letter[y][x]:
+            return _mix(base, SF_TOP, 0.4)
     if not g(x, y - 1):
         return _mix(base, SF_TOP, 0.85)
     if not g(x, y + 1):
@@ -831,8 +838,9 @@ def render_sfrush(text, size):
     img = Image.new("RGBA", size, (0, 0, 0, 0))
     px = img.load()
     gold = [[False] * W for _ in range(H)]
+    letter = [[-1] * W for _ in range(H)]
     x = x0
-    for g, k in zip(glyphs, kern):
+    for n, (g, k) in enumerate(zip(glyphs, kern)):
         if g is None:
             x += s["space"]
             continue
@@ -841,14 +849,16 @@ def render_sfrush(text, size):
             for gx in range(len(g[0])):
                 if g[y][gx] and 0 <= x + gx < W:
                     gold[top + y][x + gx] = True
+                    letter[top + y][x + gx] = n
         x += len(g[0]) + s["gap"]
     # The word is one flat shape first and is lit as a whole, as on the real logos: touching letters merge and only
     # the word's own faces catch the light or fall in shadow.
+    # Where letters touch, a light line keeps them apart (_sf_shade's letter).
     word = gold[top:top + h]
     for y in range(h):
         for x in range(W):
             if word[y][x]:
-                px[x, top + y] = _sf_shade(word, x, y, W / 2) + (255,)
+                px[x, top + y] = _sf_shade(word, x, y, W / 2, letter[top:top + h]) + (255,)
 
     def near(x, y, r):
         return any(0 <= x + i < W and 0 <= y + j < H and gold[y + j][x + i]

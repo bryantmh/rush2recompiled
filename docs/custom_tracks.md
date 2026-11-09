@@ -313,6 +313,7 @@ run_in      = false                   # true: starts on a run-in into the loop: 
 [race]
 # Timer (with checkpoints on). Leave these out and the game works it out from the AI path, as stock Rush 2 does.
 start_time      = 45                  # seconds on the clock at the start; crossing the finish line adds it again
+finish_time     = 40                  # optional: what crossing the finish line adds instead of start_time
 checkpoint_time = [[20, 18], [22, 20]] # per checkpoint, CHECKPOINT_1 first: seconds added [first lap, later laps]
 best_times      = [95, 100, 105]      # the records table's starting entries are made from the fastest
 
@@ -602,15 +603,16 @@ The track select shows a track's logo and a model of it, as it does for the stoc
 |---|---|---|
 | `logo.png` | 128 x 32 px, or any 4:1 picture (it is fitted) | No name is shown, so include one |
 | `diorama.glb` | Any size: it is fitted to the stock dioramas' size | Rush 2049's route preview |
-| `preview.png` | 128 x 128 px | The route preview has no picture behind it |
+| `preview.png` | Any shape, up to 512 x 256 px (larger is shrunk) | The route preview has no picture behind it |
 
 - **Logo:** your track's name as you want it to look, on a clear background (PNG with alpha). It is drawn in full color.
 - **Diorama:** a small model of the track, made by you, exported like the track (glb, textures embedded). It is fitted
   to the stock size (centered, standing on the turntable). Keep it under about 2,400 triangles, like the stock ones;
   the report warns above 4,000.
 - **Route preview:** without a diorama, the track select shows Rush 2049's kind of preview: the AI path as a small tube
-  with a light running round it in the race direction, in front of `preview.png` (a screenshot of your track, for
-  example).
+  with a light running round it in the race direction, in front of `preview.png` (a screenshot or map of your track,
+  for example). The picture keeps its own pixels (up to 512 x 256) and is shown as large as fits between the carousel
+  arrows (224 x 128 of the 320 x 240 screen), so a wide picture is shown wide.
 
 ### Where it is listed
 
@@ -810,7 +812,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | Section | Settings | See |
 |---|---|---|
 | `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `smooth_collision`, `smooth_fold` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
-| `[race]` | `start_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
+| `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
 | `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax` | [Sky](#sky) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
 | `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |

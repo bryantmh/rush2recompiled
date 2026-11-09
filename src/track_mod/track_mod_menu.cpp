@@ -5,7 +5,8 @@
 // as texture MODLOGO<nn> (nn = its index in the enabled mods' tracks) through rush2::track2049::extend_menu_container,
 // the code that adds the 2049 tracks' art. The diorama is the author's ([menu] diorama, converted with the track);
 // without one it is Rush 2049's track select preview of the AI path (rush2::track2049::route_preview: the route tube
-// with the moving highlight, in front of the track's [menu] preview picture when it has one), posed and animated as
+// with the moving highlight, in front of the track's [menu] preview picture when it has one, kept at its own size up
+// to 512 x 256 and shown as large as fits between the carousel arrows), posed and animated as
 // the 2049 tracks' are. The logo is the [menu] logo picture fitted into Rush 2's 128 x 32 logo space; without one it
 // is clear.
 
@@ -20,12 +21,33 @@
 namespace {
     using Bytes = std::vector<uint8_t>;
     constexpr int logo_w = 128, logo_h = 32;
-    constexpr int picture_size = 128;     // Rush 2049's track select screenshots are 128 x 128
 
     uint32_t get32(const Bytes& d, size_t o) {
         return (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3];
     }
     void add32(Bytes& d, uint32_t v) { for (int s = 24; s >= 0; s -= 8) d.push_back(uint8_t(v >> s)); }
+
+    // The preview picture in `file` (RGBA rows top-down) at its own size, shrunk (aspect kept) to fit
+    // route_picture_max_w x route_picture_max_h; empty when there is none or it can't be read.
+    Bytes own_picture(const Bytes& file, int& w, int& h, rush2::track_mod::Report& report) {
+        rush2::upscale::Image img;
+        w = h = 0;
+        if (file.empty()) return {};
+        if (!rush2::upscale::decode_image(file, img) || img.empty()) {
+            report.warning("The preview picture can't be read (PNG expected); it is left out.");
+            return {};
+        }
+        const float s = std::min({ 1.0f, float(rush2::track2049::route_picture_max_w) / float(img.width),
+                                   float(rush2::track2049::route_picture_max_h) / float(img.height) });
+        w = std::max(1, int(std::lround(img.width * s)));
+        h = std::max(1, int(std::lround(img.height * s)));
+        if (s < 1.0f) {
+            report.info("The preview picture is " + std::to_string(img.width) + " x " + std::to_string(img.height) +
+                        "; it is shrunk to " + std::to_string(w) + " x " + std::to_string(h) + ".");
+            img = rush2::upscale::shrink(img, uint32_t(w), uint32_t(h));
+        }
+        return img.rgba;
+    }
 
     // The picture in `file` fitted into w x h (aspect kept, centered, clear around it), RGBA rows top-down; empty when
     // there is none or it can't be read. Notes what it did in the report.
@@ -98,9 +120,10 @@ void rush2::track_mod::make_menu_art(const Converted& track, const Extras& extra
     // Diorama: the author's (converted with the track), else Rush 2049's preview of the route (race track 4's red).
     art.route_preview = false;
     if (art.diorama.empty()) {
-        Bytes picture = fit_picture(extras.preview, picture_size, picture_size, "preview", report);
-        art.route_preview = rush2::track2049::route_preview(track.track.path, 4, picture, art.diorama, art.diorama_list,
-                                                            art.diorama_pointers, art.diorama_radius);
+        int pw = 0, ph = 0;
+        Bytes picture = own_picture(extras.preview, pw, ph, report);
+        art.route_preview = rush2::track2049::route_preview(track.track.path, 4, picture, pw, ph, art.diorama,
+                                                            art.diorama_list, art.diorama_pointers, art.diorama_radius);
         if (!art.route_preview) {
             art.diorama.clear();
             report.warning("The track select preview of the AI path couldn't be made; it shows no diorama.");
@@ -111,7 +134,7 @@ void rush2::track_mod::make_menu_art(const Converted& track, const Extras& extra
 // Cache file: "MART", version, then each field as a u32 length (in bytes or entries) and its data.
 std::vector<uint8_t> rush2::track_mod::serialize(const MenuArt& art) {
     Bytes out = { 'M', 'A', 'R', 'T' };
-    add32(out, 3);
+    add32(out, 4);   // 4: the preview picture at its own size
     for (const Bytes* b : { &art.logo, &art.logo_palette, &art.logo_rgba, &art.diorama }) {
         add32(out, uint32_t(b->size()));
         out.insert(out.end(), b->begin(), b->end());
@@ -135,7 +158,7 @@ bool rush2::track_mod::deserialize(const std::vector<uint8_t>& in, MenuArt& art)
         return true;
     };
     uint32_t version;
-    if (in.size() < 8 || memcmp(in.data(), "MART", 4) != 0 || !u32(version) || version != 3) return false;
+    if (in.size() < 8 || memcmp(in.data(), "MART", 4) != 0 || !u32(version) || version != 4) return false;
     for (Bytes* b : { &art.logo, &art.logo_palette, &art.logo_rgba, &art.diorama }) {
         uint32_t n;
         if (!u32(n) || at + n > in.size()) return false;

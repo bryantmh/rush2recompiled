@@ -1411,6 +1411,7 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     if (t["race"]["laps"]) report.info("track.toml: laps is ignored (players pick the lap count).");
     if (t["race"]["mirror"]) report.info("track.toml: mirror is ignored (every track can be raced mirrored).");
     if (auto v = t["race"]["start_time"].value<double>()) s.start_time = float(*v);
+    if (auto v = t["race"]["finish_time"].value<double>()) s.finish_time = float(*v);
     if (auto* arr = t["race"]["checkpoint_time"].as_array()) {
         for (auto& e : *arr) {
             std::array<float, 3> times{};

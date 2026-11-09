@@ -92,6 +92,21 @@ int a49::Glb::material(const std::string& name, std::optional<int> image, const 
     return int(js["materials"].size()) - 1;
 }
 
+// extras.rush2_paint is a texture index (src/car_mods.cpp texture_image, tools/car_mod.py): the mask gets a texture of
+// its own, with the material's base texture's sampler (an image index there named another texture: the PS1 cars'
+// first masks named their underside texture, and the paint followed its grays).
+void a49::Glb::paint_mask(int material, int image) {
+    if (!js.contains("textures")) js["textures"] = json::array();
+    json texture = { { "source", image } };
+    const json& m = js["materials"][size_t(material)];
+    if (m.contains("pbrMetallicRoughness") && m["pbrMetallicRoughness"].contains("baseColorTexture")) {
+        const json& base = js["textures"][m["pbrMetallicRoughness"]["baseColorTexture"]["index"].get<size_t>()];
+        if (base.contains("sampler")) texture["sampler"] = base["sampler"];
+    }
+    js["textures"].push_back(texture);
+    js["materials"][size_t(material)]["extras"]["rush2_paint"] = js["textures"].size() - 1;
+}
+
 namespace {
     std::vector<float> flat3(const std::vector<a49::V3>& v) {
         std::vector<float> out;

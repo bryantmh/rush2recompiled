@@ -228,12 +228,17 @@ namespace rush2::track2049 {
     // floor -side, floor +side), which the track select recolors each frame (preview_tube_color).
     std::string menu_preview_name(int k);
     // Rush 2049's track select preview (as menu_preview_name's) of AI path file `path` (a converted track's): its route
-    // tube colored as race track `color`'s (1-6), and behind it `picture` (128 x 128 RGBA, rows top-down; empty for
-    // none) as 2049's round screenshot. Texels, vertices and the list (at `list`) in `blob`, `pointers` the offsets of
+    // tube colored as race track `color`'s (1-6), and behind it `picture` (picture_w (at most route_picture_max_w) x
+    // picture_h RGBA, rows top-down; empty for none) in place of 2049's round screenshot, at its full texel size, shown
+    // as large as fits route_picture_w x route_picture_h of the track select's 320 x 240 screen (between the carousel
+    // arrows). Texels, vertices and the list (at `list`) in `blob`, `pointers` the offsets of
     // the words in it pointing into it (to rebase), radius in world units. Custom tracks without an authored diorama
     // show it (src/track_mod/track_mod.cpp); the track select poses and animates it like the 2049 tracks'.
-    bool route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture,
-                       std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers, float& radius);
+    bool route_preview(const std::vector<uint8_t>& path, int color, const std::vector<uint8_t>& picture, int picture_w,
+                       int picture_h, std::vector<uint8_t>& blob, uint32_t& list, std::vector<uint32_t>& pointers,
+                       float& radius);
+    constexpr float route_picture_w = 224.0f, route_picture_h = 128.0f;   // the arrows are at x 21-41 and 279-299
+    constexpr int route_picture_max_w = 512, route_picture_max_h = 256;   // texels
     // Track versions (docs/menus.md#track-versions): the race tracks' previews have a thin ring around the round
     // screenshot in their version's color, so the N64, Dreamcast and arcade versions of a course tell apart at a
     // glance (0xRRGGBB). The ring is drawn after the screenshot, so the track select's turn and the circuit screen

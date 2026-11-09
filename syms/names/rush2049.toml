@@ -1863,7 +1863,7 @@ status = "verified"
 rush2 = 0x80081074
 rush1 = [0x80082524]
 area = "render"
-ref = "docs/rush2049_research/race.md#fog"
+ref = "docs/rush2049_research/race.md#61-tables"
 
 [[func]]
 vram = 0x800AB53C

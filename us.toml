@@ -15142,6 +15142,37 @@ func = "input_apply_default_controls_80076A00"
 before_vram = 0x80076CE0
 text = "    rush2_online_player_input(rdram, ctx);"
 
+# A mod car drawn without wheels (the PS1 SF Rush UFO, "no_wheels"): its wheels are scaled to nothing whatever the
+# player's TIRE SIZE (rush2_mod_car_wheel_scale, src/rush2049/car2049.cpp). In a race the wheel placer loads the scales
+# at 0x8005ABA4 (front) and 0x8005AC04 (rear), the type at physics car $t1 +0x7EA; on the car select
+# car_preview_copy_matrices_800878C8 loads them at 0x800879F4 and 0x80087A34, the type x 4 in $s2 (preview id % 73).
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005ABA8
+text = "    ctx->f0.u32l = rush2_mod_car_wheel_scale(rdram, (int)MEM_BU(0x7EA, (int32_t)ctx->r9), ctx->f0.u32l);"
+
+[[patches.hook]]
+func = "carselect_preview_update_8005A598"
+before_vram = 0x8005AC08
+text = "    ctx->f0.u32l = rush2_mod_car_wheel_scale(rdram, (int)MEM_BU(0x7EA, (int32_t)ctx->r9), ctx->f0.u32l);"
+
+[[patches.hook]]
+func = "car_preview_copy_matrices_800878C8"
+before_vram = 0x800879F8
+text = "    ctx->f0.u32l = rush2_mod_car_wheel_scale(rdram, (int)((int32_t)ctx->r18 >> 2), ctx->f0.u32l);"
+
+[[patches.hook]]
+func = "car_preview_copy_matrices_800878C8"
+before_vram = 0x80087A38
+text = "    ctx->f0.u32l = rush2_mod_car_wheel_scale(rdram, (int)((int32_t)ctx->r18 >> 2), ctx->f0.u32l);"
+
+# A mod car's round shadow ("round_shadow", the PS1 SF Rush UFO): after car_model_update_parts_80059D24 sets a car's
+# shadow polygon, src/mod_car_shadow.cpp redraws it as a disc of the car's size.
+[[patches.hook]]
+func = "car_model_update_parts_80059D24"
+before_vram = 0x8005A270
+text = "    rush2_mod_car_shadows(rdram);"
+
 # Online: the other players' cars have no view, and the wheel placer (carselect_preview_update_8005A598) hides a
 # viewless car's wheels unless $s0 (its +0x348 >= 2) is set; computer cars pass, human ones didn't (rush2_online_wheels_shown).
 [[patches.hook]]

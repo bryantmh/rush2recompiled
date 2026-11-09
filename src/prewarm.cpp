@@ -47,6 +47,7 @@
 #include "car1_stripes.h"
 #include "car2049.h"
 #include "arcade2049.h"
+#include "sfrush_ps1.h"
 #include "car_mods.h"
 #include "odometer2049.h"
 #include "prewarm.h"
@@ -191,7 +192,7 @@ namespace {
             }
         }
         spawn(L"Prewarm Arcade", [] {
-            job("Arcade mods", [] { rush2::arcade2049::refresh_now(); });
+            job("Arcade mods", [] { rush2::arcade2049::refresh_now(); rush2::sfrush_ps1::refresh_now(); });
             std::thread cars([] {
                 name_thread(L"Prewarm Car Mods", false);
                 job("Car mods", [] { rush2::car_mods::prepare(); });
@@ -225,7 +226,7 @@ namespace {
         bool built_all = build_pass(game_id);
         printf("[prewarm] launch builds %s (%.1f s, %llu cache misses%s)\n", built_all ? "done" : "skipped (the ROM didn't load)",
                std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count(),
-               (unsigned long long)rush2::track_cache::misses(), rush2::arcade2049::rebuilt() ? ", arcade mods rebuilt" : "");
+               (unsigned long long)rush2::track_cache::misses(), rush2::arcade2049::rebuilt() || rush2::sfrush_ps1::rebuilt() ? ", arcade mods rebuilt" : "");
         fflush(stdout);
         pass_done = true;
 

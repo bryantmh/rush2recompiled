@@ -48,6 +48,7 @@
 #include "unlocks.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
+#include "texture_upscale.h"
 #include "track2049.h"
 #include "wings.h"
 #include "wings_internal.h"
@@ -635,6 +636,49 @@ namespace {
     bool logos49 = false;
     std::vector<rush2::car2049::NameLogo> logos_calspeed;
     std::string logos_mod[rush2::car_types::count_mod];
+    // A mod car's own logo image (ModCar::logo, decoded: 128 x 32 RGBA, rows top-down), empty to letter its name.
+    std::vector<uint8_t> logo_images_mod[rush2::car_types::count_mod];
+
+    // A 128 x 32 RGBA image as a name logo: CI8 (rows bottom-up) over a palette of its own colors in RGBA16, entry 0
+    // clear for its transparent texels. More than 255 colors (a photo, not lettering) share the nearest entries.
+    void image_logo(const std::vector<uint8_t>& rgba, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette) {
+        constexpr int w = 128, h = 32;
+        std::vector<uint16_t> pal(1, 0);
+        std::map<uint16_t, uint8_t> index;
+        auto nearest = [&](uint16_t c) {
+            int best = 1, best_d = 1 << 30;
+            for (int k = 1; k < int(pal.size()); k++) {
+                int d = 0;
+                for (int s : { 11, 6, 1 }) {
+                    int a = (c >> s) & 31, b = (pal[size_t(k)] >> s) & 31;
+                    d += (a - b) * (a - b);
+                }
+                if (d < best_d) best_d = d, best = k;
+            }
+            return uint8_t(best);
+        };
+        texels.assign(size_t(w) * h, 0);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const uint8_t* p = &rgba[(size_t(y) * w + x) * 4];
+                if (p[3] < 128) continue;
+                uint16_t c = rgba5551(p[0], p[1], p[2]);
+                auto it = index.find(c);
+                uint8_t k;
+                if (it != index.end()) k = it->second;
+                else if (pal.size() < 256) {
+                    k = uint8_t(pal.size());
+                    pal.push_back(c);
+                    index[c] = k;
+                }
+                else k = nearest(c);
+                texels[size_t(h - 1 - y) * w + x] = k;
+            }
+        }
+        pal.resize(256, 0);
+        palette.clear();
+        for (uint16_t c : pal) { palette.push_back(uint8_t(c >> 8)); palette.push_back(uint8_t(c)); }
+    }
     std::string mod_logo_name(int n) {
         return "RMDCAR" + std::to_string(n + 1);
     }
@@ -657,12 +701,14 @@ namespace {
                 draw_select_logo(from.text, nullptr, l.texels, l.palette);
             }
         }
-        // Mod cars' names: in Rush 2049's font when its ROM is in, else the 5x7 one.
+        // Mod cars' names: the car's own logo image when it has one (the PlayStation SF Rush cars' names in SF Rush's
+        // lettering), else in Rush 2049's font when its ROM is in, else the 5x7 one.
         for (int n = 0; n < rush2::car_types::count_mod; n++) {
             if (logos_mod[n].empty()) continue;
             Logo& l = logos.emplace_back();
             l.name = mod_logo_name(n);
-            draw_select_logo(logos_mod[n], aero_font ? &*aero_font : nullptr, l.texels, l.palette);
+            if (logo_images_mod[n].size() == 128 * 32 * 4) image_logo(logo_images_mod[n], l.texels, l.palette);
+            else draw_select_logo(logos_mod[n], aero_font ? &*aero_font : nullptr, l.texels, l.palette);
         }
         std::vector<uint8_t> bank, select;
         if (logos.empty()) {
@@ -1505,7 +1551,12 @@ namespace {
     };
     ModSlot mod_slots[rush2::car_types::count_mod];
     std::atomic_bool mod_loaded[rush2::car_types::count_mod] = {};
-    std::atomic_bool mod_arcade[rush2::car_types::count_mod] = {};     // set_mod_car_from_2049
+    std::atomic_int mod_game[rush2::car_types::count_mod] = {};        // set_mod_car_game (ModGame)
+    std::atomic_bool mod_no_wheels[rush2::car_types::count_mod] = {};  // ModCar::wheels_hidden
+    std::atomic<float> mod_shadow_radius[rush2::car_types::count_mod] = {};   // ModCar::shadow_radius
+    std::atomic_bool mod_no_wings[rush2::car_types::count_mod] = {};          // ModCar::wings_hidden
+    std::atomic_bool mod_no_marks[rush2::car_types::count_mod] = {};          // ModCar::marks_hidden
+    std::atomic_bool mod_no_dust[rush2::car_types::count_mod] = {};           // ModCar::dust_hidden
     std::atomic_int mod_schemes[rush2::car_types::count_mod] = {}; // ModCar::schemes, read by paint_jobs (any thread)
 
     // Mod car n's physics and per-type data, from its base Rush 2 car (the ROM's tables, which us.toml no longer points
@@ -1654,8 +1705,20 @@ void rush2::car2049::set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car
         mod_slots[n].loaded = true;
     }
     mod_schemes[n] = spec.schemes;
+    mod_no_wheels[n] = spec.wheels_hidden;
+    mod_shadow_radius[n] = spec.shadow_radius;
+    mod_no_wings[n] = spec.wings_hidden;
+    mod_no_marks[n] = spec.marks_hidden;
+    mod_no_dust[n] = spec.dust_hidden;
     mod_loaded[n] = true;
     logos_mod[n] = spec.name;
+    logo_images_mod[n].clear();
+    rush2::upscale::Image logo_image;
+    if (!spec.logo.empty() && rush2::upscale::decode_image(spec.logo, logo_image)) {
+        if (logo_image.width == 128 && logo_image.height == 32) logo_images_mod[n] = std::move(logo_image.rgba);
+        else fprintf(stderr, "[newcar] %s: its logo is %ux%u, not 128x32; its name is lettered instead\n", spec.name.c_str(),
+                     logo_image.width, logo_image.height);
+    }
     rebuild_select_bank(rdram);
 }
 
@@ -1667,7 +1730,12 @@ void rush2::car2049::clear_mod_car(uint8_t* rdram, int n) {
         mod_slots[n] = ModSlot{};
     }
     mod_loaded[n] = false;
-    mod_arcade[n] = false;
+    mod_game[n] = int(ModGame::Custom);
+    mod_no_wheels[n] = false;
+    mod_shadow_radius[n] = 0.0f;
+    mod_no_wings[n] = false;
+    mod_no_marks[n] = false;
+    mod_no_dust[n] = false;
     mod_schemes[n] = 0;
     bodies[type] = Paint{};
     dented.clear();
@@ -1676,6 +1744,7 @@ void rush2::car2049::clear_mod_car(uint8_t* rdram, int n) {
     MEM_W(0, (int32_t)(asset_offsets + asset * 4)) = 0;
     MEM_W(0, (int32_t)(asset_sizes + asset * 4)) = 0;
     logos_mod[n].clear();
+    logo_images_mod[n].clear();
     rebuild_select_bank(rdram);
 }
 
@@ -1820,7 +1889,7 @@ namespace {
         uint32_t u32() { uint32_t v = 0; for (int i = 0; i < 4; i++) v |= uint32_t(u8()) << (8 * i); return v; }
         float f32() { uint32_t v = u32(); float f; memcpy(&f, &v, 4); return f; }
     };
-    constexpr uint8_t spec_version = 1;
+    constexpr uint8_t spec_version = 3;   // 2: wheels_hidden, 3: shadow_radius, wings_hidden, marks_hidden, dust_hidden
 }
 
 std::vector<uint8_t> rush2::car2049::mod_car_spec(int n) {
@@ -1846,6 +1915,11 @@ std::vector<uint8_t> rush2::car2049::mod_car_spec(int n) {
     w.u32(uint32_t(m.physics_from));
     w.u32(uint32_t(m.top_gear));
     w.u8(m.tires_2049 ? 1 : 0);
+    w.u8(m.wheels_hidden ? 1 : 0);
+    w.f32(m.shadow_radius);
+    w.u8(m.wings_hidden ? 1 : 0);
+    w.u8(m.marks_hidden ? 1 : 0);
+    w.u8(m.dust_hidden ? 1 : 0);
     w.u32(uint32_t(m.desc_floats.size()));
     for (const auto& [o, v] : m.desc_floats) { w.u32(o); w.f32(v); }
     w.u32(uint32_t(m.table_floats.size()));
@@ -1873,6 +1947,11 @@ bool rush2::car2049::read_mod_car_spec(const std::vector<uint8_t>& bytes, ModCar
     m.physics_from = int32_t(r.u32());
     m.top_gear = int32_t(r.u32());
     m.tires_2049 = r.u8() != 0;
+    m.wheels_hidden = r.u8() != 0;
+    m.shadow_radius = r.f32();
+    m.wings_hidden = r.u8() != 0;
+    m.marks_hidden = r.u8() != 0;
+    m.dust_hidden = r.u8() != 0;
     // Counts are capped: a short message reads as bad, never as a huge list.
     uint32_t count = std::min<uint32_t>(r.u32(), 4096);
     for (uint32_t i = 0; i < count && !r.bad; i++) { uint32_t o = r.u32(); m.desc_floats.emplace_back(o, r.f32()); }
@@ -2246,19 +2325,61 @@ bool rush2::car2049::type_available(int type) {
     return is_2049(type) ? cars_available() : rush2::calspeed::cars_available();
 }
 
-void rush2::car2049::set_mod_car_from_2049(int n, bool from_2049) {
-    if (n >= 0 && n < rush2::car_types::count_mod) mod_arcade[n] = from_2049;
+void rush2::car2049::set_mod_car_game(int n, ModGame game) {
+    if (n >= 0 && n < rush2::car_types::count_mod) mod_game[n] = int(game);
 }
 
 bool rush2::car2049::mod_car_from_2049(int type) {
-    return rush2::car_types::is_mod(type) && mod_arcade[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
+    return rush2::car_types::is_mod(type) &&
+           mod_game[type - rush2::car_types::first_mod].load(std::memory_order_relaxed) == int(ModGame::Rush2049);
+}
+
+bool rush2::car2049::mod_car_from_sfrush(int type) {
+    return rush2::car_types::is_mod(type) &&
+           mod_game[type - rush2::car_types::first_mod].load(std::memory_order_relaxed) == int(ModGame::SFRush);
+}
+
+float rush2::car2049::mod_car_shadow_radius(int type) {
+    return rush2::car_types::is_mod(type) ? mod_shadow_radius[type - rush2::car_types::first_mod].load(std::memory_order_relaxed)
+                                          : 0.0f;
+}
+
+bool rush2::car2049::mod_car_marks_hidden(int type) {
+    return rush2::car_types::is_mod(type) && mod_no_marks[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
+}
+
+bool rush2::car2049::mod_car_dust_hidden(int type) {
+    return rush2::car_types::is_mod(type) && mod_no_dust[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
+}
+
+bool rush2::car2049::mod_car_wings_hidden(int type) {
+    return rush2::car_types::is_mod(type) && mod_no_wings[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
+}
+
+bool rush2::car2049::mod_car_wheels_hidden(int type) {
+    return rush2::car_types::is_mod(type) &&
+           mod_no_wheels[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
+}
+
+// A wheel's scale as it is loaded ($f0 bits, from the front / rear tables 0x80201CF8 / 0x802012B0 [row * 73 + type]):
+// 0 for a mod car drawn without wheels (the PS1 SF Rush UFO, "no_wheels"; the PS1 leaves it out of its wheel draw,
+// func_8004B230), whatever the player's TIRE SIZE row holds. Hooked where the race's wheel placer
+// (carselect_preview_update_8005A598, 0x8005ABA8 / 0x8005AC08: type at physics car +0x7EA) and the car select's
+// (car_preview_copy_matrices_800878C8, 0x800879F8 / 0x80087A38: type = preview id % 73, x 4 in $s2) load them.
+// (Skipping the race placer at 0x8005A750 left wheels where the model has them; the car select never runs it.)
+extern "C" uint32_t rush2_mod_car_wheel_scale(uint8_t* rdram, int type, uint32_t scale_bits) {
+    (void)rdram;
+    return rush2::car2049::mod_car_wheels_hidden(type) ? 0u : scale_bits;
 }
 
 std::vector<int> rush2::car2049::list_order() {
-    // Rush 2's cars, the 2049 cars, the arcade car mod's (2049's arcade cars), then the Cal Speed cars and the other
-    // mods' cars.
+    // Rush 2's cars, the PlayStation SF Rush mod's (SF Rush's own cars), the 2049 cars, the arcade car mod's (2049's
+    // arcade cars), then the Cal Speed cars and the other mods' cars.
     std::vector<int> order;
     for (int type = 0; type < first_type; type++) order.push_back(type);
+    for (int type = rush2::car_types::first_mod; type < types; type++) {
+        if (mod_car_from_sfrush(type)) order.push_back(type);
+    }
     for (int type = first_type; type < types; type++) {
         if (!rush2::car_types::is_mod(type) && is_2049(type)) order.push_back(type);
     }
@@ -2266,7 +2387,9 @@ std::vector<int> rush2::car2049::list_order() {
         if (mod_car_from_2049(type)) order.push_back(type);
     }
     for (int type = first_type; type < types; type++) {
-        if (rush2::car_types::is_mod(type) ? !mod_car_from_2049(type) : !is_2049(type)) order.push_back(type);
+        if (rush2::car_types::is_mod(type) ? !mod_car_from_2049(type) && !mod_car_from_sfrush(type) : !is_2049(type)) {
+            order.push_back(type);
+        }
     }
     return order;
 }

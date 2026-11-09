@@ -32,6 +32,7 @@
 #include <cstring>
 #include <unordered_map>
 
+#include "car2049.h"
 #include "recomp.h"
 #include "calspeed.h"
 #include "car_types.h"
@@ -222,6 +223,11 @@ extern "C" void rush2_surface_wheel_fallback(uint8_t* rdram, recomp_context* ctx
 extern "C" void rush2_surface_particle(uint8_t* rdram, recomp_context* ctx) {
     int wheel = (int)(int32_t)ctx->r16;
     if (wheel < 0 || wheel > 3) return;
+    // A mod car whose wheels throw nothing ("no_wheel_dust", the PS1 SF Rush UFO): as a wheel too slow to throw.
+    if (rush2::car2049::mod_car_dust_hidden(MEM_BU((int32_t)car_type, (int32_t)((uint32_t)ctx->r14 - 2 * uint32_t(wheel))))) {
+        ctx->r21 = 0;
+        return;
+    }
     const Rules* rules = active(rdram);
     if (rules == nullptr) return;
     int m = source(rdram, *rules, (uint32_t)ctx->r14);
@@ -237,6 +243,11 @@ extern "C" void rush2_surface_particle(uint8_t* rdram, recomp_context* ctx) {
 // tire_mark_update_800823B0 at 0x80082408: $t9 = whether a skidding wheel lays a mark (Rush 2: material 0), $t8 = car +
 // 2 x wheel.
 extern "C" void rush2_surface_mark_rule(uint8_t* rdram, recomp_context* ctx) {
+    // A mod car whose wheels lay no marks ("no_skid_marks", the PS1 SF Rush UFO). $v0 = the physics car.
+    if (rush2::car2049::mod_car_marks_hidden(MEM_BU((int32_t)car_type, (int32_t)(uint32_t)ctx->r2))) {
+        ctx->r25 = 0;
+        return;
+    }
     const Rules* rules = active(rdram);
     if (rules == nullptr) return;
     int m = source(rdram, *rules, (uint32_t)ctx->r24);
