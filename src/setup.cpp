@@ -78,6 +78,7 @@ namespace {
               "Respawns start in 1st gear (manual gearbox)" },
             { Cfg::General, "hide_respawning_cars", false, true, 0 },
             { Cfg::General, "drone_catch_up", true, true, 0 },
+            { Cfg::General, "unlocked_car_opponents", false, false, 0 },
             { Cfg::Graphics, "sky_fog", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2, "The sky isn't fogged",
               "The fog fades into the sky toward the horizon" },
             { Cfg::General, "default_steering", static_cast<uint32_t>(SteeringResponse::Original),

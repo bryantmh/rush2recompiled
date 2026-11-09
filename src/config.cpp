@@ -834,6 +834,28 @@ static void add_catch_up_option(recomp::config::Config& config) {
         });
 }
 
+namespace unlocked_opponents_option {
+    const std::string id = "unlocked_car_opponents";
+}
+
+// Unlocked Cars as Opponents: the computer cars' random car also draws from the hidden Rush 2 cars (TAXI to DEW) the
+// car select offered for the race (src/npc_cars.cpp, src/rush2049/car2049.cpp rush2_car49_drone).
+static void add_unlocked_opponents_option(recomp::config::Config& config) {
+    config.add_bool_option(
+        unlocked_opponents_option::id,
+        "Unlocked Cars as Opponents",
+        "The computer cars can also race the hidden Rush 2 cars (Taxi, Hot Rod, Formula, Prototype, Rocket and Mountain "
+        "Dew) that you have unlocked for the race. Off, as in Rush 2, they only race the 16 starting cars. Not used "
+        "in online races. Takes effect at the next race.",
+        false
+    );
+
+    config.add_option_change_callback(unlocked_opponents_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::npc_cars::set_unlocked_opponents(std::get<bool>(cur_value));
+        });
+}
+
 namespace torque_option {
     const std::string id = "torque_rebalance";
 }
@@ -1028,7 +1050,8 @@ void rush2::init_config() {
         // so showing one moves nothing in the others.
         create_ordered_tab(general::tab_name, "rush2_general", general::id, 3, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, pause_extras_option::id } },
+                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, unlocked_opponents_option::id,
+                            pause_extras_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
             { "Circuits", { circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id }, true },
             { "Other", { ghost_option::id, ghosts_kept_option::id, rush2::game_filter::option_id() } },
@@ -1085,6 +1108,7 @@ void rush2::init_config() {
     add_attract_camera_option(general_config);
     add_look_back_option(general_config);
     add_catch_up_option(general_config);
+    add_unlocked_opponents_option(general_config);
     add_pause_extras_option(general_config);
     rush2::game_filter::add_option(general_config);
     rush2::touch::add_option(general_config);
@@ -1176,6 +1200,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(look_back_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
+    rush2::npc_cars::set_unlocked_opponents(std::get<bool>(
+        recompui::config::get_general_config().get_option_value(unlocked_opponents_option::id)));
     rush2::game_filter::apply(std::get<bool>(
         recompui::config::get_general_config().get_option_value(rush2::game_filter::option_id())));
     rush2::touch::apply(static_cast<rush2::touch::Mode>(std::get<uint32_t>(

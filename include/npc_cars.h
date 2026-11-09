@@ -1,8 +1,10 @@
 #ifndef __NPC_CARS_H__
 #define __NPC_CARS_H__
 
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <vector>
 
 namespace recompui {
     class Element;
@@ -34,6 +36,15 @@ namespace rush2::npc_cars {
     extern const char* const description;
     // Drone Cheating: off, the drones' pace no longer depends on the gap to the cars around them.
     void set_catch_up(bool enabled);
+    // Unlocked Cars as Opponents: on, the drones' random car also draws from the hidden Rush 2 cars (types 16-21)
+    // the car select offered for the race.
+    void set_unlocked_opponents(bool enabled);
+    // Game thread, from the car select's car lists (src/cheats.cpp, after the unlock rules): bit t set for each
+    // hidden Rush 2 car type t (16-21) any player was offered.
+    void set_offered_cars(uint32_t mask);
+    // Game thread, from the drone car draw (src/rush2049/car2049.cpp): the hidden Rush 2 car types the drones may
+    // draw this race (none with the option off, in an online race, or before a car select).
+    std::vector<int> unlocked_opponent_types();
 
     // Game thread. Whether car type `type` can be raced now (Rush 2's, or 2049's while they are offered).
     bool type_available(int type);

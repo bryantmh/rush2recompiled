@@ -83,6 +83,18 @@ type's:
 func_80085FD0 is also used by the car select's previews (`$fp` a preview id there), so its hook only applies to the car
 func_80086CA4 (`race_load_car_assets`) is building (hook at `0x80086E0C`, before its call).
 
+## Unlocked cars as opponents
+
+Option (General > Gameplay, Unlocked Cars as Opponents, off by default). Rush 2 draws a drone's car from types 0-15
+only (`0x800A3AE8..0x800A3B98`). With the option on, the draw hook at `0x800A3B98` (`rush2_car49_drone`,
+src/rush2049/car2049.cpp, which also adds the Rush 2049 and California Speed cars) adds the hidden Rush 2 cars, 16 TAXI
+to 21 DEW, that the race's car select offered any player. The car select's lists are read in `rush2_cheats_car_list`
+(src/cheats.cpp) after the unlock rules have filtered them (Rush 2's keys and cans, the unlock system's purchases, the
+Unlock All Cars cheat) and before the game filter, so "unlocked" means what the car select offered for this race.
+A drone with a hidden car still goes through Rush 2's duplicate check and slot memory check (which steps a car that
+doesn't fit down to a smaller one). Online races leave the option out: each machine's profiles unlock different cars,
+and every machine has to draw the same ones.
+
 ## Drone catch-up
 
 Option (General > Gameplay, Drone Cheating, on by default). `rubber_band_800A1A98` gives each computer car (physics

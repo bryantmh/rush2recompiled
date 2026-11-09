@@ -70,6 +70,7 @@
 #include "calspeed.h"
 #include "car2049.h"
 #include "car_mods.h"
+#include "npc_cars.h"
 #include "prewarm.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
@@ -925,5 +926,17 @@ extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
         }
         rush2::unlocks::filter_car_list(rdram, p);
     }
+    // The hidden Rush 2 cars offered, for Unlocked Cars as Opponents (before the game filter, which only hides cars).
+    uint32_t offered = 0;
+    for (int p = 0; p < players; p++) {
+        int size = (int16_t)MEM_H(0, (int32_t)(car_list_size + 2 * p));
+        for (int i = 0; i < size; i++) {
+            int type = MEM_BU(0, (int32_t)(car_list + 2 * i + p));
+            if (type >= 16 && type <= 21) {
+                offered |= 1u << type;
+            }
+        }
+    }
+    rush2::npc_cars::set_offered_cars(offered);
     rush2::game_filter::filter_car_lists(rdram, players);
 }

@@ -59,6 +59,8 @@ namespace {
     using rush2::npc_cars::count;
 
     std::atomic<bool> drone_catch_up = true;
+    std::atomic<bool> unlocked_opponents = false;
+    uint32_t offered_cars = 0;  // Game thread: hidden Rush 2 types (bit t) the last car select offered.
 
     constexpr uint32_t cars = 0x800F5470;           // physics cars, 0x81C each
     constexpr uint32_t car_size = 0x81C;
@@ -631,4 +633,29 @@ extern "C" void rush2_drone_catch_up(uint8_t* rdram, recomp_context* ctx) {
 
 void rush2::npc_cars::set_catch_up(bool enabled) {
     drone_catch_up.store(enabled, std::memory_order_relaxed);
+}
+
+void rush2::npc_cars::set_unlocked_opponents(bool enabled) {
+    unlocked_opponents.store(enabled, std::memory_order_relaxed);
+}
+
+void rush2::npc_cars::set_offered_cars(uint32_t mask) {
+    offered_cars = mask;
+}
+
+// The hidden Rush 2 cars (16 TAXI to 21 DEW) are "unlocked" when the race's car select listed them for any player:
+// that list already follows Rush 2's keys and cans, the unlock system's purchases and the Unlock All Cars cheat
+// (rush2_cheats_car_list). Online races leave them out, since each machine's profiles offer different cars and every
+// machine has to draw the same ones.
+std::vector<int> rush2::npc_cars::unlocked_opponent_types() {
+    std::vector<int> types;
+    if (!unlocked_opponents.load(std::memory_order_relaxed) || rush2::online::game::in_race()) {
+        return types;
+    }
+    for (int t = 16; t <= 21; t++) {
+        if (offered_cars & (1u << t)) {
+            types.push_back(t);
+        }
+    }
+    return types;
 }

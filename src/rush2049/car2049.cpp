@@ -42,6 +42,7 @@
 #include "car_probes.h"
 #include "engine2049.h"
 #include "font2049.h"
+#include "npc_cars.h"
 #include "online.h"
 #include "online_sync.h"
 #include "rush2049_dc.h"
@@ -3233,7 +3234,9 @@ extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
         ? (DroneCars)drone_cars.load() : DroneCars::Off;
     DroneCars modecs = rush2::calspeed::cars_available() && online::game::race_has_game(online::games_calspeed)
         ? rush2::calspeed::drone_cars() : DroneCars::Off;
-    if (mode49 == DroneCars::Off && modecs == DroneCars::Off) {
+    // Unlocked Cars as Opponents (src/npc_cars.cpp): the hidden Rush 2 cars the car select offered join Rush 2's 16.
+    std::vector<int> hidden = rush2::npc_cars::unlocked_opponent_types();
+    if (mode49 == DroneCars::Off && modecs == DroneCars::Off && hidden.empty()) {
         return;
     }
     // The raced track: each game's own (its race_track) in the host slot.
@@ -3253,16 +3256,21 @@ extern "C" void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx) {
         add(rush2::car_types::first_calspeed, rush2::car_types::count_calspeed);
     }
     else {
-        if (mode49 != DroneCars::AllTracks && modecs != DroneCars::AllTracks) {
+        if (mode49 != DroneCars::AllTracks && modecs != DroneCars::AllTracks && hidden.empty()) {
             return;
         }
         add(0, rush2_drone_types);
+        pool.insert(pool.end(), hidden.begin(), hidden.end());
         if (mode49 == DroneCars::AllTracks) add(first_type, car_count);
         if (modecs == DroneCars::AllTracks) add(rush2::car_types::first_calspeed, rush2::car_types::count_calspeed);
     }
     uint32_t seed = (uint32_t)ctx->r4;
     uint32_t draw = (seed >> 16) & 0x7FFF;
     ctx->r15 = (uint64_t)pool[draw * uint32_t(pool.size()) / 32768];
+    if (!hidden.empty()) {
+        printf("[npc] Drone car draw: type %d from %zu cars (%zu unlocked Rush 2 cars)\n", (int)ctx->r15, pool.size(),
+               hidden.size());
+    }
 }
 
 // Start of func_8005CFB0, the per-frame callback of each race car ($a0 = its callback entry, car index at +0xE).
