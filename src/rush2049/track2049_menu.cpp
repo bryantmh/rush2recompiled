@@ -59,6 +59,7 @@
 #include "util/file.h"
 
 #include "arcade2049.h"
+#include "sfrush_ps1.h"
 #include "data_files.h"
 #include "game_filter.h"
 #include "rush2_hooks.h"
@@ -949,8 +950,7 @@ namespace {
     // The order the track select lists its entries in: every id 0-254 once. Ids stay what saves and races use; only the
     // carousel follows this order (rush2_track49_select_count, _carousel_order, _step). Custom tracks with a track.toml
     // [menu] after are moved behind the last entry of that game on their own select (race, stunt or battle), or behind
-    // the custom track of that folder; several behind one anchor keep the mod order. The others stay in id order
-    // (38-63 before the Cal Speed tracks, 80-248 after them).
+    // the custom track of that folder; several behind one anchor keep the mod order. The others go by game, then id.
     std::vector<int> display_order;
 
     bool anchor_game(const std::string& name, rush2::game_filter::Game& out) {
@@ -966,6 +966,12 @@ namespace {
     void build_order(const std::vector<rush2::track_mod::Entry>& entries) {
         display_order.clear();
         for (int t = 0; t < menu_tracks; t++) display_order.push_back(t);
+        // Grouped by game (rush2::game_filter::display_rank: SF Rush, Rush 2, Rush 2049, California Speed, custom), id
+        // order within a game. The app's arcade and PlayStation tracks count as their game's (mod_arcade, set first).
+        std::stable_sort(display_order.begin(), display_order.end(), [](int a, int b) {
+            return rush2::game_filter::display_rank(rush2::game_filter::track_game(a)) <
+                   rush2::game_filter::display_rank(rush2::game_filter::track_game(b));
+        });
         size_t n = std::min(entries.size(), size_t(mod_capacity));
         std::vector<bool> placed(n);
         for (size_t i = 0; i < n; i++) placed[i] = entries[i].settings.menu_after.empty();
@@ -1054,7 +1060,10 @@ namespace {
         mod_types.clear();
         for (size_t i = 0; i < size_t(mod_capacity); i++) {
             const std::string id = i < entries.size() ? entries[i].mod_id : std::string();
-            mod_arcade[i] = id == rush2::arcade2049::track_mod_id ? 1 : id == rush2::arcade2049::sfrush_track_mod_id ? 2 : 0;
+            // The PlayStation SF Rush mod's track (its track 4, Chinatown) is SF Rush content too.
+            mod_arcade[i] = id == rush2::arcade2049::track_mod_id ? 1
+                            : id == rush2::arcade2049::sfrush_track_mod_id || id == rush2::sfrush_ps1::mod_id ? 2
+                                                                                                         : 0;
         }
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));

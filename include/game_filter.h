@@ -34,6 +34,17 @@ namespace rush2::game_filter {
     Game track_game(int t);
     Game car_game(int type);
 
+    // Where a game's tracks and cars are listed on the selects: SF Rush, Rush 2, Rush 2049, California Speed, custom.
+    constexpr int display_rank(Game g) {
+        switch (g) {
+        case Game::SFRush: return 0;
+        case Game::Rush2: return 1;
+        case Game::Rush2049: return 2;
+        case Game::CalSpeed: return 3;
+        default: return 4;
+        }
+    }
+
     // Whether the filter hides a game's tracks or cars.
     bool hidden(Screen s, Game g);
 

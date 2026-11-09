@@ -938,5 +938,17 @@ extern "C" void rush2_cheats_car_list(uint8_t* rdram, recomp_context* ctx) {
         }
     }
     rush2::npc_cars::set_offered_cars(offered);
+    // Grouped by game (game_filter::display_rank: SF Rush, Rush 2, Rush 2049, California Speed, custom), each game's
+    // cars in the order they were listed. The game lists Rush 2's own first, so the PlayStation SF Rush cars move ahead.
+    for (int p = 0; p < players; p++) {
+        int size = std::min<int>((int16_t)MEM_H(2 * p, (int32_t)car_list_size), rush2::car2049::types);
+        std::vector<int> types;
+        for (int i = 0; i < size; i++) types.push_back(MEM_BU(0, (int32_t)(car_list + 2 * i + p)));
+        std::stable_sort(types.begin(), types.end(), [](int a, int b) {
+            return rush2::game_filter::display_rank(rush2::game_filter::car_game(a)) <
+                   rush2::game_filter::display_rank(rush2::game_filter::car_game(b));
+        });
+        for (int i = 0; i < size; i++) MEM_B(0, (int32_t)(car_list + 2 * i + p)) = (int8_t)types[size_t(i)];
+    }
     rush2::game_filter::filter_car_lists(rdram, players);
 }
