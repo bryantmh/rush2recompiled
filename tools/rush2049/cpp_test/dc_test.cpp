@@ -2,6 +2,7 @@
 // so tools/rush2049 can compare them with the N64 ROM's (dc_check.py).
 //   dc_test.exe IMAGE PACK OUTDIR [N64 file indices...]   (no indices: all files the disc converts)
 //   dc_test.exe n64 ROM OUTDIR indices...                 (the N64 ROM's own files, decompressed, to compare)
+//   dc_test.exe chd IMAGE.chd                             (a .chd's tracks as include/chd_image.h reads them)
 // Build with dc_build.bat.
 
 #include <algorithm>
@@ -10,6 +11,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+
+#include "chd_image.h"
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -126,6 +129,26 @@ namespace {
 }
 
 int main(int argc, char** argv) {
+    if (argc >= 3 && std::string(argv[1]) == "chd") {
+        rush2::chd::Image image;
+        if (!image.open(std::filesystem::u8path(argv[2]))) {
+            fprintf(stderr, "can't read %s\n", argv[2]);
+            return 1;
+        }
+        printf("%s\n", image.gdrom() ? "GD-ROM" : "CD");
+        for (const rush2::chd::Track& t : image.tracks()) {
+            printf("track %d %s lba %u frames %u chd frame %u header %u\n", t.number, t.type.c_str(), t.lba, t.frames,
+                   t.chd_frame, t.header);
+            // A data track's first and last sector's first bytes (tmp test images put "LBA=n" there).
+            for (uint32_t f : { t.chd_frame, t.chd_frame + t.frames - 1 }) {
+                uint8_t frame[rush2::chd::frame_size];
+                if (!t.audio && t.frames > 0 && image.read_frame(f, frame)) {
+                    printf("  frame %u: %.12s\n", f, (const char*)frame + t.header);
+                }
+            }
+        }
+        return 0;
+    }
     if (argc >= 5 && std::string(argv[1]) == "track") return test_tracks(argc, argv);
     if (argc >= 4 && std::string(argv[1]) == "audio") return test_audio(argv);
     if (argc >= 5 && std::string(argv[1]) == "n64") {

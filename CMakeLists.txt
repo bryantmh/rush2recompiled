@@ -89,6 +89,15 @@ set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
 set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/miniupnp/miniupnpc ${CMAKE_BINARY_DIR}/miniupnpc)
 
+# CHD disc images (src/chd_image.cpp). libchdr decompresses with the zstd and miniz already built rather than its own
+# copies, which would clash with them at link time: zstd is rt64's (as a "system" zstd: cmake/zstd/zstdConfig.cmake),
+# and the existing "miniz" target (N64ModernRuntime's miniz 3.0) stands in for libchdr's miniz 3.1.2, whose
+# tinfl_decompressor (all libchdr uses) is the same.
+set(CHDR_WANT_TESTS OFF CACHE BOOL "" FORCE)
+set(WITH_SYSTEM_ZSTD ON CACHE BOOL "" FORCE)
+set(zstd_DIR ${CMAKE_SOURCE_DIR}/cmake/zstd CACHE PATH "" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/libchdr ${CMAKE_BINARY_DIR}/libchdr EXCLUDE_FROM_ALL)
+
 target_include_directories(rt64 PRIVATE ${CMAKE_BINARY_DIR}/rt64/src)
 
 # imgui trips -Wuninitialized-const-pointer, which recent clang treats as an error.
@@ -186,6 +195,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_install.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_checkpoints.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_collectibles.cpp
+    ${CMAKE_SOURCE_DIR}/src/chd_image.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_disc.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_track.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_cars.cpp
@@ -444,6 +454,7 @@ target_link_libraries(Rush2Recompiled PRIVATE
     recompinput
     librecomp
     ultramodern
+    chdr-static
     rt64
     nfd
 )

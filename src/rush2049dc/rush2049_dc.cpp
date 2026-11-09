@@ -2,8 +2,8 @@
 // docs/rush2049_research/dreamcast.md.
 //
 // Disc images: a .cdi (DiscJuggler) or .iso is one file of sectors; a .gdi or .cue lists the tracks, each its own
-// file (a .cue may also put every track in one file). Sectors are 2048 bytes of data, 2336 (8-byte mode 2 subheader
-// first) or 2352 (raw, 16-byte mode 1 or 24-byte mode 2 header). The game is an ISO 9660 volume whose primary volume
+// file (a .cue may also put every track in one file); a .chd is a compressed .gdi or .cue (open_chd). Sectors are
+// 2048 bytes of data, 2336 (8-byte mode 2 subheader first) or 2352 (raw, 16-byte mode 1 or 24-byte mode 2 header). The game is an ISO 9660 volume whose primary volume
 // descriptor ("\1CD001" at logical sector 16) is found by scanning; the first volume holding 1ST_READ.BIN, TRACK1.LZS
 // and SELTRK.LZS with every file inside the image is the game's (a self-booting .cdi keeps a second copy of the
 // directory whose files lie past the end of the image). Its sector numbers may count from the track or from the
@@ -26,6 +26,7 @@
 #include <mutex>
 #include <set>
 
+#include "chd_image.h"
 #include "rush2049_dc.h"
 #include "rush2049_dc_internal.h"
 #include "track_cache.h"
@@ -60,6 +61,9 @@ namespace {
         uint32_t sector_size = 2048;
         uint32_t header = 0;      // Bytes before a sector's 2048 bytes of data.
         uint64_t sectors = 0;
+        // A .chd's track instead of a file (include/chd_image.h): sector start_lba is CHD frame chd_frame.
+        std::shared_ptr<const rush2::chd::Image> chd;
+        uint32_t chd_frame = 0;
     };
 
     class Disc {
@@ -82,6 +86,14 @@ namespace {
                 }
                 // Runs of sectors in the same track with 2048-byte sectors are read in one go.
                 uint32_t run = 1;
+                if (t->chd) {
+                    uint8_t frame[rush2::chd::frame_size];
+                    if (!t->chd->read_frame(t->chd_frame + (lba + i - t->start_lba), frame)) {
+                        return false;
+                    }
+                    memcpy(&out[at + size_t(i) * 2048], frame + t->header, 2048);
+                    continue;
+                }
                 if (t->sector_size == 2048) {
                     run = (uint32_t)std::min<uint64_t>(count - i, t->start_lba + t->sectors - (lba + i));
                     t->file->seekg((std::streamoff)(t->file_offset + uint64_t(lba + i - t->start_lba) * 2048));
@@ -185,10 +197,11 @@ namespace {
     // sector numbers count either from that track (our USA .cdi) or from where the track sits on the disc: 45000 for
     // a GD-ROM's track 3 saved as an .iso, the second session's start (often 11702) for a self-boot CD-R. That
     // offset is found from the root directory, whose "." record holds its own sector number.
-    bool try_track(const std::shared_ptr<std::ifstream>& file, uint64_t start, uint64_t sectors, Layout l, Disc& disc,
-            std::map<std::string, Entry>& files) {
+    // `track` is the track with start_lba 0.
+    bool try_track(const Track& track, Disc& disc, std::map<std::string, Entry>& files) {
+        uint64_t sectors = track.sectors;
         Disc d;
-        d.tracks.push_back({ file, 0, start, l.size, l.header, sectors });
+        d.tracks.push_back(track);
         std::vector<uint8_t> pvd;
         if (!d.read(16, 1, pvd) || pvd[0] != 1 || memcmp(&pvd[1], "CD001", 5) != 0) {
             return false;
@@ -241,7 +254,7 @@ namespace {
                         continue;
                     }
                     uint64_t base = (pos - l.header) / l.size - 16;
-                    if (try_track(file, base * l.size, (size - base * l.size) / l.size, l, disc, files)) {
+                    if (try_track({ file, 0, base * l.size, l.size, l.header, (size - base * l.size) / l.size }, disc, files)) {
                         return true;
                     }
                 }
@@ -419,6 +432,38 @@ namespace {
             disc = std::move(d);
             files = std::move(f);
             return true;
+        }
+        return false;
+    }
+
+    // A .chd (chdman's conversion of a .gdi or .cue; include/chd_image.h). A GD-ROM's data tracks are put at their
+    // sector numbers and the volume is read like a .gdi's; failing that (a CD, a self-boot copy), each data track is
+    // searched like a .cdi's, its sector numbers found from its root directory.
+    bool open_chd(const fs::path& path, Disc& disc, std::map<std::string, Entry>& files) {
+        auto image = std::make_shared<rush2::chd::Image>();
+        if (!image->open(path)) {
+            return false;
+        }
+        if (image->gdrom()) {
+            Disc d;
+            for (const rush2::chd::Track& t : image->tracks()) {
+                if (!t.audio) {
+                    Track track{ nullptr, t.lba, 0, rush2::chd::frame_size, t.header, t.frames, image, t.chd_frame };
+                    d.tracks.push_back(track);
+                }
+            }
+            std::map<std::string, Entry> f;
+            if (read_volume(d, 45000 + 16, f) && is_game_volume(d, f)) {
+                disc = std::move(d);
+                files = std::move(f);
+                return true;
+            }
+        }
+        for (const rush2::chd::Track& t : image->tracks()) {
+            if (!t.audio && try_track({ nullptr, 0, 0, rush2::chd::frame_size, t.header, t.frames, image, t.chd_frame },
+                    disc, files)) {
+                return true;
+            }
         }
         return false;
     }
@@ -783,7 +828,7 @@ bool rush2::rom2049::dc::Files::get(const std::string& name, std::vector<uint8_t
 
 bool rush2::rom2049::dc::is_disc_image(const fs::path& path) {
     std::string ext = upper(path.extension().string());
-    return ext == ".CDI" || ext == ".GDI" || ext == ".ISO" || ext == ".CUE";
+    return ext == ".CDI" || ext == ".GDI" || ext == ".ISO" || ext == ".CUE" || ext == ".CHD";
 }
 
 ImportResult rush2::rom2049::dc::import(const fs::path& image, const fs::path& pack) {
@@ -798,6 +843,7 @@ ImportResult rush2::rom2049::dc::import(const fs::path& image, const fs::path& p
     }
     bool found = ext == ".GDI" ? open_gdi(image, disc, files)
         : ext == ".CUE" ? open_cue(image, disc, files)
+        : ext == ".CHD" ? open_chd(image, disc, files)
         : open_single_file(image, disc, files);
     if (!found) {
         return ImportResult::WrongGame;

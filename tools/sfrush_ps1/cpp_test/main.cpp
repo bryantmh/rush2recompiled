@@ -2,7 +2,7 @@
 // output can be checked (tools/track_mod_test.bat, tools/track_mod_check.py, tools/glb_view.py) without a game run.
 // Built and run by tools/sfrush_ps1/cpp_test/build.bat:
 //
-//   build.bat [OUT_DIR] [DISC]   (OUT_DIR default tmp/ps1/cpp; DISC the .cue or data track .bin, default
+//   build.bat [OUT_DIR] [DISC]   (OUT_DIR default tmp/ps1/cpp; DISC any image ps1_disc.cpp reads, default
 //                                 SFRUSH_PS1_DISC)
 //
 // Writes OUT_DIR/sfrush_ps1/ and prints the converter's log and time.

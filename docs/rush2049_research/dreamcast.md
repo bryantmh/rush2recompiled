@@ -5,7 +5,7 @@ Tags: **[V]** verified in data or code, **[I]** inferred. Addresses `0x8C......`
 
 ## Status
 
-The Games tab takes a Dreamcast disc image (.cdi, .gdi, .cue, .iso; USA disc only) in place of the N64 ROM. Its files are
+The Games tab takes a Dreamcast disc image (.cdi, .gdi, .cue, .iso, .chd; USA disc only) in place of the N64 ROM. Its files are
 copied into `rush2049_dc.pak` in the app folder; the N64 ROM's copy (`rush2049.z64`) is kept too. With both there, the
 Games tab's Enabled Source option (`rush2049_enabled_source`: N64, Dreamcast or Both, default Both; added
 2026-11-05) says which the game may use, and with Both the Primary Source option (`rush2049_source`, named Rush 2049
@@ -53,7 +53,12 @@ other rips count from the disc's start (45000 for a GD track 3 saved as .iso, of
 session), found from the root directory's "." record, which holds its own sector number. CD-R self-boot copies may keep
 `1ST_READ.BIN` scrambled (the boot ROM unscrambles it from a CD); the import unscrambles it (Comstedt's scramble.c) and
 stores it plain. `tools/rush2049/dc_variants.py` writes the USA .cdi in each of these layouts (plus .gdi and Redump
-.cue) for `dc_test.exe` to import offline. The pack is
+.cue) for `dc_test.exe` to import offline. A .chd (chdman's conversion of a .gdi or .cue; `src/chd_image.cpp` over
+libchdr) is read by `open_chd`: a GD-ROM's (CHGD metadata) data tracks go at their sector numbers, track 3 at 45000 and
+each later track after the one before (chdman's GD `FRAMES` already runs up to the next track: `PAD` is the blank frames
+it added after the .gdi file, not the CHD's padding to 4 frames), then the volume is read like a .gdi's; a CD .chd's
+data tracks are searched like a .cdi. `dc_test.exe chd FILE` lists a .chd's tracks as read. The CHDs of the Redump .cue
+and the self-boot .cue import to packs identical to the .cue's. The pack is
 `"R49DCPAK"`, u32 version, entries `{name, u64 offset, u64 size, u32 kind}`; kind 0 is the file as stored (.LZS stays
 compressed, same LZ as the N64's), kind 1 a song re-encoded as IMA ADPCM (block_samples 8192 per channel, 4-byte
 header per block). `known_executable` probes four table addresses so only the disc this map was made for is accepted.

@@ -1,18 +1,23 @@
 // The PlayStation SF Rush disc reader (docs/sfrush_ps1.md#disc; tools/sfrush_ps1/ps1.py is the Python version): the
 // data track is MODE2/2352 (2048 bytes of data at +24 in each 2352-byte sector) with an ISO 9660 file system.
+// Images: a .cue and its .bin files, a CloneCD .ccd/.img (the .img is the whole disc in raw sectors, the .ccd lists
+// its tracks), a .chd (chdman's compressed .cue; include/chd_image.h), or the data track alone. A data track file's
+// sector layout is found from where the volume descriptor ("\1CD001" at sector 16) sits: raw 2352 (+24, or +16 for a
+// MODE1 rip), 2048 (an .iso, which keeps no music) or 2336 (+8).
 
 #include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <fstream>
 
+#include "chd_image.h"
 #include "sfrush_ps1.h"
 #include "texture_upscale.h"
 
 namespace ps1 = rush2::sfrush_ps1;
 
 namespace {
-    constexpr uint32_t sector_size = 2352, data_offset = 24, data_size = 2048;
+    constexpr uint32_t raw_sector = 2352, data_size = 2048;
 
     uint32_t u32(const uint8_t* p) { return p[0] | p[1] << 8 | p[2] << 16 | uint32_t(p[3]) << 24; }
 
@@ -34,12 +39,31 @@ namespace {
         }
         return {};
     }
+
+    // The file next to `path` with its name and extension `ext` (upper case; any case matches), or empty.
+    std::filesystem::path sibling(const std::filesystem::path& path, const char* ext) {
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(path.parent_path(), ec)) {
+            if (e.path().stem() == path.stem() && upper(e.path().extension().string()) == ext) return e.path();
+        }
+        return {};
+    }
 }
 
 bool ps1::Disc::read_sectors(uint32_t lba, uint32_t size, std::vector<uint8_t>& out) const {
+    out.resize(size);
+    if (chd) {
+        uint8_t frame[rush2::chd::frame_size];
+        for (uint32_t done = 0; done < size; lba++) {
+            if (!chd->read_frame(chd_frame + lba, frame)) return false;
+            uint32_t n = std::min(data_size, size - done);
+            std::memcpy(out.data() + done, frame + data_offset, n);
+            done += n;
+        }
+        return true;
+    }
     std::ifstream f(bin, std::ios::binary);
     if (!f) return false;
-    out.resize(size);
     for (uint32_t done = 0; done < size; lba++) {
         f.seekg(std::streamoff(lba) * sector_size + data_offset);
         uint32_t n = std::min(data_size, size - done);
@@ -80,16 +104,54 @@ bool ps1::Disc::walk(uint32_t lba, uint32_t size, const std::string& path, int d
 
 bool ps1::Disc::open(const std::filesystem::path& path, std::string& error) {
     files.clear();
+    chd.reset();
+    chd_frame = 0;
     std::string ext = upper(rush2::upscale::path_utf8(path.extension()));
-    bin = ext == ".CUE" ? cue_track(path) : path;
-    if (bin.empty()) {
-        error = "the .cue names no data track";
-        return false;
-    }
+    auto is_volume = [](const std::vector<uint8_t>& pvd) {
+        return pvd.size() >= 6 && pvd[0] == 1 && std::memcmp(pvd.data() + 1, "CD001", 5) == 0;
+    };
     std::vector<uint8_t> pvd;
-    if (!read_sectors(16, data_size, pvd) || pvd[0] != 1 || std::memcmp(pvd.data() + 1, "CD001", 5) != 0) {
-        error = "not a PlayStation data track (MODE2/2352)";
-        return false;
+    if (ext == ".CHD") {
+        auto image = std::make_shared<rush2::chd::Image>();
+        if (!image->open(path)) {
+            error = "the .chd couldn't be read";
+            return false;
+        }
+        auto data = std::find_if(image->tracks().begin(), image->tracks().end(), [](const auto& t) { return !t.audio; });
+        if (data == image->tracks().end()) {
+            error = "the .chd has no data track";
+            return false;
+        }
+        bin = path;
+        sector_size = raw_sector;
+        data_offset = data->header;
+        chd_frame = data->chd_frame;
+        chd = image;
+        if (!read_sectors(16, data_size, pvd) || !is_volume(pvd)) {
+            error = "the .chd's data track holds no CD file system";
+            return false;
+        }
+    }
+    else {
+        bin = ext == ".CUE" ? cue_track(path) : ext == ".CCD" ? sibling(path, ".IMG") : path;
+        if (bin.empty()) {
+            error = ext == ".CCD" ? "no .img next to the .ccd" : "the .cue names no data track";
+            return false;
+        }
+        static constexpr std::pair<uint32_t, uint32_t> layouts[] = { { 2352, 24 }, { 2048, 0 }, { 2336, 8 }, { 2352, 16 } };
+        bool found = false;
+        for (auto [size, offset] : layouts) {
+            sector_size = size;
+            data_offset = offset;
+            if (read_sectors(16, data_size, pvd) && is_volume(pvd)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            error = "not a CD data track";
+            return false;
+        }
     }
     const uint8_t* root = pvd.data() + 156;
     if (!walk(u32(root + 2), u32(root + 10), "", 0) || files.empty()) {

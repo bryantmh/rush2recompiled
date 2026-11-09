@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -14,13 +15,16 @@
 namespace rush2::ui {
     class OptionsPage;
 }
+namespace rush2::chd {
+    class Image;
+}
 
 // The PlayStation San Francisco Rush's own content (src/sfrush_ps1/, docs/sfrush_ps1.md): the track and cars the N64
 // game doesn't have, built from the PS1 disc into one mod. The N64 ROM's content is never replaced: the disc adds only
 // what is its own, with or without the N64 ROM.
 //   - Track 4 (as the custom track "chinatown", listed after the SF Rush tracks)
 //   - Seven cars: STARSKY, JEEP, JETCAR, MINI, BBUS (the city bus), PIGGY (the police car) and the UFO
-// The Games tab picks the disc (.cue or its data track's .bin) and builds and installs the mod; a new build or another
+// The Games tab picks the disc (.cue, .ccd, .chd, .iso or the data track's .bin/.img) and builds and installs the mod; a new build or another
 // disc rebuilds it once at the next launch, as the arcade mods are (src/arcade2049/arcade_install.cpp).
 namespace rush2::sfrush_ps1 {
     inline constexpr const char* mod_id = "sfrush_ps1";
@@ -28,7 +32,8 @@ namespace rush2::sfrush_ps1 {
     // The disc's files by their path (upper case, '/' separated), read from the data track (MODE2/2352, ISO 9660).
     class Disc {
     public:
-        // `path`: the .cue (its first FILE is the data track) or the data track's .bin.
+        // `path`: the .cue (its first FILE is the data track), a CloneCD .ccd (its .img), a .chd (its first track), or
+        // the data track itself (.bin/.img raw 2352-byte sectors, .iso 2048, or 2336).
         bool open(const std::filesystem::path& path, std::string& error);
         bool read(const std::string& name, std::vector<uint8_t>& out) const;
         // A .DAT file split into the chunks its .SIZ lists (s32 sizes). `base` is the path without the extension.
@@ -37,7 +42,10 @@ namespace rush2::sfrush_ps1 {
         const std::filesystem::path& data_track() const { return bin; }
 
     private:
-        std::filesystem::path bin;
+        std::filesystem::path bin;                    // the data track's file (or the .chd)
+        uint32_t sector_size = 2352, data_offset = 24;
+        std::shared_ptr<const rush2::chd::Image> chd;  // a .chd's image; its first track starts at CHD frame chd_frame
+        uint32_t chd_frame = 0;
         std::map<std::string, std::pair<uint32_t, uint32_t>> files;   // name -> (first sector, size)
         bool read_sectors(uint32_t lba, uint32_t size, std::vector<uint8_t>& out) const;
         bool walk(uint32_t lba, uint32_t size, const std::string& path, int depth);

@@ -303,7 +303,7 @@ namespace {
                     recompui::message_box("Failed to open the disc image.");
                     break;
                 case ImportResult::NotADisc:
-                    recompui::message_box("This is not a Dreamcast disc image (.cdi, .gdi, .cue or .iso).");
+                    recompui::message_box("This is not a Dreamcast disc image (.cdi, .gdi, .cue, .chd or .iso).");
                     break;
                 case ImportResult::WrongGame:
                     recompui::message_box("This disc is not San Francisco Rush 2049.");

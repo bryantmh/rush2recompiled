@@ -201,7 +201,7 @@ namespace {
         "SF Rush tracks), and seven cars: Starsky, Jeep, Jet Car, Mini, City Bus, Police and the UFO. The N64 version's "
         "tracks and cars stay as they are; this adds to them, and works without the N64 ROM too.<br/><br/>"
         "Press <recomp-color primary>Select Disc</recomp-color> and pick the disc image of San Francisco Rush - Extreme "
-        "Racing (USA): its .cue, or the .bin of its first track. It installs as a mod, SF Rush PlayStation, which the "
+        "Racing (USA): its .cue, .chd or .ccd, or the first track's .bin, .img or .iso (an .iso has no music). It installs as a mod, SF Rush PlayStation, which the "
         "Mods menu can turn off. Building takes a second and you can keep playing; the track and cars show up the next "
         "time you're in the menus.";
 }
@@ -219,7 +219,7 @@ void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
             if (!success) return;
             if (!is_disc(path)) {
                 recompui::message_box("That isn't the PlayStation San Francisco Rush - Extreme Racing (USA) disc. Pick its "
-                                      ".cue file, or the .bin of its first track.");
+                                      ".cue, .chd or .ccd file, or the .bin, .img or .iso of its first track.");
                 return;
             }
             chosen_disc = path;
@@ -230,8 +230,8 @@ void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
     build->add_pressed_callback([]() {
         std::filesystem::path disc = disc_path();
         if (disc.empty()) {
-            recompui::message_box("Press Select Disc and pick the PlayStation San Francisco Rush disc's .cue file (or the "
-                                  ".bin of its first track).");
+            recompui::message_box("Press Select Disc and pick the PlayStation San Francisco Rush disc's .cue, .chd or .ccd "
+                                  "file (or the .bin, .img or .iso of its first track).");
             return;
         }
         start(disc);

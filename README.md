@@ -8,7 +8,7 @@ You need to bring your own copy of the game. Nothing from the original cartridge
 
 **Download:** the Windows build and the Linux AppImage are on the [Releases page](https://github.com/bryantmh/rush2recompiled/releases/latest). Every release lists what changed since the last one.
 
-Join the [Discord](https://discord.gg/nYfFAKMnyx) or watch the [YouTube video](https://youtu.be/Dd5F3HraMxA) introducing the project.
+Join the [Discord](https://discord.gg/nYfFAKMnyx) or watch the YouTube videos: the [introduction to the project](https://youtu.be/Dd5F3HraMxA) and [a follow-up video](https://youtu.be/G1nH34h8MZw).
 
 ## What you get
 
@@ -75,6 +75,7 @@ The arcade release of San Francisco Rush 2049 (Special Edition) had a track and 
 
 - **Arcade tracks.** The arcade's Alcatraz joins the track select, and Marina, Haight, Civic, Metro, Mission and Presidio each get an ARCADE version beside their N64 one: the version button (X, Square or J on the keyboard) on the track select switches between them. Their buildings, props, skies and road shapes come from the arcade game, so they look and drive a little differently from the N64 versions.
 - **Arcade cars.** The arcade's Truck, Deuce and Caddy join the car select, and the arcade-only color schemes for the 2049 cars show up as a STYLE row.
+- **Arcade music.** Each arcade track plays its own song from the arcade game.
 
 With the mods built, the Arcade Checkpoints option hangs the arcade's CHECKPOINT banner over every checkpoint on the N64 Rush 2049 tracks, which the N64 game leaves unmarked.
 
@@ -82,7 +83,15 @@ The mods are built from your own copy of the arcade game and aren't shared with 
 
 ### SF Rush arcade tracks
 
-The arcade release of San Francisco Rush (The Rock edition) has its own versions of all seven SF Rush tracks: the same layouts with much sharper textures and more detailed scenery. With its files unpacked by Project R, press Build and Install under SF Rush Arcade on the Games tab. Each course then gets an ARCADE version beside its N64 one: the version button (X, Square or J on the keyboard) on the track select switches between them.
+The arcade release of San Francisco Rush (The Rock edition) has its own versions of all seven SF Rush tracks: the same layouts with much sharper textures and more detailed scenery. With its files unpacked by Project R, press Build and Install under SF Rush Arcade on the Games tab. Each course then gets an ARCADE version beside its N64 one: the version button (X, Square or J on the keyboard) on the track select switches between them. The arcade's eight songs come with it and play on the SF Rush tracks along with the N64 songs.
+
+### SF Rush PlayStation
+
+The PlayStation release of San Francisco Rush has a track and cars the N64 version never got. Under SF Rush PlayStation on the Games tab, press Select Disc and pick your disc image (a .cue, .chd or .ccd, or the .bin, .img or .iso of its first track), then press Build and Install. You don't need the N64 SF Rush ROM for this. You get:
+
+- **Chinatown.** The PlayStation's own fourth track, through the Presidio, the MacArthur Tunnel, Chinatown and the Financial District. It's listed with the SF Rush tracks.
+- **Seven new cars.** Starsky, Jeep, Jet Car, Mini, City Bus, Police and the UFO join the car select with the SF Rush cars.
+- **The PlayStation music.** The disc's four CD audio songs play on the SF Rush tracks along with the N64 songs.
 
 ## What you need
 
@@ -92,6 +101,7 @@ The arcade release of San Francisco Rush (The Rock edition) has its own versions
 - Optional: a ROM of **San Francisco Rush 2049** to play its tracks, cars, arenas and more
 - Optional: a ROM of **San Francisco Rush: Extreme Racing** to play its tracks, music and more
 - Optional, experimental: a ROM of **California Speed** to play its tracks, cars and music
+- Optional: a disc image of the PlayStation **San Francisco Rush: Extreme Racing** (USA, SLUS-00505) to play its own track, cars and music
 
 Each game takes one exact ROM, the North American (USA) release, and other regions or versions are turned away. Check yours against these SHA-1 hashes (of the `.z64` file; `.n64` and `.v64` files of the same ROM work too):
 

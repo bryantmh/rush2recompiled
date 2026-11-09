@@ -38,6 +38,12 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 
 - **Supported disc:** San Francisco Rush - Extreme Racing (USA), SLUS-00505. A .cue with one MODE2/2352 data track
   and four CD audio tracks.
+- **Image formats** (`src/sfrush_ps1/ps1_disc.cpp`): a .cue (one .bin per track, or all in one), a CloneCD .ccd/.img
+  (the .img is the whole disc in raw sectors; the .ccd's `[TRACK n]` sections give `MODE=0` for audio and
+  `INDEX 1=<sector>` from the .img's start), a .chd (`include/chd_image.h`, shared with the Dreamcast disc), or the data
+  track alone (.bin/.img, or an .iso of 2048-byte sectors, which has no music). A data track file's sector layout is
+  found from where the volume descriptor sits: raw 2352 (+24, +16 for a MODE1 rip), 2048 or 2336 (+8). The mod's key
+  is the picked file's name, size and time, so a .cue-built install keeps its key. **[V]**
 - `SLUS_005.05` is the boot program; `EXE/RUSH.EXE` is the game (PS-X EXE, loaded at 0x80010000, size 0xA3000,
   entry 0x8008D794). **[V]**
 - File loads go through `func_8004AA58(name, size, 0, dest)`. **[V]**
