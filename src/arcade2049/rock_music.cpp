@@ -14,9 +14,12 @@
 //     half first (0x1402DD3E0).
 //   - Tables: 0xEFC963 semitone ratios (73), 0xEFC9AB cent ratios (457), 0xEFCB74 volume curve (256), 0xEFC8E3
 //     velocity curve (128), 0xEFCDB4 the pan lobe (130).
-//   - Sequencer (tick 0x14024EDB0, spawn 0x14024E810): 64-sample blocks at 22050 Hz; each block every track's
-//     counter runs down by its tempo and its script runs to the next note when it passes 0. Two dwords an instruction
-//     (opcode, operand; branches a third); opcodes below 0x80 are notes (0 a rest), the rest the table below.
+//   - Sequencer (tick 0x14024EDB0, spawn 0x14024E810): 250 ticks a second; each tick every track's counter runs
+//     down by its tempo and its script runs to the next note when it passes 0. Two dwords an instruction (opcode,
+//     operand; branches a third); opcodes below 0x80 are notes (0 a rest), the rest the table below. ProjectR ticks
+//     once per 64-sample block (344.5 a second), which plays every song 1.378x too fast: the songs' phrase samples
+//     (22050 Hz, in tune at that rate) last exactly a whole note at 250 ticks (88.2 samples a tick), e.g. Sunset's
+//     3.2 s drum loop is two whole notes of 400 ticks.
 //   - Voices (0x14024B2D0, render 0x1402DDBA0): linear interpolation, rate = semitone x cents x the sample's rate,
 //     level = velocity x volume x envelope, panned by the lobe as ProjectR's stereo mix does (0x14024AA20).
 // Effects the songs barely use (vibrato, the 0xA4 / 0x97 modulation, reverb sends, portamento) aren't ported.
@@ -36,6 +39,7 @@ namespace {
     constexpr size_t rom_dwords = 0x200000;     // 8 MB
     constexpr int block = 64;
     constexpr uint32_t sample_rate = 22050;
+    constexpr uint32_t tick_rate = 250;     // sequencer ticks a second (see the top)
     constexpr int64_t forever = 0x7FFFFFFF;
 
     struct Record {
@@ -91,7 +95,7 @@ namespace {
     // The race tracks' songs, by TRACKn (n - 1): the game's per-track starter (project-r.exe 0x1402303A0, its table
     // 0x14065B626: sound calls 0x8052, 0x8050, 0x8056, 0x80D8, 0x8054, 0x8058, 0x805A) through the call table
     // 0x1406E4200 to these commands. TRACK4 (The Rock) has the one call out of the run. Command 29 (TRACK5) plays the
-    // same scores as command 3. The other music commands aren't race songs: 37 (17 s) and 61 (112 s) play once.
+    // same scores as command 3. The other music commands aren't race songs: 37 (23 s) and 61 (154 s) play once.
     const SongDef song_defs[] = {
         { 27, { { 0xEFA0E5, 195, 1 }, { 0xEFA12B, 120, 2 }, { 0xEFA1BD, 160, 3 } } },
         { 25, { { 0xEFB0C1, 195, 1 }, { 0xEFB0DD, 120, 2 }, { 0xEFB1AF, 160, 3 }, { 0xEFB357, 80, 4 } } },
@@ -389,8 +393,14 @@ namespace {
         std::array<float, block * 2> buf{};
         int have = 0, next = 0;
 
+        uint32_t tick_clock = 0;    // sequencer time owed, in 1/sample_rate ticks
+
         void step() {
-            for (Track& t : tracks) t.tick(*rom);
+            // Voices render (and step their envelopes) per 64-sample block as ProjectR's mixer does; the sequencer
+            // runs on its own 250 Hz clock, its ticks landing on the block they fall in.
+            for (tick_clock += tick_rate * block; tick_clock >= sample_rate; tick_clock -= sample_rate) {
+                for (Track& t : tracks) t.tick(*rom);
+            }
             buf.fill(0.0f);
             for (Voice& v : voices) v.render(*rom, buf.data());
             have = block;

@@ -191,10 +191,15 @@ channel}. The game's per-track starter (0x1402303A0, table 0x14065B626) sends so
 0x8054, 0x8058, 0x805A for TRACK1-7, which the call table 0x1406E4200 ({engine, arg count, command}) turns into
 commands 27, 25, 31, 41, 29, 33, 35 (TRACK4, The Rock, has the one call out of the run). No direct caller of 0x1402303A0
 was found, so the TRACKn order is the table's, taken as the folders' [I]. Command 29's scores are command 3's. Commands 37
-(17 s, the attract fanfare, 0x805C) and 61 (112 s) play once; 43-53 are 1-2 s stingers.
+(23 s, the attract fanfare, 0x805C) and 61 (154 s) play once; 43-53 are 1-3 s stingers.
 
-**Sequencer** (tick 0x14024EDB0, spawn 0x14024E810; run once per 64-sample block at 22050 Hz by the stream thread
-0x14024BF10 through 0x14024C340, after that block's mix): per tick a track's counter c20 -= tempo, and below 0 its script
+**Sequencer** (tick 0x14024EDB0, spawn 0x14024E810): 250 ticks a second. ProjectR runs it once per 64-sample block at
+22050 Hz (344.5 a second; the stream thread 0x14024BF10 through 0x14024C340, after that block's mix, vtable
+0x140707338 slot 2 = 0x14024FB10), which plays every song 1.378x too fast and cuts its phrase samples short. The songs'
+long phrase and loop samples (22050 Hz; the bass, sample 48, is an in-tune E1 at that rate) last exactly a whole note
+(0x3C0000) at 250 ticks, 88.2 samples a tick: Sunset's drum loop (sample 24, 70560 samples) is two whole notes, its
+guitar phrases one, and every song's phrases fit their notes the same way. The port keeps the 64-sample voice blocks
+and runs the sequencer on its own 250 Hz clock. Per tick a track's counter c20 -= tempo, and below 0 its script
 runs to the next note; c24 -= tempo, and below 0 the note releases. Instructions are an opcode and an operand dword
 (branches a third). Opcodes below 0x80 are notes (0 a rest): operand 0 returns from a call or ends the track, else its
 low 4 bits pick the duration (16.16 ticks: 0, 0x3C0000, 0x1E0000, 0xF0000, 0x78000, 0x140000, 0xA0000, 0x50000, 0xC0000,
