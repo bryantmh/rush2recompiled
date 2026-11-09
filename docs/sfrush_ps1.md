@@ -32,6 +32,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Sky](#sky)
 - [Props](#props)
 - [What the converter makes](#what-the-converter-makes)
+- [Track select diorama](#track-select-diorama)
 - [Music](#music)
 - [Not ported](#not-ported)
 
@@ -405,8 +406,8 @@ runs it outside the game) builds one mod, `sfrush_ps1`:
   corridor (the drones' own spread); speeds left to the converter. Logo: `assets/sfrush_ps1/chinatown_logo.png`
   (`tools/build_banners.py --ps1`). Track select picture (`preview.png`, behind the route preview): the PS1's own
   TITLETGA/TRK4N.TGA whole (512 x 168, 15-bit, rows top-down whatever its header says), a map of the course naming
-  its districts, at its own 512 x 168 texels and shown 224 x 73 between the carousel arrows. Listed after the SF Rush
-  tracks.
+  its districts, at its own 512 x 168 texels and shown 224 x 73 between the carousel arrows. Diorama:
+  `diorama.glb`, hand-made ([Track select diorama](#track-select-diorama)). Listed after the SF Rush tracks.
 - `rush2/new_cars/PS1*.glb/.json`: the seven cars at the PS1's sizes x 0.8184, fitted to Rush 2's range
   ([Cars](#cars)), lifted to Rush 2's
   axle height, wheels where the PS1 puts them at its wheel's size (`wheel_scale` 0.997 of Rush 2's 15/16 ft), and the
@@ -422,6 +423,43 @@ runs it outside the game) builds one mod, `sfrush_ps1`:
   Each car's name logo is `assets/sfrush_ps1/<ID>_name.png` in SF Rush's banner lettering (`tools/build_banners.py
   --ps1`), named by the json's `"logo"`. Cars of this mod count as SF RUSH in the Game Filter and list after Rush 2's
   cars (`set_mod_car_game` by mod id); the track lists with the SF Rush tracks.
+
+## Track select diorama
+
+The N64 SF Rush shows each track on its track select as a hand-made diorama (asset 10: TRK1O2 ... TRK7O5, which the
+Rush 1 port uses as they are, src/rush1/track1_convert.cpp). The PS1 has none for Chinatown (its track select shows
+the TRK4N.TGA map), and shrinking the track itself reads as noise at that size (the Rush 2049 attempt,
+src/rush2049/track2049_art.cpp `use_miniature`). So `src/sfrush_ps1/ps1_diorama.cpp` (`ps1::build_diorama`) builds one
+in the N64 dioramas' manner from a hand-written layout, `assets/sfrush_ps1/chinatown_diorama.json` (shipped; part of
+the mod's source key, so editing it rebuilds the mod once):
+
+- **Coordinates:** track.glb meters (x, z), the frame `tools/diorama_map.py` draws with a grid (`--overlay
+  diorama.glb` draws the built diorama over the track to check placement).
+- **Island:** the route widened by `outline.margin` each side with its loops filled, notches narrower than 2 x
+  `closing` closed, plus the `add` shapes (the bay, the Palace of Fine Arts' corner), simplified and rounded: it
+  follows the course, with little ground off it. Ground: the designed height sampled on a `grid` whose cells are
+  split along a diagonal into two flat triangles; each is clipped to the island and cut along the convex `areas`
+  (grass, water; a later one drawn over an earlier one), and every piece takes its heights from its triangle, so
+  pieces meet without cracks however their corners fall (cutting pieces and then reading each corner off the smooth
+  height left T-junction seams). The base, `base_depth` deep, hangs from the ground's own rim edges (so wall tops meet
+  the ground exactly), water-blue where the bay meets the edge, earth elsewhere: a 16 x 16 field of browns blended up
+  to 64 x 64, one tile per `side_tile` (380 x 140 m), as TRK4O2's 16 x 16 earth tile spans about 380 x 140 units.
+- **Height:** near the route the ground takes the route's height with its rises `height_scale` times the track's
+  (2.2: the arc's freeway reads as a ridge), easing to `ground` between `falloff_near` and `falloff_far`; `hills`
+  (x, z, radius, height) are added only a grid cell or more away from the route, so the band never sinks under them.
+- **Route:** the AI path's middle thinned (`step`, `turn`), corner-cut `smooth` times, a flat red strip `width` wide
+  (as the N64 ones), lifted to clear the ground sampled along each segment; the ground near it follows the strip's own
+  line. Measured on the seven N64 dioramas, the red line is 1.6-1.9% of the long side wide (TRK6/7 thinner) and 2.4-3.9
+  long sides long; Chinatown's course is 4.3 long sides long, so its band is 36 m (1.8%) and smoothed, which keeps it
+  reading like theirs rather than a long thin line.
+- **Buildings:** boxes (`size` x `building_scale`, `height`, `angle`, `wall` color, flat `roof_color` or a hipped
+  `roof` of red, green or grey tiles), `tiers` for setbacks and pagodas. **Landmarks:** `pyramid` (Transamerica),
+  `rotunda` and `colonnade` (Palace of Fine Arts), `bridge` (the Bay Bridge, over the bay). **Trees:** six-sided bushes.
+- **Textures:** painted in code (window grids, city-from-above ground, grass, earth, water, tiles), 64 x 64, nothing
+  from the disc but the route's line.
+- **Checks:** the build log lists buildings closer to the route's middle than half the band, buildings whose
+  footprint or eaves reach past the island's edge, and trees off it. Keep it under 4,000 triangles (the custom-track converter's warning; the N64 ones have 740-2,400
+  vertices): about 3,650 now.
 
 ## Texture coordinates
 

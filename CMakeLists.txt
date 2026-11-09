@@ -198,6 +198,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/chd_image.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_disc.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_track.cpp
+    ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_diorama.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_install.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.engine.cpp

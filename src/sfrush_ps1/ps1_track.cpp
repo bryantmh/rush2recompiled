@@ -953,15 +953,29 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
 
     const std::string dir = std::string("tracks/") + track_id + "/";
     out[dir + "track.glb"] = g.bytes();
+    // The track select diorama (docs/sfrush_ps1.md#track-select-diorama): hand-made round the AI path. Without it
+    // (a broken layout file) the track select shows the route preview instead.
+    std::string diorama_toml;
+    {
+        std::vector<std::array<double, 3>> route(m);
+        for (size_t i = 0; i < m; i++) route[i] = gl(mid[i]);
+        std::vector<uint8_t> diorama;
+        if (ps1::build_diorama(route, assets_dir / (std::string(track_id) + "_diorama.json"), diorama, log)) {
+            out[dir + "diorama.glb"] = std::move(diorama);
+            diorama_toml = "diorama = \"diorama.glb\"\n";
+        }
+    }
     out[dir + "track.toml"] = a49::text_bytes(
         std::string("[track]\nname = \"") + track_name + "\"\n" +
         "author = \"San Francisco Rush, PlayStation (converted)\"\n"
         "description = \"Track 4 of the PlayStation San Francisco Rush\"\n\n" + race_toml +
+        // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
+        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" +
         // The PS1's fog: clut_upload_shaded (0x80014F38) steps each channel of a texture's CLUT up by one a band
         // to 26 of 31 (day), so distant scenery fades to 214 grey. The sky is Rush 2's cloud dome, scrolling at 0.2 as
         // on most Rush 2 tracks and the N64 SF Rush ones (src/rush1/track1.cpp).
         "[look]\nfog_color = \"#d6d6d6\"\nsky = \"clouds\"\ncloud_scroll = 0.2\n\n"
-        "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + mover_toml);
+        "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + diorama_toml + mover_toml);
     // The track select picture: the PS1's own (TITLETGA/TRK<n>N.TGA, 512 x 168, 15-bit, rows top-down whatever the
     // header says), a map of the course with its districts named, whole: the route preview keeps its 512 x 168 texels
     // and shows it between the carousel arrows (docs/custom_tracks.md#track-select-art).
@@ -1014,5 +1028,3 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     for (const std::string& r : report) log += r + "\n";
     return true;
 }
-        // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
-        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" +

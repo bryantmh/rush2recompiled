@@ -32,7 +32,7 @@ namespace {
     }
 
     // What the mod is built from: the disc's data track (its name, size and time; reading 50 MB at every launch to
-    // hash it isn't worth it), the shipped logo and this build.
+    // hash it isn't worth it), the shipped logo and diorama layout, and this build.
     std::string source_key(const std::filesystem::path& disc_path) {
         ps1::Disc disc;
         std::string error;
@@ -46,6 +46,8 @@ namespace {
         h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(size_time), sizeof(size_time), h);
         std::vector<uint8_t> logo = rush2::upscale::read_file(assets_dir() / "chinatown_logo.png");
         h = rush2::track_cache::hash(logo.data(), logo.size(), h);
+        std::vector<uint8_t> diorama = rush2::upscale::read_file(assets_dir() / "chinatown_diorama.json");
+        h = rush2::track_cache::hash(diorama.data(), diorama.size(), h);
         char text[17];
         snprintf(text, sizeof(text), "%016llx", (unsigned long long)h);
         return text;

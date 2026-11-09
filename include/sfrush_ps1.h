@@ -117,6 +117,10 @@ namespace rush2::sfrush_ps1 {
     bool build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
     bool build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
     bool build_cars(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
+    // The track select diorama (src/sfrush_ps1/ps1_diorama.cpp) as a glb: the hand-made layout `spec` (JSON) round
+    // the route (the AI path's middle, a closed loop, glTF meters as track.glb has it).
+    bool build_diorama(const std::vector<std::array<double, 3>>& route, const std::filesystem::path& spec,
+                       std::vector<uint8_t>& glb, std::string& log);
 
     // The game (src/sfrush_ps1/ps1_install.cpp).
     void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
