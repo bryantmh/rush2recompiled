@@ -82,6 +82,13 @@ namespace rush2 {
     // run after the config path is registered. set_hires_fonts_enabled turns the pack and its tile clamping on or off.
     void install_font_pack();
     void set_hires_fonts_enabled(bool enabled);
+    // Hands the font pack to RT64 as the launcher opens, when its mod is enabled, so its glyph sheets are loaded
+    // before the game's first frame (mods' packs otherwise reach RT64 only when the game loads its mods, seconds
+    // later). Once per launch.
+    void load_font_pack_early();
+    // The font pack is drawn with (or isn't wanted: Fonts not High Resolution, its mod off). The launcher holds the
+    // game's start on it, black, for at most 2 s.
+    bool font_pack_ready();
 
     // Where settings and saves are stored (src/data_location.cpp): the user's app data folder, or the program's folder
     // in portable mode (portable.txt next to the executable). Switching takes effect on the next launch.

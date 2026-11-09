@@ -74,8 +74,8 @@ namespace rush2::track_mod {
     void preload(int index);
 
     // Has the textures of the tracks load and menu_art have seen (the enabled ones) drawn full size in place of their
-    // stand-ins (rush2::derive::set_mod_textures, source "tracks"). Does nothing when that set hasn't changed. load
-    // calls it; the track select calls it once after its menu_art calls.
+    // stand-ins: merges their packs on the disk (written with each conversion) into the generated texture pack
+    // "tracks" and hands it to RT64. Does nothing when that set hasn't changed. prepare and load call it.
     void publish_textures();
 
     // Lists each enabled mod's tracks in the Mods tab's details panel with the converter's errors and warnings

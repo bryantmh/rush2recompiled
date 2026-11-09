@@ -376,6 +376,20 @@ index 2f22456..982c103 100644
          });
  
          NLOHMANN_JSON_SERIALIZE_ENUM(ultramodern::renderer::HighPrecisionFramebuffer, {
+diff --git a/ultramodern/include/ultramodern/renderer_context.hpp b/ultramodern/include/ultramodern/renderer_context.hpp
+index d60c4ec..73ed935 100644
+--- a/ultramodern/include/ultramodern/renderer_context.hpp
++++ b/ultramodern/include/ultramodern/renderer_context.hpp
+@@ -87,6 +87,9 @@ namespace ultramodern {
+                 virtual void send_dummy_workload(uint32_t fb_address) = 0;
+                 virtual void update_screen() = 0;
+                 virtual void shutdown() = 0;
++                // Rush 2 recomp: called on the graphics thread every time round its loop (about each millisecond,
++                // also before the game starts), for work that can't wait for the game's next display list.
++                virtual void poll() {}
+                 virtual uint32_t get_display_framerate() const = 0;
+                 virtual float get_resolution_scale() const = 0;
+ 
 diff --git a/ultramodern/include/ultramodern/ultramodern.hpp b/ultramodern/include/ultramodern/ultramodern.hpp
 index 3b28af3..96f61b0 100644
 --- a/ultramodern/include/ultramodern/ultramodern.hpp
@@ -396,7 +410,7 @@ index 3b28af3..96f61b0 100644
  // Graphics
  uint32_t get_target_framerate(uint32_t original);
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 090cc42..38d324f 100644
+index 090cc42..1063525 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
 @@ -1,3 +1,5 @@
@@ -524,7 +538,15 @@ index 090cc42..38d324f 100644
  void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_ready, ultramodern::renderer::WindowHandle window_handle) {
      bool enabled_instant_present = false;
      using namespace std::chrono_literals;
-@@ -370,7 +410,11 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -354,6 +394,7 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+     thread_ready->signal();
+ 
+     while (!exited) {
++        renderer_context->poll();
+         // Try to pull an action from the queue
+         Action action;
+         if (events_context.action_queue.wait_dequeue_timed(action, 1ms)) {
+@@ -370,7 +411,11 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  ultramodern::extensions::on_displaylist_submitted(displaylist);
  
                  [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();

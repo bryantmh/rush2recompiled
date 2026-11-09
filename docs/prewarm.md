@@ -61,6 +61,23 @@ runs long) and a finished job for the time it took (a job that had everything bu
 that every frame and never goes back; once the pass is over it runs to the end in about a third of a second before the
 game starts. `RUSH2_TEST_BUILD_SCREEN=S` keeps the screen up S seconds after the pass to look at it.
 
+The launcher page itself (its background and version line) is hidden whenever there is a ROM: a launch with nothing
+to build is a black window until the game's first frame. It shows for Locate ROM and when the build screen comes up.
+
+Nothing waits on RT64's texture packs, but the high-resolution fonts are on screen from the game's first frame:
+`rush2::load_font_pack_early` (src/fonts.cpp, from `launcher_update`) hands the font pack to RT64 as the launcher
+opens (`recompui::renderer::enable_texture_pack_early`), where mods' packs otherwise reach RT64 only when the game
+loads its mods. The renderer checks pack changes each time round the graphics thread's loop
+(`RendererContext::poll`, a lib/patches/N64ModernRuntime.patch addition), also before the game starts. The pack's 84
+glyph sheets (9 megapixels of PNG) are decoded on every core while it's prepared (0.05 to 0.8 s measured, against
+0.9 s one by one), and `launcher_update` holds the game's start, the window still black, until RT64 draws with it
+(`rush2::font_pack_ready`, `recompui::renderer::texture_pack_in_use`), at most 2 s. When the game's mod load then turns on every pack (a load of a few seconds in
+the background, the packs in use staying until it's swapped in), the font pack is already on and reloads nothing by
+itself (`check_texture_pack_actions` ignores a change that leaves the set as it was), and the swap keeps the glyph
+sheets drawn: RT64 reads and uploads a pack's preload textures while preparing it
+(`PreparedReplacements::preloadedTextures`, lib/patches/rt64.patch) instead of streaming them after the swap. Before
+2026-11-09 the fonts came in a few seconds after the game started.
+
 ### Accurate Car Stats ranges
 
 The bars' ranges drive the game's own car physics (car_init_setup_8008DBA0, car_drivetrain_800712EC,

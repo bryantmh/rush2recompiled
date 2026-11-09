@@ -7,8 +7,8 @@
 // converter's report to <config>/track_reports/<folder>.txt (and the console), which is what the track's author reads.
 //
 // Textures: the converted geometry holds small true-color stand-ins (the game's memory); on screen each is replaced by
-// its full-size image from the glb, the way car model mods' are (rush2::derive::set_mod_textures, source "tracks"). The
-// stand-ins' keys are cached with the track; the images are decoded only when a stand-in is first drawn.
+// its full-size image from the glb through a texture pack written to the disk with the conversion (write_textures,
+// publish_textures), so nothing is decoded or built when a track is entered.
 
 #include <algorithm>
 #include <atomic>
@@ -28,11 +28,13 @@
 #include "librecomp/game.hpp"
 #include "librecomp/mods.hpp"
 #include "recompui/recompui.h"
+#include "recompui/renderer.h"
 
 #include "arcade2049.h"
 #include "assets.h"
 #include "gltf_scene.h"
-#include "texture_derive.h"
+#include "rush2049_dc.h"
+#include "rush2049_rom.h"
 #include "texture_upscale.h"
 #include "track2049.h"
 #include "track_cache.h"
@@ -458,10 +460,6 @@ namespace {
         return "trackmod_menu_" + std::to_string(f.cache_key);
     }
 
-    std::string texture_blob_name(const Files& f) {
-        return "trackmod_textures_" + std::to_string(f.cache_key);
-    }
-
     std::string report_blob_name(const Files& f) {
         return "trackmod_report_" + std::to_string(f.cache_key);
     }
@@ -472,64 +470,138 @@ namespace {
         if (rush2::track_cache::load_blob(report_blob_name(f), f.source, blob)) remember_report(f.entry, deserialize_report(blob), true);
     }
 
-    // The stand-ins without their texels: source, image, tint, cutoff, blend (u32) and key each.
-    std::vector<uint8_t> serialize_textures(const std::vector<rush2::track_mod::Texture>& textures) {
-        std::vector<uint8_t> out;
-        auto add = [&](const void* p, size_t n) { out.insert(out.end(), (const uint8_t*)p, (const uint8_t*)p + n); };
-        uint32_t n = uint32_t(textures.size());
-        add(&n, 4);
-        for (const rush2::track_mod::Texture& t : textures) {
-            add(&t.source, 4);
-            add(&t.image, 4);
-            add(t.tint.data(), 16);
-            add(&t.cutoff, 4);
-            uint32_t blend = t.blend;
-            add(&blend, 4);
-            add(&t.key, 8);
-        }
-        return out;
+    // ---- full-size textures ------------------------------------------------------------------------------------
+    // Each track's stand-ins are replaced on screen by their full-size images through a texture pack the game writes
+    // when it converts the track (so in the launch build pass): <track_cache>/track_textures/<cache key>/ holds one
+    // DDS per stand-in (the glb's image, tinted and cut out as the stand-in was), its list (textures.json: RT64 hash
+    // and file) and a stamp (the track's source hash and the build). publish_textures merges the enabled tracks' lists
+    // into <track_cache>/track_textures/rt64.json and hands the folder to RT64 as the generated pack "tracks", which is
+    // not a mod: it isn't in the mods menu and can't be turned off. RT64 reads the images from the disk as drawn.
+    std::filesystem::path texture_root() {
+        return rush2::track_cache::directory() / "track_textures";
     }
 
-    bool deserialize_textures(const std::vector<uint8_t>& in, std::vector<rush2::track_mod::Texture>& textures) {
-        size_t o = 0;
-        auto get = [&](void* p, size_t n) {
-            if (o + n > in.size()) return false;
-            memcpy(p, in.data() + o, n);
-            o += n;
-            return true;
-        };
-        uint32_t n = 0;
-        if (!get(&n, 4) || size_t(n) * 40 != in.size() - 4) return false;
-        textures.assign(n, {});
-        for (rush2::track_mod::Texture& t : textures) {
-            get(&t.source, 4);
-            get(&t.image, 4);
-            get(t.tint.data(), 16);
-            get(&t.cutoff, 4);
-            uint32_t blend = 0;
-            get(&blend, 4);
-            t.blend = blend != 0;
-            get(&t.key, 8);
+    std::filesystem::path texture_dir(const Files& f) {
+        return texture_root() / std::to_string(f.cache_key);
+    }
+
+    std::string texture_stamp(const Files& f) {
+        char text[40];
+        std::snprintf(text, sizeof(text), "%016llx %016llx", (unsigned long long)f.source,
+                      (unsigned long long)rush2::track_cache::build());
+        return text;
+    }
+
+    // The track's pack on the disk is the one for these files and this build.
+    bool textures_current(const Files& f) {
+        std::vector<uint8_t> have = rush2::upscale::read_file(texture_dir(f) / "stamp");
+        return std::string(have.begin(), have.end()) == texture_stamp(f);
+    }
+
+    // The full-size image of stand-in t from `images` (the glb's): tinted by the material's color and its alpha cut
+    // at cutoff as make_texture made the stand-in (a translucent one keeps its alpha, which its stand-in can't hold).
+    bool full_size_image(const std::vector<rush2::gltf::Image>& images, const rush2::track_mod::Texture& t,
+                         rush2::upscale::Image& out) {
+        if (t.image < 0 || t.image >= (int)images.size()) return false;
+        if (!rush2::upscale::decode_image(images[t.image].data, out) || out.empty()) return false;
+        for (size_t i = 0; i + 3 < out.rgba.size(); i += 4) {
+            for (int k = 0; k < 3; k++) out.rgba[i + k] = uint8_t(std::clamp(out.rgba[i + k] * t.tint[k], 0.0f, 255.0f));
+            float a = out.rgba[i + 3] * t.tint[3];
+            out.rgba[i + 3] = t.blend ? uint8_t(std::clamp(a, 0.0f, 255.0f)) : a >= t.cutoff * 255.0f ? 255 : 0;
         }
         return true;
     }
 
-    // A glb the full-size images are decoded from, read on the first draw of one of its stand-ins and kept.
-    struct ImageSource {
-        rush2::track_mod::Entry entry;
-        std::string file;
-        std::mutex mutex;
-        bool tried = false;
-        std::vector<rush2::gltf::Image> images;
-    };
+    // Writes the track's pack from its converted stand-ins (texels and all) and the glbs in f, the images decoded on
+    // every core. False if the folder couldn't be written.
+    bool write_textures(const Files& f, const std::vector<rush2::track_mod::Texture>& textures) {
+        using rush2::track_mod::Texture;
+        std::filesystem::path dir = texture_dir(f);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+        // The glbs' images: [0] track.glb's, [1] the diorama's.
+        std::vector<rush2::gltf::Image> images[2];
+        for (uint32_t source : { uint32_t(Texture::track), uint32_t(Texture::diorama) }) {
+            const bool diorama = source == Texture::diorama;
+            const std::vector<uint8_t>& glb = diorama ? f.extras.diorama : f.glb;
+            bool used = std::any_of(textures.begin(), textures.end(), [&](const Texture& t) {
+                return t.source == source && t.image >= 0 && t.key != 0;
+            });
+            if (!used || glb.empty()) continue;
+            rush2::gltf::Scene scene;
+            std::string error;
+            if (!rush2::gltf::read_glb(glb, scene, error)) {
+                printf("[trackmod] %s: can't read its %s for its textures %s\n", f.entry.folder.c_str(),
+                       diorama ? "diorama" : "track.glb", error.c_str());
+                continue;
+            }
+            images[diorama] = std::move(scene.images);
+        }
+        // One file per RT64 hash (materials with the same stand-in share it).
+        struct Item {
+            const Texture* t;
+            uint64_t hash;
+            bool ok = false;
+        };
+        std::vector<Item> items;
+        std::set<uint64_t> hashes;
+        for (const Texture& t : textures) {
+            if (t.image < 0 || t.key == 0) continue;    // no image: a color, the stand-in is exact
+            // The stand-in is drawn from texture_load's LOADBLOCK, the load the Dreamcast pack's hashes are worked
+            // out for (track_mod_convert.cpp texture_load).
+            rush2::rom2049::SourceTexture st;
+            st.w = uint16_t(t.width);
+            st.h = uint16_t(t.height);
+            st.texels = t.texels;
+            uint64_t hash = rush2::rom2049::dc::replacement_hash(st);
+            if (hash == 0 || !hashes.insert(hash).second) continue;
+            items.push_back({ &t, hash });
+        }
+        std::atomic<size_t> next = 0;
+        std::atomic<bool> failed = false;
+        auto work = [&]() {
+            for (size_t i; (i = next++) < items.size();) {
+                rush2::upscale::Image image;
+                if (!full_size_image(images[items[i].t->source == Texture::diorama], *items[i].t, image)) continue;
+                std::string name = rush2::upscale::key_name(items[i].hash) + ".dds";
+                if (!rush2::upscale::write_file(dir / name, rush2::upscale::make_dds(image))) {
+                    failed = true;
+                    continue;
+                }
+                items[i].ok = true;
+            }
+        };
+        const size_t helpers = std::min<size_t>(items.size(), std::max(1u, std::thread::hardware_concurrency()) - 1);
+        std::vector<std::thread> threads;
+        for (size_t i = 1; i < helpers; i++) threads.emplace_back(work);
+        work();
+        for (std::thread& t : threads) t.join();
+        nlohmann::json list = nlohmann::json::array();
+        for (const Item& item : items) {
+            if (!item.ok) continue;
+            std::string name = rush2::upscale::key_name(item.hash);
+            list.push_back({ { "hash", name }, { "file", name + ".dds" } });
+        }
+        std::string text = list.dump();
+        std::string stamp = texture_stamp(f);
+        if (failed || !rush2::upscale::write_file(dir / "textures.json", std::vector<uint8_t>(text.begin(), text.end())) ||
+            !rush2::upscale::write_file(dir / "stamp", std::vector<uint8_t>(stamp.begin(), stamp.end()))) {
+            printf("[trackmod] %s: couldn't write its textures to %s\n", f.entry.folder.c_str(),
+                   rush2::upscale::path_utf8(dir).c_str());
+            return false;
+        }
+        printf("[trackmod] %s: %zu full-size textures written\n", f.entry.folder.c_str(), list.size());
+        return true;
+    }
 
-    // Every track's stand-ins by folder (from menu_art and load), published as one set.
-    std::map<std::string, std::pair<rush2::track_mod::Entry, std::vector<rush2::track_mod::Texture>>> known_textures;
+    // The tracks whose pack is on the disk: folder -> its cache key (from conversions and cache hits).
+    std::map<std::string, int> known_textures;
     std::string published_signature;
 
-    void remember_textures(const rush2::track_mod::Entry& e, std::vector<rush2::track_mod::Texture> textures) {
+    void remember_textures(const Files& f) {
         std::lock_guard lock{ mutex };
-        known_textures[e.folder] = { e, std::move(textures) };
+        known_textures[f.entry.folder] = f.cache_key;
     }
 
     // Converts the track and stores the race files and the menu art in the cache.
@@ -541,96 +613,66 @@ namespace {
         remember_report(f.entry, report, ok);
         if (!ok) return false;
         rush2::race_time::fill(out.track);
-        if (f.sky_pending) {
-            remember_textures(f.entry, out.textures);
-            return true;
-        }
+        // Its full-size textures first: a cache entry is only trusted with its textures there (textures_current).
+        if (write_textures(f, out.textures)) remember_textures(f);
+        if (f.sky_pending) return true;
         rush2::track_cache::save_blob(report_blob_name(f), f.source, serialize_report(report));
         rush2::track_cache::save_2049(f.cache_key, prefix, f.source, out.track);
         rush2::track_cache::save_blob(menu_blob_name(f), f.source, rush2::track_mod::serialize(out.menu));
-        rush2::track_cache::save_blob(texture_blob_name(f), f.source, serialize_textures(out.textures));
-        remember_textures(f.entry, out.textures);
         return true;
     }
 
-    // The stand-ins' keys from the cache (false when the track wasn't converted with these files).
+    // The track's full-size textures are on the disk for these files and this build (false: convert it again).
     bool cached_textures(const Files& f) {
-        std::vector<uint8_t> blob;
-        std::vector<rush2::track_mod::Texture> textures;
-        if (!rush2::track_cache::load_blob(texture_blob_name(f), f.source, blob) || !deserialize_textures(blob, textures)) {
-            return false;
-        }
-        remember_textures(f.entry, std::move(textures));
+        if (!textures_current(f)) return false;
+        remember_textures(f);
         return true;
     }
 }
 
 void rush2::track_mod::publish_textures() {
-    std::unordered_map<uint64_t, rush2::derive::ModTexture> textures;
+    // The enabled tracks' lists merged into the pack's rt64.json, handed to RT64 when the set changed.
+    std::vector<rush2::upscale::PackTexture> pack;
     std::string signature;
     {
         std::lock_guard lock{ mutex };
         scan();
         std::set<std::string> enabled;
         for (const Entry& e : entries) enabled.insert(e.folder);
-        std::map<std::pair<std::string, uint32_t>, std::shared_ptr<ImageSource>> sources;
-        for (const auto& [folder, known] : known_textures) {
+        std::set<uint64_t> seen;
+        for (const auto& [folder, cache_key] : known_textures) {
             if (!enabled.count(folder)) continue;
-            const Entry& entry = known.first;
-            for (const Texture& t : known.second) {
-                if (t.image < 0 || t.key == 0) continue;    // no image: a color, the stand-in is exact
-                std::shared_ptr<ImageSource>& src = sources[{ folder, t.source }];
-                if (!src) {
-                    src = std::make_shared<ImageSource>();
-                    src->entry = entry;
-                    src->file = t.source == Texture::diorama ? entry.settings.diorama : "track.glb";
+            std::string dir = std::to_string(cache_key);
+            std::vector<uint8_t> stamp = rush2::upscale::read_file(texture_root() / dir / "stamp");
+            std::vector<uint8_t> bytes = rush2::upscale::read_file(texture_root() / dir / "textures.json");
+            nlohmann::json list = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+            if (!list.is_array()) continue;
+            signature += folder + ":" + std::string(stamp.begin(), stamp.end()) + ";";
+            for (const auto& item : list) {
+                uint64_t hash = 0;
+                if (!item.is_object() || !item.contains("hash") || !item.contains("file") ||
+                    !rush2::upscale::parse_key_name(item["hash"].get<std::string>(), hash) || !seen.insert(hash).second) {
+                    continue;
                 }
-                std::shared_ptr<ImageSource> from = src;
-                int image = t.image;
-                std::array<float, 4> tint = t.tint;
-                float cutoff = t.cutoff;
-                bool blend = t.blend;
-                rush2::derive::ModTexture mt;
-                uint64_t seed = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(folder.data()), folder.size(),
-                                                         0x747261636Bull);
-                mt.id = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(&t.key), 8, seed ^ t.source);
-                mt.load = [from, image, tint, cutoff, blend](rush2::upscale::Image& out, rush2::upscale::Image&) {
-                    {
-                        std::lock_guard lock{ from->mutex };
-                        if (!from->tried) {
-                            from->tried = true;
-                            std::vector<uint8_t> glb;
-                            rush2::gltf::Scene scene;
-                            std::string error;
-                            if (read_file(from->entry, from->file, glb) && rush2::gltf::read_glb(glb, scene, error)) {
-                                from->images = std::move(scene.images);
-                            }
-                            else {
-                                printf("[trackmod] %s: can't read %s for its textures %s\n", from->entry.folder.c_str(),
-                                       from->file.c_str(), error.c_str());
-                            }
-                        }
-                        if (image >= (int)from->images.size()) return false;
-                        if (!rush2::upscale::decode_image(from->images[image].data, out) || out.empty()) return false;
-                    }
-                    // As make_texture made the stand-in: tinted by the material's color, alpha cut out at cutoff (a
-                    // translucent one keeps its alpha, which its stand-in can't hold).
-                    for (size_t i = 0; i + 3 < out.rgba.size(); i += 4) {
-                        for (int k = 0; k < 3; k++) out.rgba[i + k] = uint8_t(std::clamp(out.rgba[i + k] * tint[k], 0.0f, 255.0f));
-                        float a = out.rgba[i + 3] * tint[3];
-                        out.rgba[i + 3] = blend ? uint8_t(std::clamp(a, 0.0f, 255.0f)) : a >= cutoff * 255.0f ? 255 : 0;
-                    }
-                    return true;
-                };
-                textures[t.key] = mt;
-                signature += rush2::upscale::key_name(t.key) + rush2::upscale::key_name(mt.id);
+                rush2::upscale::PackTexture t;
+                t.path = dir + "/" + item["file"].get<std::string>();
+                t.hashes = { hash };
+                // The stand-ins sample their images where the glTF does (half a texel in, as car mods' do:
+                // docs/car_mods.md#image-alignment); RT64's half shift would put the image half a texel off that.
+                t.shift = "center";
+                pack.push_back(std::move(t));
             }
         }
         if (signature == published_signature) return;
         published_signature = signature;
     }
-    printf("[trackmod] %zu custom track textures drawn full size\n", textures.size());
-    rush2::derive::set_mod_textures("tracks", std::move(textures));
+    std::string database = rush2::upscale::pack_database(pack);
+    if (!rush2::upscale::write_file(texture_root() / "rt64.json", std::vector<uint8_t>(database.begin(), database.end()))) {
+        printf("[trackmod] couldn't write %s\n", rush2::upscale::path_utf8(texture_root() / "rt64.json").c_str());
+        return;
+    }
+    printf("[trackmod] %zu custom track textures drawn full size\n", pack.size());
+    recompui::renderer::set_generated_texture_pack("tracks", pack.empty() ? std::filesystem::path() : texture_root());
 }
 
 bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out) {
@@ -663,7 +705,6 @@ void rush2::track_mod::preload(int index) {
     Files f;
     if (!known_files(index, f)) return;
     rush2::track_cache::preload_2049(f.cache_key);
-    rush2::track_cache::preload_blob(texture_blob_name(f));
 }
 
 std::string rush2::track_mod::identity(int index) {
@@ -733,6 +774,7 @@ void rush2::track_mod::prepare() {
         MenuArt art;
         menu_art(int(i), art);
     }
+    publish_textures();
 }
 
 void rush2::track_mod::register_mod_notes() {

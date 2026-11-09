@@ -58,22 +58,33 @@ index 30c463b..056edff 100644
      void set_render_hooks();
  
 diff --git a/recompui/include/recompui/renderer.h b/recompui/include/recompui/renderer.h
-index 33f79ab..da88c33 100644
+index 33f79ab..93c871d 100644
 --- a/recompui/include/recompui/renderer.h
 +++ b/recompui/include/recompui/renderer.h
-@@ -2,6 +2,7 @@
+@@ -1,7 +1,10 @@
+ #pragma once
  
++#include <map>
++#include <string>
  #include <unordered_set>
  #include <filesystem>
 +#include <memory>
  
  #include "common/rt64_user_configuration.h"
  #include "ultramodern/renderer_context.hpp"
-@@ -37,7 +38,13 @@ namespace recompui {
+@@ -30,6 +33,7 @@ namespace recompui {
+             void send_dummy_workload(uint32_t fb_address) override;
+             void update_screen() override;
+             void shutdown() override;
++            void poll() override;
+             uint32_t get_display_framerate() const override;
+             float get_resolution_scale() const override;
+ 
+@@ -37,7 +41,13 @@ namespace recompui {
              std::unique_ptr<RT64::Application> app;
              std::unordered_set<std::string> enabled_texture_packs;
              std::unordered_set<std::string> secondary_disabled_texture_packs;
-+            std::filesystem::path generated_texture_pack;
++            std::map<std::string, std::filesystem::path> generated_texture_packs;  // by id (set_generated_texture_pack)
              uint32_t last_refresh_rate = 0;
 +            // Rush 2 recomp: texture packs are opened on a thread of their own and swapped in once ready
 +            // (check_texture_pack_actions), so loading them never holds up a frame.
@@ -83,14 +94,23 @@ index 33f79ab..da88c33 100644
  
              void check_texture_pack_actions();
              void check_refresh_rate_changes();
-@@ -55,6 +62,11 @@ namespace recompui {
+@@ -55,6 +65,20 @@ namespace recompui {
          void secondary_enable_texture_pack(const std::string& mod_id);
          void secondary_disable_texture_pack(const std::string& mod_id);
  
 +        // A texture pack the game builds itself (a directory or zip with an rt64.json), loaded after every enabled
-+        // mod's pack so those override it. An empty path removes it. Also reloads it when called with the same path,
-+        // for a pack that has grown.
++        // mod's pack so those override it. Not a mod: it isn't listed in the mods menu and can't be turned off there.
++        // Each id holds one; an empty path removes it. Also reloads it when called with the same path, for a pack that
++        // has grown. The id-less form is the id "".
++        void set_generated_texture_pack(const std::string& id, const std::filesystem::path& path);
 +        void set_generated_texture_pack(const std::filesystem::path& path);
++
++        // Rush 2 recomp: turns on mod `mod_id`'s texture pack before the game starts (mods' packs are otherwise only
++        // turned on when the game loads its mods, which then finds it on already and reloads nothing).
++        void enable_texture_pack_early(const std::string& mod_id);
++
++        // Rush 2 recomp: RT64 is drawing with mod `mod_id`'s texture pack (it's in the last set swapped in).
++        bool texture_pack_in_use(const std::string& mod_id);
 +
          // Texture pack enable option. Must be an enum with two options.
          // The first option is treated as disabled and the second option is treated as enabled.
@@ -924,29 +944,37 @@ index 4d8c41e..24f94c7 100644
          virtual ~Slider();
          void set_value(double v);
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
-index a7954c7..8d6f871 100644
+index a7954c7..f447ff0 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp
 +++ b/recompui/src/renderer/rt64_render_context.cpp
-@@ -1,3 +1,5 @@
+@@ -1,3 +1,7 @@
 +#include <atomic>
++#include <mutex>
++#include <unordered_set>
 +#include <thread>
  #include <memory>
  #include <cstring>
  #include <variant>
-@@ -43,7 +45,11 @@ struct TexturePackSecondaryDisableAction {
+@@ -43,9 +47,17 @@ struct TexturePackSecondaryDisableAction {
  struct TexturePackUpdateAction {
  };
  
 -using TexturePackAction = std::variant<TexturePackEnableAction, TexturePackDisableAction, TexturePackSecondaryEnableAction, TexturePackSecondaryDisableAction, TexturePackUpdateAction>;
 +struct TexturePackGeneratedAction {
++    std::string id;
 +    std::filesystem::path path;
 +};
 +
 +using TexturePackAction = std::variant<TexturePackEnableAction, TexturePackDisableAction, TexturePackSecondaryEnableAction, TexturePackSecondaryDisableAction, TexturePackUpdateAction, TexturePackGeneratedAction>;
  
  static moodycamel::ConcurrentQueue<TexturePackAction> texture_pack_action_queue;
++// Rush 2 recomp: the mods whose packs RT64 is drawing with (the last set swapped in), for texture_pack_in_use.
++static std::mutex packs_in_use_mutex;
++static std::unordered_set<std::string> packs_in_use;
  
-@@ -109,6 +115,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
+ unsigned int MI_INTR_REG = 0;
+ 
+@@ -109,6 +121,8 @@ RT64::UserConfiguration::RefreshRate to_rt64(ultramodern::renderer::RefreshRate
              return RT64::UserConfiguration::RefreshRate::Display;
          case ultramodern::renderer::RefreshRate::Manual:
              return RT64::UserConfiguration::RefreshRate::Manual;
@@ -955,15 +983,17 @@ index a7954c7..8d6f871 100644
          case ultramodern::renderer::RefreshRate::OptionCount:
              return RT64::UserConfiguration::RefreshRate::OptionCount;
      }
-@@ -335,6 +343,19 @@ renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::Window
+@@ -335,6 +349,21 @@ renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::Window
      high_precision_fb_enabled = app->shaderLibrary->usesHDR;
  }
  
 +// Rush 2 recomp: a texture pack load running on its own thread (RT64::TextureCache::prepareReplacementDirectories).
 +struct renderer::RT64Context::PackLoad {
++    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
 +    std::thread thread;
 +    std::atomic<bool> done = false;
 +    std::unique_ptr<RT64::PreparedReplacements> result;
++    std::vector<std::string> mod_ids;   // the mods' packs it loads (texture_pack_in_use)
 +
 +    ~PackLoad() {
 +        if (thread.joinable()) {
@@ -975,13 +1005,53 @@ index a7954c7..8d6f871 100644
  renderer::RT64Context::~RT64Context() = default;
  
  void renderer::RT64Context::send_dl(const OSTask* task) {
-@@ -442,12 +463,29 @@ void renderer::RT64Context::check_texture_pack_actions() {
+@@ -355,6 +384,10 @@ void renderer::RT64Context::send_dummy_workload(uint32_t fb_address) {
+     app->state->listProcessEnd();
+ }
+ 
++void renderer::RT64Context::poll() {
++    check_texture_pack_actions();
++}
++
+ void renderer::RT64Context::update_screen() {
+     check_refresh_rate_changes();
+     app->updateScreen();
+@@ -424,30 +457,59 @@ void renderer::RT64Context::check_texture_pack_actions() {
+     TexturePackAction cur_action;
+     while (texture_pack_action_queue.try_dequeue(cur_action)) {
+         std::visit(overloaded{
++            // Rush 2 recomp: a change that leaves the set as it was (the game loading its mods turns on the packs
++            // enable_texture_pack_early turned on already) reloads nothing.
+             [&](TexturePackDisableAction &to_disable) {
+-                enabled_texture_packs.erase(to_disable.mod_id);
+-                packs_changed = true;
++                packs_changed |= enabled_texture_packs.erase(to_disable.mod_id) > 0;
+             },
+             [&](TexturePackEnableAction &to_enable) {
+-                enabled_texture_packs.insert(to_enable.mod_id);
+-                packs_changed = true;
++                packs_changed |= enabled_texture_packs.insert(to_enable.mod_id).second;
+             },
+             [&](TexturePackSecondaryDisableAction &to_override_disable) {
+-                secondary_disabled_texture_packs.insert(to_override_disable.mod_id);
+-                packs_changed = true;
++                packs_changed |= secondary_disabled_texture_packs.insert(to_override_disable.mod_id).second;
+             },
+             [&](TexturePackSecondaryEnableAction &to_override_enable) {
+-                secondary_disabled_texture_packs.erase(to_override_enable.mod_id);
+-                packs_changed = true;
++                packs_changed |= secondary_disabled_texture_packs.erase(to_override_enable.mod_id) > 0;
              },
              [&](TexturePackUpdateAction &) {
                  packs_changed = true;
 +            },
 +            [&](TexturePackGeneratedAction &to_set) {
-+                generated_texture_pack = to_set.path;
++                if (to_set.path.empty()) {
++                    generated_texture_packs.erase(to_set.id);
++                }
++                else {
++                    generated_texture_packs[to_set.id] = to_set.path;
++                }
 +                packs_changed = true;
              }
          }, cur_action);
@@ -995,8 +1065,17 @@ index a7954c7..8d6f871 100644
 +    // Rush 2 recomp: swap in the packs a finished load opened. The packs in use stay until then.
 +    if (pack_load != nullptr && pack_load->done) {
 +        pack_load->thread.join();
++        size_t pack_count = pack_load->result ? pack_load->result->replacementDirectories.size() : 0;
++        double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - pack_load->started).count();
++        {
++            std::lock_guard lock{ packs_in_use_mutex };
++            packs_in_use.clear();
++            packs_in_use.insert(pack_load->mod_ids.begin(), pack_load->mod_ids.end());
++        }
 +        app->textureCache->applyReplacementDirectories(std::move(pack_load->result), false);
 +        pack_load.reset();
++        printf("[rt64] %zu texture pack(s) swapped in after %.2f s%s\n", pack_count, took, ultramodern::is_game_started() ? "" : ", before the game started");
++        fflush(stdout);
 +    }
 +
 +    // If any packs were disabled, unload all packs and load all the active ones (Rush 2 recomp: on a thread of their
@@ -1006,15 +1085,15 @@ index a7954c7..8d6f871 100644
          // Sort the enabled texture packs in reverse order so that earlier ones override later ones.
          std::vector<std::string> sorted_texture_packs{};
          sorted_texture_packs.reserve(enabled_texture_packs.size());
-@@ -465,13 +503,23 @@ void renderer::RT64Context::check_texture_pack_actions() {
+@@ -465,16 +527,29 @@ void renderer::RT64Context::check_texture_pack_actions() {
  
          // Build the path list from the sorted mod list.
          std::vector<RT64::ReplacementDirectory> replacement_directories;
 -        replacement_directories.reserve(enabled_texture_packs.size());
-+        // The game's generated pack goes first: RT64 takes a texture from the last directory that has it.
-+        replacement_directories.reserve(enabled_texture_packs.size() + 1);
-+        if (!generated_texture_pack.empty()) {
-+            replacement_directories.emplace_back(RT64::ReplacementDirectory(generated_texture_pack));
++        // The game's generated packs go first: RT64 takes a texture from the last directory that has it.
++        replacement_directories.reserve(enabled_texture_packs.size() + generated_texture_packs.size());
++        for (const auto &[id, path] : generated_texture_packs) {
++            replacement_directories.emplace_back(RT64::ReplacementDirectory(path));
 +        }
          for (const std::string &mod_id : sorted_texture_packs) {
              replacement_directories.emplace_back(RT64::ReplacementDirectory(recomp::mods::get_mod_filename(mod_id)));
@@ -1023,6 +1102,7 @@ index a7954c7..8d6f871 100644
          if (!replacement_directories.empty()) {
 -            app->textureCache->loadReplacementDirectories(replacement_directories);
 +            pack_load = std::make_unique<PackLoad>();
++            pack_load->mod_ids = sorted_texture_packs;
 +            PackLoad* load = pack_load.get();
 +            RT64::TextureCache* cache = app->textureCache.get();
 +            load->thread = std::thread([load, cache, dirs = std::move(replacement_directories)] {
@@ -1032,13 +1112,32 @@ index a7954c7..8d6f871 100644
          }
          else {
              app->textureCache->clearReplacementDirectories();
-@@ -557,6 +605,10 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
++            std::lock_guard lock{ packs_in_use_mutex };
++            packs_in_use.clear();
+         }
+     }
+ }
+@@ -557,6 +632,24 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
      texture_pack_action_queue.enqueue(TexturePackSecondaryEnableAction{mod_id});
  }
  
-+void renderer::set_generated_texture_pack(const std::filesystem::path& path) {
-+    texture_pack_action_queue.enqueue(TexturePackGeneratedAction{path});
++void renderer::set_generated_texture_pack(const std::string& id, const std::filesystem::path& path) {
++    texture_pack_action_queue.enqueue(TexturePackGeneratedAction{id, path});
 +}
++
++void renderer::set_generated_texture_pack(const std::filesystem::path& path) {
++    set_generated_texture_pack(std::string(), path);
++}
++
++bool renderer::texture_pack_in_use(const std::string& mod_id) {
++    std::lock_guard lock{ packs_in_use_mutex };
++    return packs_in_use.count(mod_id) != 0;
++}
++
++void renderer::enable_texture_pack_early(const std::string& mod_id) {
++    texture_pack_action_queue.enqueue(TexturePackEnableAction{mod_id});
++}
++
 +
  void renderer::secondary_disable_texture_pack(const std::string& mod_id) {
      texture_pack_action_queue.enqueue(TexturePackSecondaryDisableAction{mod_id});

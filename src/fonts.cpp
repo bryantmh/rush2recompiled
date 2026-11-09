@@ -289,6 +289,20 @@ void rush2::install_font_pack() {
     }
 }
 
+void rush2::load_font_pack_early() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    // The game's mod load turns the same pack on later, which RT64 takes as no change (it reloads nothing). The
+    // Fonts setting still decides whether it's drawn (set_hires_fonts_enabled's secondary enable / disable).
+    if (recomp::mods::is_mod_enabled(font_pack_id)) recompui::renderer::enable_texture_pack_early(font_pack_id);
+}
+
+bool rush2::font_pack_ready() {
+    return !hires_fonts_enabled || !recomp::mods::is_mod_enabled(font_pack_id) ||
+           recompui::renderer::texture_pack_in_use(font_pack_id);
+}
+
 void rush2::set_hires_fonts_enabled(bool enabled) {
     hires_fonts_enabled = enabled;
     if (enabled) {

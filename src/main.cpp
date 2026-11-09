@@ -650,6 +650,9 @@ static bool get_game_input(int controller_num, uint16_t* buttons, float* x, floa
 // on any computer.
 namespace {
     recompui::Element* launcher_menu = nullptr;
+    // The launcher page itself (its background and version line). Hidden whenever there is a ROM and nothing being
+    // built, so a launch goes from a black window straight into the game; shown for Locate ROM and the build screen.
+    recompui::Element* launcher_page = nullptr;
     recompui::Element* build_screen = nullptr;
     recompui::Label* build_label = nullptr;
     recompui::Element* build_fill = nullptr;
@@ -699,14 +702,16 @@ namespace {
         static bool hidden = false, shown = false;
         if (build_screen == nullptr) return ready;
         if (!hidden) {
-            hidden = true;   // a ROM located just now: its buttons go
+            hidden = true;   // a ROM located just now: its buttons go, and the page until something is built
             launcher_menu->set_visibility(Visibility::Hidden);
+            launcher_page->set_visibility(Visibility::Hidden);
         }
         rush2::prewarm::Progress p = rush2::prewarm::progress();
         if (!shown && !p.building) return ready;
         if (!shown) {
             shown = true;
             for (Element* b : launcher_buttons) b->set_visibility(Visibility::Hidden);
+            launcher_page->set_visibility(Visibility::Visible);
             launcher_menu->set_visibility(Visibility::Visible);
             build_screen->set_visibility(Visibility::Visible);
         }
@@ -752,9 +757,14 @@ static void launcher_init(recompui::LauncherMenu* menu) {
     }
     add_build_screen(game_options_menu);
     launcher_menu = game_options_menu;
-    // With a valid ROM the game starts once the build pass is over: the menu isn't shown meanwhile.
+    launcher_page = menu;
+    // With a valid ROM the game starts once the build pass is over: nothing of the launcher is shown meanwhile (a
+    // black window) unless the pass has something to build.
     std::u8string game_id = game.game_id;
-    if (recomp::is_rom_valid(game_id)) game_options_menu->set_visibility(recompui::Visibility::Hidden);
+    if (recomp::is_rom_valid(game_id)) {
+        game_options_menu->set_visibility(recompui::Visibility::Hidden);
+        menu->set_visibility(recompui::Visibility::Hidden);
+    }
     // Never Start Game: with a ROM the launcher starts the game itself (launcher_update).
     launcher_buttons.push_back(game_options_menu->add_start_game_or_load_rom_option("Locate ROM", "Locate ROM"));
     launcher_buttons.push_back(game_options_menu->add_exit_option());
@@ -767,6 +777,7 @@ static void launcher_update(recompui::LauncherMenu*) {
     if (started) {
         return;
     }
+    rush2::load_font_pack_early();
     // The ROM Locate ROM just stored: librecomp marks a ROM valid only when it checks the stored ones, so they're checked
     // again once the file is there, and the launcher goes straight on to the build pass and the game (it never offers
     // Start Game).
@@ -796,6 +807,12 @@ static void launcher_update(recompui::LauncherMenu*) {
     // Every car and track is built before the game starts (src/prewarm.cpp).
     rush2::prewarm::start(game_id);
     if (!show_build_progress(rush2::prewarm::ready())) {
+        return;
+    }
+    // The high-resolution fonts drawn from the game's first frame (rush2::load_font_pack_early): the window stays
+    // black until RT64 has the font pack, a fraction of a second, at most 2 s.
+    static const auto fonts_wait = std::chrono::steady_clock::now();
+    if (!rush2::font_pack_ready() && std::chrono::steady_clock::now() - fonts_wait < std::chrono::seconds(2)) {
         return;
     }
     started = true;

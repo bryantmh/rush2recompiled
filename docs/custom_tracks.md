@@ -1124,8 +1124,19 @@ merges and renames as needed.
   arrows, or a 150 ft circle from FINISH; the path's own height and off-road warnings are then left out) or is left
   out past a limit (far or excess collision polygons, oversized triangles, sections past 900). Thin or upright ribbons
   are used as they are (the AI drives the center line).
-- **Full-size textures:** the converter's RGBA16 stand-ins are keyed by `rush2::upscale::rgba16_key`, cached as
-  `trackmod_textures_<key>`, and published through `rush2::derive::set_mod_textures("tracks", ...)`.
+- **Full-size textures:** each RGBA16 stand-in is replaced on screen by its glb image through a texture pack on the
+  disk, written with the conversion (so in the launch build pass), never when a track is entered.
+  `write_textures` (src/track_mod/track_mod.cpp) puts one DDS per stand-in (the image tinted and cut out as the
+  stand-in was, mipmapped, decoded on every core) in `<config>/track_cache/track_textures/<cache key>/`, named by the
+  stand-in's RT64 hash: `rush2::rom2049::dc::replacement_hash`, the hash of the LOADBLOCK `texture_load` draws it with
+  (the Dreamcast pack's load). Its `textures.json` lists hash and file, its `stamp` holds the track's source hash and
+  the build; a cache hit needs a matching stamp (`textures_current`), else the track is converted again.
+  `publish_textures` merges the enabled tracks' lists into `track_textures/rt64.json` (shift `center`, as car mods'
+  images) and hands the folder to RT64 as the generated pack `"tracks"` (`recompui::renderer::set_generated_texture_pack`
+  with an id), which is not a mod: it isn't in the mods menu and can't be turned off. RT64 streams the images from the
+  disk as they're drawn. Until 2026-11-09 the texture deriver made them when first drawn
+  (`set_mod_textures("tracks")`): entering a track threw away every derived replacement, re-read every pack and
+  decoded the track's images one by one, so a track's first race came in low-res for seconds.
 - **Spline road:** `ROAD_SPLINES`' `segments` go into the collision file's SEG section as written (big-endian
   floats, header word 0 = their count); a face whose first vertex's `_SEGMENT` names one gets `CollisionTri::seg`,
   merges only with faces of the same segment, and its polygon gets flag 0x1000 and the segment index after its
