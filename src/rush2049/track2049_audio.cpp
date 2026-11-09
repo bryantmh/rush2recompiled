@@ -162,7 +162,8 @@ int rush2::track2049::queued_race_song() {
 }
 
 void rush2::track2049::play_song_now(uint8_t* rdram, int song) {
-    if (!ready()) {
+    // A streamed song (the arcade's, the PlayStation disc's, a mod's) needs no Rush 2049 data.
+    if (!ready() && song < audio::stream_songs) {
         return;
     }
     update_gains(rdram);
@@ -171,13 +172,11 @@ void rush2::track2049::play_song_now(uint8_t* rdram, int song) {
 }
 
 void rush2::track2049::stop_song_now() {
-    if (loaded) {
-        audio::stop_song(0.0f);
-    }
+    audio::stop_song(0.0f);
 }
 
 int rush2::track2049::playing_song() {
-    return loaded && audio::song_playing() ? audio::current_song() : -1;
+    return audio::song_playing() ? audio::current_song() : -1;
 }
 
 // func_80062F50 entry: queues music command $a0.
@@ -192,15 +191,17 @@ extern "C" void rush2_track49_music_command(uint8_t* rdram, recomp_context* ctx)
             audio::play_song(song);
             fprintf(stderr, "[2049] Playing Rush 2049 song %d\n", song);
         }
-        else if (loaded) {
+        else {
             audio::stop_song(0.5f);
-            rush2::track2049::stop_object_sounds();
+            if (loaded) {
+                rush2::track2049::stop_object_sounds();
+            }
         }
     }
     else if ((cmd >> 30) == 3) {
         update_gains(rdram);
     }
-    else if ((cmd & 0xFFFF) == 0xFFFF && (cmd >> 31) == 0 && loaded) {
+    else if ((cmd & 0xFFFF) == 0xFFFF && (cmd >> 31) == 0) {
         audio::stop_song(0.0f);
     }
 }
@@ -318,7 +319,8 @@ void rush2::track2049::stop_object_sounds() {
 }
 
 void rush2::track2049::mix_audio(float* samples, size_t sample_count, uint32_t sample_rate, float scale) {
-    if (!loaded) {
+    // Without the 2049 sound banks a streamed song can still play (src/music.cpp).
+    if (!loaded && !audio::song_playing()) {
         return;
     }
     bool paused = sounds_paused(sounds_rdram.load(), sounds_updated_ms.load());

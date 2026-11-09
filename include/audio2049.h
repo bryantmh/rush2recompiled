@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -52,7 +53,7 @@ namespace rush2::audio2049 {
     // source's. load() drops them again.
     bool load_music(std::shared_ptr<const rush2::rom2049::Source> source);
     // Whether song can play: songs 0-11 need the N64's songs loaded (or, from a disc alone, the disc's song for it),
-    // disc_songs + n a disc's.
+    // disc_songs + n a disc's, a streamed song (stream_songs and up) to be registered.
     bool song_loaded(int song);
 
     // The 2049 track id (0-18) being raced, or -1. A Dreamcast disc has its own song for every track: a song that
@@ -65,6 +66,45 @@ namespace rush2::audio2049 {
     // Select.rom): play_song(disc_songs + n) plays song n of the disc, which has more songs than the N64.
     constexpr int disc_songs = 100;
     constexpr int disc_song_count = 20;
+
+    // Songs streamed from files: the Rush 2049 arcade's (.str), the PlayStation SF Rush disc's CD audio, mods' songs
+    // (src/music_streams.cpp). They play on the disc's song player (src/rush2049dc/audio2049_dc.cpp) with or without any
+    // Rush 2049 data loaded: play_song(id) with an id set_stream_song registered. Ids by source, from stream_songs:
+    // the 2049 arcade's at arcade2049_songs + n, the PlayStation disc's at ps1_songs + n, Rush The Rock's at
+    // rock_songs + n, mods' from mod_songs.
+    constexpr int stream_songs = 200;
+    constexpr int arcade2049_songs = 200;
+    constexpr int ps1_songs = 300;
+    constexpr int rock_songs = 400;
+    constexpr int mod_songs = 1000;
+    class StreamDecoder;    // include/stream_decode.h
+    struct StreamSong {
+        // pcm16_stereo: little-endian 16-bit stereo frames (CD audio). pcm16_surround: little-endian 16-bit 5.1 frames
+        // (FL FR C LFE BL BR, the 2049 arcade's), folded to stereo. wav: a RIFF WAVE file (8/16/24/32-bit PCM or 32-bit
+        // float, mono, stereo or 5.1). ogg: an Ogg Vorbis file (stb_vorbis); its LOOPSTART comment (in frames) sets
+        // where the song loops back to.
+        enum class Format { pcm16_stereo, pcm16_surround, wav, ogg };
+        Format format = Format::pcm16_stereo;
+        // Reads the song's bytes (on a worker thread, when the song starts): for the pcm16 formats just its frames
+        // after skip_bytes, for wav and ogg the whole file.
+        std::function<bool(std::vector<uint8_t>&)> read;
+        // Or a decoder made when the song starts (in place of read and format): a song synthesized as it plays (Rush
+        // The Rock's sequenced music, src/arcade2049/rock_music.cpp), endless when its frames are SIZE_MAX.
+        std::function<std::unique_ptr<StreamDecoder>()> open;
+        size_t skip_bytes = 0;      // pcm16 formats: bytes before the first frame
+        uint32_t rate = 44100;      // pcm16 formats: frames per second
+        size_t loop_frame = 0;      // where the song loops back to (frames after skip_bytes)
+        float gain = 1.0f;          // the source's loudness compensation (see disc_music_compensation)
+    };
+    // Registers song id `song` (stream_songs and up), replacing what it was; nullptr removes it. A song playing keeps
+    // playing what it read.
+    void set_stream_song(int song, std::shared_ptr<const StreamSong> stream);
+    // The arcade's 5.1 songs folded to stereo play 9.7 dB louder than Rush 2's (-6.4 against -16.1 LUFS, the race
+    // songs' mean), the PlayStation disc's CD audio 7.7 dB (-8.4): each is turned down by that, as the disc's songs are.
+    constexpr float arcade2049_music_compensation = 0.328f;   // -9.67 dB
+    constexpr float ps1_music_compensation = 0.413f;          // -7.68 dB
+    // Rush The Rock's synthesized race songs (src/arcade2049/rock_music.cpp) at the synth's level: -4.95 LUFS.
+    constexpr float rock_music_compensation = 0.277f;         // -11.15 dB
 
     // The song Rush 2049 plays on 2049 track id t (0-5 races, 6-13 battle arenas, 14-17 stunt arenas, 18 the obstacle
     // course) with its default "per track" music option: the N64's (0x8010FFD4), or from a Dreamcast disc

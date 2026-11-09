@@ -164,6 +164,8 @@ namespace rush2::track2049 {
     // Dreamcast version (track select 249-254), read from the disc whichever source the Games tab uses.
     int race_track();
     void set_race_track(int k, bool disc = false);
+    // Whether race_track() is a race track's Dreamcast version (track select 249-254).
+    bool race_track_disc();
     // Where the race tracks' versions come from. The N64 versions (12-17) are the N64 ROM's when it is stored and
     // enabled (the Games tab's Enabled Source), else the disc's; the stunt arenas, obstacle course and battle arenas
     // are the source the game uses (rush2::wings::get_rom: Primary Source).
@@ -192,6 +194,9 @@ namespace rush2::track2049 {
     // Whether the race is on a custom track with no [audio] music, which plays a random one of the songs the player
     // switched on (src/music.cpp).
     bool mod_random_song(uint8_t* rdram);
+    // The custom track (rush2::track_mod::tracks() index) applied in the slot being raced, or -1 (src/music.cpp: its
+    // own songs and the course it is a version of).
+    int raced_mod(uint8_t* rdram);
     // Whether the race is on a custom track that races with smooth collision (its track.toml smooth_collision), and its
     // fold angle (degrees).
     bool mod_smooth_collision(uint8_t* rdram, float* fold = nullptr);
@@ -262,6 +267,11 @@ namespace rush2::track2049 {
     bool mod_from_2049(int t);
     // The same for the app's SF Rush arcade mod (rush2::arcade2049::sfrush_track_mod_id): filed under SF Rush.
     bool mod_from_sfrush(int t);
+    // The versions of the course track select id t is a version of (docs/menus.md#track-versions), as the track
+    // select's version button goes through them: the course first (12-17: the Rush 2049 race tracks' N64 version),
+    // then the Dreamcast version (249-254), then the custom tracks that are versions of it, in mod order. {t} for a
+    // course with no other version. Game thread.
+    std::vector<int> course_versions(int t);
     // The Dreamcast version's (249-254) preview of race track k, beside the N64 one: "R49PDTRACKk".
     std::string disc_preview_name(int k);
     // The circuit screen shows the route turning in a small window without the round picture, so the race tracks'

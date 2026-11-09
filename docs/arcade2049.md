@@ -109,6 +109,14 @@ slides a 40 s chroma clip of each over all 18 disc `.STR` songs, and no arcade s
 at 0.25 or less at every rate from 11 to 50 kHz with any key shift; real arrangements score 0.54-0.87, see
 docs/rush2049_research/audio.md). So the arcade's soundtrack is its own [I]; confirm by ear with `song_match.py ... --wav OUT`.
 
+The game plays them (src/music_streams.cpp) straight from the arcade data folder, nothing converted: the first whole
+frame after the header is frame 43 (byte 516); the six channels carry different parts (the centre and rears hold
+their own instruments, uncorrelated with the fronts), so they are folded to stereo (FL + 0.707 C + 0.707 BL, likewise
+right; src/stream_decode.cpp), and turned down 9.7 dB (folded, they measure -6.4 LUFS against Rush 2's -16.1). Each
+TRACKn's song is the Original of its arcade version (`track4` Alcatraz's); `therock` (TRACK8's) is no raced track's
+own song, so it plays only in shuffles; `select` is a main menu song (Sound tab: Rush 2049 >
+Arcade > Main Menu). They are listed under Rush 2049's Arcade heading in the Sound tab.
+
 ## Axes
 
 World = the N64 2049 frame (feet, y up), which `tools/stock_track_glb.py`'s `to_gltf` takes. `objects.rom` vertices and

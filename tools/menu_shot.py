@@ -1,7 +1,7 @@
 """Launches the game, drives the recomp menu with posted keys and screenshots after each key (UI test aid).
 
 Usage: python tools/menu_shot.py OUT_DIR KEY[,KEY...]
-Keys: ESC UP DOWN LEFT RIGHT ENTER BACK TAB F15 F16 F17. ESC opens the menu on the General tab; F15 (the menu's Back)
+Keys: ESC UP DOWN LEFT RIGHT ENTER BACK TAB F15 F16 F17, and WAIT<seconds> (no key, no shot). ESC opens the menu on the General tab; F15 (the menu's Back)
 moves focus to the tab bar, where RIGHT/LEFT pick a tab and ENTER opens it; arrows inside a page move focus, which
 shows the focused row's description. Example, the Sound tab: ESC,DOWN,F15,RIGHT,RIGHT,ENTER
 Set RUSH2_EXE to run another build (e.g. a copy linked into tmp/ while build/ is in use); it runs in its own folder.
@@ -38,6 +38,9 @@ try:
         sys.exit('the game window never showed')
     time.sleep(8)
     for i, key in enumerate(keys):
+        if key.startswith('WAIT'):
+            time.sleep(float(key[4:]))   # WAIT<seconds>: e.g. for the launch's build pass to finish
+            continue
         sc = shots.user32.MapVirtualKeyW(VK[key], 0) << 16
         if key in ('RIGHT', 'LEFT', 'UP', 'DOWN'):
             sc |= 1 << 24   # extended key, or SDL reads the numpad's

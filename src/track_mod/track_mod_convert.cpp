@@ -1452,7 +1452,16 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     }
     if (auto v = t["look"]["cloud_scroll"].value<double>()) s.cloud_scroll = float(*v);
     if (auto v = t["look"]["sky_parallax"].value<double>()) s.sky_parallax = float(*v);
-    str("audio", "music", s.music);
+    if (auto* arr = t["audio"]["music"].as_array()) {
+        for (auto& e : *arr) {
+            if (auto v = e.value<std::string>()) s.music_list.push_back(*v);
+            else report.error("track.toml: [audio] music lists song names or files (strings).");
+        }
+    }
+    else if (auto v = t["audio"]["music"].value<std::string>()) {
+        s.music_list.push_back(*v);
+    }
+    if (!s.music_list.empty()) s.music = s.music_list[0];
     str("menu", "preview", s.preview);
     str("menu", "logo", s.logo);
     str("menu", "diorama", s.diorama);

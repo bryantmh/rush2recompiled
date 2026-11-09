@@ -32,6 +32,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Sky](#sky)
 - [Props](#props)
 - [What the converter makes](#what-the-converter-makes)
+- [Music](#music)
 - [Not ported](#not-ported)
 
 ## Disc
@@ -44,6 +45,9 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
   track alone (.bin/.img, or an .iso of 2048-byte sectors, which has no music). A data track file's sector layout is
   found from where the volume descriptor sits: raw 2352 (+24, +16 for a MODE1 rip), 2048 or 2336 (+8). The mod's key
   is the picked file's name, size and time, so a .cue-built install keeps its key. **[V]**
+- **Music:** the CD audio tracks, read through `audio_tracks()` / `read_audio()`; a .chd stores CD audio big-endian
+  and `read_frame` swaps it back. `tools/sfrush_ps1/ps1_variants.py` writes the .cue as .iso, .ccd/.img, one-file .cue
+  and .chd; the converter (`cpp_test`) builds the same mod from each and prints each song's hash (all equal). **[V]**
 - `SLUS_005.05` is the boot program; `EXE/RUSH.EXE` is the game (PS-X EXE, loaded at 0x80010000, size 0xA3000,
   entry 0x8008D794). **[V]**
 - File loads go through `func_8004AA58(name, size, 0, dest)`. **[V]**
@@ -471,6 +475,17 @@ cable car) and `T2KNOCK/T2K003.PSV`, into gp+0xD60, 0xD64 and 0xD6C. **[V]**
   axes (a prop isn't turned), which mirror the cars' mapping, so their faces are wound the other way round.
 - **The second table** 0x800A59C4 (71 records, the fourth field a track 0-3, only when gp+0x3C is set; kinds 8 and 9
   spin) is the PS1's hidden pickups. **[I]** Not ported: mods carry no collectibles.
+
+## Music
+
+The disc's four CD audio tracks (tracks 2-5, 16-bit stereo at 44.1 kHz) are the game's music. The port plays them as
+SF Rush songs (src/music_streams.cpp: `ps1::audio_tracks` finds them through the .cue, a .ccd or a CHD and
+`ps1::read_audio` reads them; nothing is converted or copied into the mod). Like SF Rush's N64 songs they belong to no
+track: an SF Rush N64 track's Original is a random one of the N64 and PlayStation songs, Chinatown's too. They are
+listed in the Sound tab under SF Rush > PlayStation, with a switch for the source while SF Rush has more than one
+installed. Measured -8.4 LUFS against Rush 2's -16.1, they are turned down 7.7 dB (`ps1_music_compensation`). The
+songs are taken to be the PlayStation version's own (not checked against the N64 songs, which only play as sequences
+in the game). **[I]**
 
 ## Not ported
 

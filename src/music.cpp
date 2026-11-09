@@ -5,27 +5,41 @@
 // 0x800CC394 = [3, 4, 0, 1, 7, 10, 2, 8]; per-track choice 0x800CC37C), SF Rush's nine race songs (its random table
 // 0x800D2910, played through Rush 2's player as sequences 13-28, src/rush1/track1_audio.cpp) and the six songs of Rush
 // 2049's race tracks (0x8010FFD4, played on the host, src/rush2049/track2049_audio.cpp). A Rush 2049 Dreamcast disc has its own
-// 20 songs (rush2::audio2049::disc_songs, a song per track at 0x8C0BA76C), listed instead of the N64's while it's the
-// 2049 source. With both the N64 ROM and the disc installed, the Rush 2049 Soundtrack option picks the N64's, the
-// disc's or both (the other source's songs then load beside the first's, audio2049::load_music); with both, a 2049
-// track's Original is its N64 or its disc song. California Speed's nine songs (its song file, ROM 0xD69FC0) play through Rush 2's player as sequences
-// 29-37 (src/rush1/track1_audio.cpp). California Speed has no per-track songs (the player picks one: its options'
-// Audio Track), so like SF Rush its tracks play a random one of its songs by default.
+// 20 songs (rush2::audio2049::disc_songs, a song per track at 0x8C0BA76C). California Speed's nine songs (its song
+// file, ROM 0xD69FC0) play through Rush 2's player as sequences 29-37 (src/rush1/track1_audio.cpp). California Speed
+// has no per-track songs (the player picks one: its options' Audio Track), so like SF Rush its tracks play a random one
+// of its songs by default. Streamed songs (src/music_streams.cpp, played on the host): the Rush 2049 arcade's (a song
+// per arcade track, listed under Rush 2049), the PlayStation SF Rush disc's CD audio (four songs that, like SF Rush's
+// N64 ones, play on any SF Rush track) and the custom tracks' own song files (the Custom Tracks column).
+//
+// Sources: Rush 2049's songs come from its N64 ROM, Dreamcast disc and arcade data, SF Rush's from its N64 ROM,
+// PlayStation disc and arcade data. Each source installed is listed under its heading, and with more than one
+// installed each has a switch (source_switches; they replaced the N64 / Dreamcast / Both Soundtrack choice, migrated
+// at startup by src/data_files.cpp). The other Rush 2049 source's songs load beside the first's while its switch is
+// on (audio2049::load_music).
 //
 // Choice: Rush 2 picks a race's song in func_8008C370(2, setting), setting 1 being "per track" (byte 0x800D5775).
 // Only that setting is taken over; the fixed-song settings and Off stay the game's. Each game's Race Music option
-// chooses for that game's tracks: Original (the game's own choice, swapped for another song of that game, then of any
-// game, when it is switched off), Shuffle (a random song of the game) or Shuffle All (a random song of any
+// chooses for that game's tracks: Original, Shuffle (a random song of the game) or Shuffle All (a random song of any
 // game in Shuffle All). SF Rush and California Speed offer only Original and Shuffle All: their own choice already is
 // a random song of the game. A game's In Shuffle All switch keeps its songs out of every Shuffle All (its own tracks'
-// Original and Shuffle still play them). A custom track counts as a Rush 2 track; one with no song of its own
-// ([audio] music) has as its Original a random song of any game, of every song switched on.
-// Shuffles skip the song played last. A song of a game whose ROM or audio isn't available is skipped; with nothing
+// Original and Shuffle still play them).
+// Original plays the song of the version raced (race_music): a course's versions are the track select's
+// (track2049::course_versions: the N64 version, the Dreamcast one, the custom tracks that are versions of it, such as
+// the arcade's), and each version has its own song: the N64 ROM's or the disc's for a Rush 2049 race track, the
+// arcade's for an arcade version, a custom track's [audio] music, Rush 2's for its tracks. A version with no song of
+// its own (an SF Rush or California Speed track, which pick at random; a custom version without music) plays the
+// course's, or the game's random pick (SF Rush's from its N64 and PlayStation songs). Switched off, the next version's
+// song plays, then another song of the game. A custom track that is no other track's version counts as a Rush 2
+// track; one with no song of its own has as its Original a random song of any game, of every song switched on.
+// SKIP TRACK goes through the course's versions' songs first (the next after the one playing, each once a race),
+// then picks by the game's Race Music. Shuffles skip the song played last. A song of a game whose ROM or audio isn't available is skipped; with nothing
 // left the game picks as it would by itself. A Rush 2 or SF Rush song replaces the sequence Rush 2 chose (at
 // 0x8008C46C); a Rush 2049 song is queued on the 2049 player and the call turned into the "music off" case, whose
 // stop command starts it (src/rush2049/track2049_audio.cpp).
 //
-// Menu: each game's main menu song has a switch (Rush 2049 two: the N64's and the Dreamcast's); each time the front end's song starts (command 0x0009FFFF) a random
+// Menu: each game's main menu song has a switch (Rush 2049 three: the N64's, the Dreamcast's and the arcade's select
+// screen song); each time the front end's song starts (command 0x0009FFFF) a random
 // one of those switched on plays (not the last one, when there's another), Rush 2's when none is on or can play.
 // Older versions' single Main Menu Music choice (sound.json "menu_music") becomes the switches at startup
 // (src/data_files.cpp).
@@ -49,8 +63,13 @@
 // As in src/rush2049/wings.cpp: librecomp's nlohmann::json first.
 #include "../lib/N64ModernRuntime/thirdparty/json/json.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <functional>
+#include <map>
+#include <memory>
+#include <thread>
 #include <cstdio>
 #include <mutex>
 #include <random>
@@ -77,6 +96,10 @@
 #include "audio2049.h"
 #include "wings.h"
 #include "calspeed.h"
+#include "music_streams.h"
+#include "track_mod_runtime.h"
+#include "arcade2049.h"
+#include "sfrush_ps1.h"
 
 extern "C" void music_stop_song_80061E10(uint8_t* rdram, recomp_context* ctx);   // Stops the song.
 extern "C" void music_play_sequence_80061E68(uint8_t* rdram, recomp_context* ctx);   // Plays sequence $a0; 0 if busy.
@@ -115,27 +138,35 @@ namespace {
     constexpr uint32_t sequence_player = 0x800FAEB4; // ALSeqPlayer*
     constexpr int al_playing = 1;
 
-    // Values are kept in the configs (Main Menu Music stores Rush2-Rush2049 as 0-2, then 3 for Shuffle).
-    enum class Game { Rush2, Rush1, Rush2049, CalSpeed };
-    // Which Rush 2049 source a song comes from.
-    enum class Only { Any, N64, Disc };
+    // Values are kept in the configs (Main Menu Music stores Rush2-Rush2049 as 0-2, then 3 for Shuffle). Mods: the
+    // custom tracks' own song files (src/music_streams.cpp).
+    enum class Game { Rush2, Rush1, Rush2049, CalSpeed, Mods };
+    // Where a song comes from, for a game with more than one source: Rush 2049's N64 ROM, Dreamcast disc or arcade;
+    // SF Rush's N64 ROM, PlayStation disc or arcade (Any: the game's only source, SF Rush's N64 songs among them).
+    enum class Only { Any, N64, Disc, Arcade, PS1, Mod };
 
     struct Song {
         Game game;
-        int id;             // Rush 2: song table index. SF Rush and Rush 2049: the game's song number.
-        const char* key;    // Option id suffix.
-        const char* name;
-        const char* plays_on;
+        // Rush 2: song table index. SF Rush and California Speed: the game's song number. Rush 2049 and the streamed
+        // songs: the host player's song id (audio2049: N64 0-11, disc_songs + n, stream_songs and up).
+        int id;
+        std::string key;    // Option id suffix.
+        std::string name;
+        std::string plays_on;
         Only only = Only::Any;
     };
 
     constexpr int disc = rush2::audio2049::disc_songs;
+    constexpr int arc49 = rush2::audio2049::arcade2049_songs;
+    constexpr int ps1 = rush2::audio2049::ps1_songs;
+    constexpr int rock = rush2::audio2049::rock_songs;
 
-    // In each game's own order: Rush 2's MUSIC setting, SF Rush's random table, Rush 2049's tracks (the N64's, then
-    // the disc's by its track table 0x8C0BA76C: races, battles, stunts, obstacle course, then the songs no track plays).
-    // The N64 ROM names no songs, so each N64 song is named after the first track that plays it (an earlier
-    // tempo/chroma match against the disc's songs was too weak to trust: docs rush2049_research/audio.md "Songs").
-    constexpr std::array<Song, 54> songs = {{
+    // In each game's own order: Rush 2's MUSIC setting, SF Rush's random table (then the PlayStation disc's CD audio),
+    // Rush 2049's tracks (the N64's, then the disc's by its track table 0x8C0BA76C: races, battles, stunts, obstacle
+    // course, then the songs no track plays, then the arcade's by its TRACKn). The N64 ROM names no songs, so each N64
+    // song is named after the first track that plays it (an earlier tempo/chroma match against the disc's songs was
+    // too weak to trust: docs rush2049_research/audio.md "Songs"); the arcade's are named after their tracks.
+    const std::array<Song, 73> songs = {{
         { Game::Rush2, 0, "r2_0", "Head Thumpin'", "Lower Manhattan" },
         { Game::Rush2, 1, "r2_1", "Tinkle Toon", "Las Vegas" },
         { Game::Rush2, 2, "r2_2", "Drums N Hula", "Honolulu" },
@@ -153,6 +184,17 @@ namespace {
         { Game::Rush1, 6, "r1_6", "Song 7", "Any SF Rush track" },
         { Game::Rush1, 12, "r1_12", "Song 8", "Any SF Rush track" },
         { Game::Rush1, 15, "r1_15", "Song 9", "Any SF Rush track" },
+        { Game::Rush1, ps1 + 0, "r1ps1_0", "Song 1", "Any SF Rush track", Only::PS1 },
+        { Game::Rush1, ps1 + 1, "r1ps1_1", "Song 2", "Any SF Rush track", Only::PS1 },
+        { Game::Rush1, ps1 + 2, "r1ps1_2", "Song 3", "Any SF Rush track", Only::PS1 },
+        { Game::Rush1, ps1 + 3, "r1ps1_3", "Song 4", "Any SF Rush track", Only::PS1 },
+        { Game::Rush1, rock + 0, "r1arc_27", "Golden Gate", "SF Rush Golden Gate Arcade", Only::Arcade },
+        { Game::Rush1, rock + 1, "r1arc_25", "Embarcadero", "SF Rush Embarcadero Arcade", Only::Arcade },
+        { Game::Rush1, rock + 2, "r1arc_31", "Market", "SF Rush Market Arcade", Only::Arcade },
+        { Game::Rush1, rock + 4, "r1arc_29", "Downtown", "SF Rush Downtown Arcade", Only::Arcade },
+        { Game::Rush1, rock + 5, "r1arc_33", "The Heights", "SF Rush The Heights Arcade", Only::Arcade },
+        { Game::Rush1, rock + 6, "r1arc_35", "Sunset", "SF Rush Sunset Arcade", Only::Arcade },
+        { Game::Rush1, rock + 3, "r1arc_41", "The Rock", "SF Rush The Rock Arcade", Only::Arcade },
         { Game::Rush2049, 0, "r49_0", "Marina", "Rush 2049 Marina, Battle 1", Only::N64 },
         { Game::Rush2049, 1, "r49_1", "Haight", "Rush 2049 Haight, Battle 2", Only::N64 },
         { Game::Rush2049, 4, "r49_4", "Civic", "Rush 2049 Civic, Battle 3", Only::N64 },
@@ -181,6 +223,15 @@ namespace {
         { Game::Rush2049, disc + 9, "r49dc_9", "Speed", "No Rush 2049 track", Only::Disc },
         { Game::Rush2049, disc + 19, "r49dc_19", "Select", "Rush 2049 menus", Only::Disc },
         { Game::Rush2049, disc + 18, "r49dc_18", "High Score", "Rush 2049 high score entry", Only::Disc },
+        { Game::Rush2049, arc49 + 0, "r49arc_1", "Marina", "Rush 2049 Marina Arcade", Only::Arcade },
+        { Game::Rush2049, arc49 + 1, "r49arc_2", "Haight", "Rush 2049 Haight Arcade", Only::Arcade },
+        { Game::Rush2049, arc49 + 2, "r49arc_3", "Civic", "Rush 2049 Civic Arcade", Only::Arcade },
+        { Game::Rush2049, arc49 + 4, "r49arc_5", "Metro", "Rush 2049 Metro Arcade", Only::Arcade },
+        { Game::Rush2049, arc49 + 5, "r49arc_6", "Mission", "Rush 2049 Mission Arcade", Only::Arcade },
+        { Game::Rush2049, arc49 + 6, "r49arc_7", "Presidio", "Rush 2049 Presidio Arcade", Only::Arcade },
+        { Game::Rush2049, arc49 + 3, "r49arc_4", "Alcatraz", "Rush 2049 Alcatraz", Only::Arcade },
+        { Game::Rush2049, arc49 + rush2::music_streams::arcade_track8, "r49arc_8", "The Rock",
+          "No track here (the arcade's TRACK8)", Only::Arcade },
         { Game::CalSpeed, 0, "cs_0", "Song 1", "Any California Speed track, and its menus" },
         { Game::CalSpeed, 1, "cs_1", "Song 2", "Any California Speed track" },
         { Game::CalSpeed, 2, "cs_2", "Song 3", "Any California Speed track" },
@@ -191,8 +242,56 @@ namespace {
         { Game::CalSpeed, 7, "cs_7", "Song 8", "Any California Speed track" },
         { Game::CalSpeed, 8, "cs_8", "Song 9", "Any California Speed track" },
     }};
-    constexpr int song_count = (int)songs.size();
-    constexpr int first_rush1 = 8;      // Catalog index of SF Rush's first song.
+    constexpr int song_count = (int)std::tuple_size_v<decltype(songs)>;
+
+    // The custom tracks' song files (src/music_streams.cpp) follow the built-in songs as catalog indices
+    // mod_base + n, n into the snapshot below; they have no switches of their own (the Mods column's switch).
+    constexpr int mod_base = 1000;
+    std::mutex mod_catalog_mutex;
+    std::shared_ptr<const std::vector<Song>> mod_catalog = std::make_shared<std::vector<Song>>();
+
+    std::shared_ptr<const std::vector<Song>> mod_snapshot() {
+        std::lock_guard lock{ mod_catalog_mutex };
+        return mod_catalog;
+    }
+
+    // Reads the enabled mods' song files again (cheap while they haven't changed).
+    void refresh_mod_catalog() {
+        auto list = std::make_shared<std::vector<Song>>();
+        for (const rush2::music_streams::ModSong& m : rush2::music_streams::mod_songs()) {
+            list->push_back({ Game::Mods, m.id, m.owner + "/" + m.name, m.name, m.track, Only::Mod });
+        }
+        std::lock_guard lock{ mod_catalog_mutex };
+        mod_catalog = std::move(list);
+    }
+
+    // Catalog index i's song (a built-in one, or a mod's), or nullptr.
+    const Song* song_at(int i, const std::vector<Song>& mods) {
+        if (i >= 0 && i < song_count) return &songs[(size_t)i];
+        if (i >= mod_base && i - mod_base < (int)mods.size()) return &mods[(size_t)(i - mod_base)];
+        return nullptr;
+    }
+
+    // Every catalog index: the built-in songs, then the mods'.
+    std::vector<int> catalog(const std::vector<Song>& mods) {
+        std::vector<int> out;
+        for (int i = 0; i < song_count; i++) out.push_back(i);
+        for (int i = 0; i < (int)mods.size(); i++) out.push_back(mod_base + i);
+        return out;
+    }
+
+    // The catalog index of a mod song by its song id, or -1.
+    int find_mod_song(const std::vector<Song>& mods, int id) {
+        for (size_t i = 0; i < mods.size(); i++) {
+            if (mods[i].id == id) return mod_base + (int)i;
+        }
+        return -1;
+    }
+
+    // Whether the host player plays the song (Rush 2049's and every streamed song) rather than Rush 2's sequence player.
+    bool host_song(const Song& s) {
+        return s.game == Game::Rush2049 || s.id >= rush2::audio2049::stream_songs;
+    }
 
     const std::string tab_id = "rush2_sound";
     enum class Mode : uint32_t { Original, ShuffleByGame, ShuffleAll };
@@ -201,12 +300,42 @@ namespace {
         return std::string("song_") + s.key;
     }
 
-    constexpr Game games[4] = { Game::Rush2, Game::Rush1, Game::Rush2049, Game::CalSpeed };
-    constexpr int game_count = 4;
+    constexpr Game games[5] = { Game::Rush2, Game::Rush1, Game::Rush2049, Game::CalSpeed, Game::Mods };
+    constexpr int game_count = 5;
 
     std::string mode_option_id(Game g) {
         return g == Game::Rush2 ? "race_music_r2" : g == Game::Rush1 ? "race_music_r1"
              : g == Game::Rush2049 ? "race_music_r49" : "race_music_cs";
+    }
+
+    // A game's songs by source (Rush 2049: N64, Dreamcast, arcade; SF Rush: N64, PlayStation, arcade), each source
+    // with a switch while more than one is installed (sound.json "<game>_songs_<source>", on by default). They
+    // replace Rush 2049's Soundtrack choice (soundtrack_r49, migrated at startup by src/data_files.cpp).
+    struct SourceSwitch {
+        Game game;
+        Only only;
+        const char* id;
+        const char* name;
+    };
+    constexpr SourceSwitch source_switches[] = {
+        { Game::Rush2049, Only::N64, "r49_songs_n64", "N64 Songs" },
+        { Game::Rush2049, Only::Disc, "r49_songs_dc", "Dreamcast Songs" },
+        { Game::Rush2049, Only::Arcade, "r49_songs_arcade", "Arcade Songs" },
+        { Game::Rush1, Only::Any, "r1_songs_n64", "N64 Songs" },
+        { Game::Rush1, Only::PS1, "r1_songs_ps1", "PlayStation Songs" },
+        { Game::Rush1, Only::Arcade, "r1_songs_arcade", "Arcade Songs" },
+    };
+    constexpr int source_switch_count = (int)std::size(source_switches);
+    std::array<std::atomic_bool, source_switch_count> source_on{};
+    const std::string source_description =
+        "Lets races play this source's songs. Switched off, a track whose own song is one of them plays its other "
+        "version's song instead, and shuffles leave them out. Applies from the next song.";
+
+    int source_switch(Game g, Only o) {
+        for (int k = 0; k < source_switch_count; k++) {
+            if (source_switches[k].game == g && source_switches[k].only == o) return k;
+        }
+        return -1;
     }
 
     // The Race Music choices a game offers, in the order shown.
@@ -226,12 +355,13 @@ namespace {
     }
 
     std::string game_option_id(Game g) {
-        return g == Game::Rush2 ? "games_r2" : g == Game::Rush1 ? "games_r1" : g == Game::Rush2049 ? "games_r49" : "games_cs";
+        return g == Game::Rush2 ? "games_r2" : g == Game::Rush1 ? "games_r1" : g == Game::Rush2049 ? "games_r49"
+             : g == Game::CalSpeed ? "games_cs" : "games_mods";
     }
 
     std::string shuffle_all_option_id(Game g) {
         return g == Game::Rush2 ? "shuffle_all_r2" : g == Game::Rush1 ? "shuffle_all_r1"
-             : g == Game::Rush2049 ? "shuffle_all_r49" : "shuffle_all_cs";
+             : g == Game::Rush2049 ? "shuffle_all_r49" : g == Game::CalSpeed ? "shuffle_all_cs" : "shuffle_all_mods";
     }
 
     const char* game_name(Game g) {
@@ -239,7 +369,8 @@ namespace {
             case Game::Rush2: return "Rush 2";
             case Game::Rush1: return "SF Rush";
             case Game::Rush2049: return "Rush 2049";
-            default: return "California Speed";
+            case Game::CalSpeed: return "California Speed";
+            default: return "Custom Tracks";
         }
     }
 
@@ -251,6 +382,11 @@ namespace {
     std::mutex choice_mutex;
     std::mt19937 rng{ std::random_device{}() };
     int last_song = -1;   // Catalog index of the last race song.
+    // The race's course versions' songs (catalog indices, in the order the track select's version button goes
+    // through them) and the songs played this race, for SKIP TRACK (under choice_mutex).
+    std::vector<int> race_variants;
+    std::vector<int> race_played;
+    Game race_game_now = Game::Rush2;
 
     // Rush 2's front-end song: sequence 9, started by command 0x0009FFFF (func_800ABE7C and func_800AD07C's state 0)
     // [V]. SF Rush's front end (screen 0, func_800B9508) plays its sequence 11 and Rush 2049's menu loop
@@ -263,20 +399,23 @@ namespace {
     constexpr int rush1_menu_song = 11;
     constexpr int rush2049_menu_song = 6;
     constexpr int disc_menu_song = disc + 19;   // Select.rom, the disc's menu song.
+    constexpr int arcade_menu_song = arc49 + rush2::music_streams::arcade_select;   // the arcade's select.str
     constexpr int calspeed_menu_song = 0;
 
     // The main menu songs, each with its switch (sound.json "menu_song_<key>"). Rush 2's is on by default. Rush 2049
-    // has two: the N64's song 6 and the disc's Select.rom, each listed while its soundtrack is in use.
+    // has three: the N64's song 6, the disc's Select.rom and the arcade's select screen song, each listed while its
+    // source is installed.
     struct MenuSong {
         Game game;
         const char* key;
         Only only = Only::Any;   // Rush 2049's are listed under its N64 or Dreamcast heading.
     };
-    constexpr std::array<MenuSong, 5> menu_songs = {{
+    constexpr std::array<MenuSong, 6> menu_songs = {{
         { Game::Rush2, "r2" },
         { Game::Rush1, "r1" },
         { Game::Rush2049, "r49", Only::N64 },
         { Game::Rush2049, "r49dc", Only::Disc },
+        { Game::Rush2049, "r49arc", Only::Arcade },
         { Game::CalSpeed, "cs" },
     }};
     constexpr int menu_count = (int)menu_songs.size();
@@ -288,7 +427,7 @@ namespace {
         return std::string("menu_song_") + menu_songs[m].key;
     }
 
-    // Preview ids: race songs by catalog index, then the menu songs.
+    // Preview ids: race songs by catalog index (the mods' from mod_base), the menu songs after the built-in ones.
     constexpr int menu_preview(int m) {
         return song_count + m;
     }
@@ -331,12 +470,14 @@ namespace {
     constexpr uint32_t command_volume = 0xC0000000;   // Applies the music volume and fade.
     constexpr uint32_t current_song = 0x8010BCD8;    // u8: the loaded sequence (0xFF none), then the one loading.
 
-    bool game_available(Game g) {
+    // Whether the game's ROM (or data) is installed: its sequenced songs can play, and its column shows.
+    bool rom_available(Game g) {
         switch (g) {
             case Game::Rush2: return true;
             case Game::Rush1: return rush2::track1::rom_available();
             case Game::CalSpeed: return rush2::calspeed::rom_available();
-            default: return rush2::wings::rom_available();
+            case Game::Rush2049: return rush2::wings::rom_available();
+            default: return false;
         }
     }
 
@@ -346,64 +487,93 @@ namespace {
         return rom != nullptr && rom->is_dreamcast();
     }
 
-    // Rush 2049 Soundtrack (shown while both the N64 ROM and the disc are installed): whose Rush 2049 songs play.
-    // Source follows the Games tab's Primary Source (Rush 2049 Source until 2026-11-05), as before the option existed.
-    enum class Soundtrack : uint32_t { Source, N64, Dreamcast, Both };
-    constexpr const char* soundtrack_option_id = "soundtrack_r49";
-    std::atomic<uint32_t> soundtrack = (uint32_t)Soundtrack::Source;
-    const std::string soundtrack_description =
-        "Which Rush 2049 songs play. <recomp-color primary>Both</recomp-color> mixes the N64's and the Dreamcast's: "
-        "Original plays the track's N64 or Dreamcast song and Shuffle any song of either; each main menu song "
-        "has its own switch. <recomp-color primary>Same as Source</recomp-color> follows Primary Source in the Games tab. "
-        "Applies from the next song.";
+    // Whether a source's songs are installed at all (so its songs and switch are listed): Rush 2049's N64 ROM or
+    // Dreamcast disc as the Games tab has them, a streamed source while its songs are registered.
+    bool source_present(Game g, Only o) {
+        switch (o) {
+            case Only::N64: return rush2::wings::rom_available() && (rush2::wings::both_sources() || !disc_source());
+            case Only::Disc: return rush2::wings::rom_available() && (rush2::wings::both_sources() || disc_source());
+            case Only::Arcade:
+                return rush2::audio2049::song_loaded(g == Game::Rush2049 ? arc49 : rock);
+            case Only::PS1: return rush2::audio2049::song_loaded(ps1);
+            case Only::Mod: return !mod_snapshot()->empty();
+            default: return rom_available(g);
+        }
+    }
 
-    // Whether the N64's and the disc's Rush 2049 songs may play.
+    // Whether a game's column shows: its ROM, or any of its sources' songs.
+    bool game_available(Game g) {
+        if (g == Game::Mods) return source_present(g, Only::Mod);
+        if (rom_available(g)) return true;
+        for (const SourceSwitch& s : source_switches) {
+            if (s.game == g && source_present(g, s.only)) return true;
+        }
+        return false;
+    }
+
+    // How many of a game's sources are installed: with more than one, each gets its switch and heading.
+    int sources_present(Game g) {
+        int n = 0;
+        for (const SourceSwitch& s : source_switches) {
+            n += s.game == g && source_present(g, s.only);
+        }
+        return n;
+    }
+
+    // Whether the source's switch lets its songs play.
+    bool source_allowed(Game g, Only o) {
+        int k = source_switch(g, o);
+        return k < 0 || source_on[(size_t)k].load(std::memory_order_relaxed);
+    }
+
+    // Whether the N64's and the disc's Rush 2049 songs may play (their switches; the other source's songs load
+    // beside the first's when its switch is on, src/rush2049/track2049_audio.cpp).
     void soundtracks(bool& n64, bool& disc) {
-        bool disc_now = disc_source();
-        Soundtrack t = rush2::wings::both_sources() ? (Soundtrack)soundtrack.load() : Soundtrack::Source;
-        n64 = t == Soundtrack::N64 || t == Soundtrack::Both || (t == Soundtrack::Source && !disc_now);
-        disc = t == Soundtrack::Dreamcast || t == Soundtrack::Both || (t == Soundtrack::Source && disc_now);
+        n64 = source_allowed(Game::Rush2049, Only::N64);
+        disc = source_allowed(Game::Rush2049, Only::Disc);
     }
 
-    // Whether the song is of a Rush 2049 soundtrack in use, so it's listed at all.
-    bool song_listed(const Song& s, bool n64, bool disc) {
-        return s.only == Only::Any || (s.only == Only::Disc ? disc : n64);
-    }
-
-    // Whether a race can play the song now (the 2049 sound banks load in the background).
-    bool playable(int i) {
-        const Song& s = songs[i];
-        if (!enabled[i].load(std::memory_order_relaxed) || !game_enabled[(int)s.game].load(std::memory_order_relaxed) ||
-            !game_available(s.game)) {
+    // Whether a race can play catalog song i now (the 2049 sound banks load in the background).
+    bool playable(int i, const std::vector<Song>& mods) {
+        const Song* s = song_at(i, mods);
+        if (s == nullptr || (i < song_count && !enabled[(size_t)i].load(std::memory_order_relaxed)) ||
+            !game_enabled[(int)s->game].load(std::memory_order_relaxed) || !source_allowed(s->game, s->only)) {
             return false;
         }
-        if (s.only != Only::Any) {
-            bool n64, disc;
-            soundtracks(n64, disc);
-            if (!song_listed(s, n64, disc)) {
-                return false;
-            }
+        if (s->id >= rush2::audio2049::stream_songs) {
+            return rush2::audio2049::song_loaded(s->id);
         }
-        return s.game != Game::Rush2049 || (rush2::track2049::music_ready() && rush2::audio2049::song_loaded(s.id));
+        if (!rom_available(s->game) || !source_present(s->game, s->only)) {
+            return false;
+        }
+        return s->game != Game::Rush2049 || (rush2::track2049::music_ready() && rush2::audio2049::song_loaded(s->id));
     }
 
     int find_song(Game g, int id) {
         for (int i = 0; i < song_count; i++) {
-            if (songs[i].game == g && songs[i].id == id) {
+            if (songs[(size_t)i].game == g && songs[(size_t)i].id == id) {
                 return i;
             }
         }
         return -1;
     }
 
-    // A random playable song (of game g, or of any game in Shuffle All when all is set, or of any game at all when
-    // any is set), skipping the last one when there's another.
-    int pick(bool all, Game g, bool any = false) {
-        std::vector<int> pool;
+    int find_key(const std::string& key) {
         for (int i = 0; i < song_count; i++) {
-            bool in = any ? true
-                    : all ? in_shuffle_all[(int)songs[i].game].load(std::memory_order_relaxed) : songs[i].game == g;
-            if (in && playable(i)) {
+            if (songs[(size_t)i].key == key) return i;
+        }
+        return -1;
+    }
+
+    // A random playable song (of game g, or of any game in Shuffle All when all is set, or of any game at all when
+    // any is set), skipping the last one when there's another. `keep`, when given, narrows the pool further.
+    int pick(bool all, Game g, bool any = false, const std::function<bool(const Song&)>& keep = {}) {
+        auto mods = mod_snapshot();
+        std::vector<int> pool;
+        for (int i : catalog(*mods)) {
+            const Song& s = *song_at(i, *mods);
+            bool in = any ? true : all ? in_shuffle_all[(int)s.game].load(std::memory_order_relaxed) : s.game == g;
+            if (in && (!keep || keep(s)) && playable(i, *mods)) {
                 pool.push_back(i);
             }
         }
@@ -416,90 +586,248 @@ namespace {
         return pool[std::uniform_int_distribution<size_t>(0, pool.size() - 1)(rng)];
     }
 
-    // The game whose tracks the race is on, and the track's own song (catalog index, -1 if none).
-    Game race_game(uint8_t* rdram, int& original) {
-        int t = MEM_BU(0, (int32_t)track_id);
-        bool host = t == rush2::track2049::host_slot;
-        Game g = Game::Rush2;
-        original = -1;
-        // A Rush 2049 course: its 2049 track id, whose song Rush 2049 plays by default (audio2049::track_song).
-        int course = -1;
-        if (host && rush2::track2049::race_track() == rush2::track2049::obstacle) {
-            course = 18;
-        }
-        else if (host && rush2::track2049::race_track() > 0) {
-            course = rush2::track2049::race_track() - 1;
-        }
-        else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::stunt_arena() > 0) {
-            course = 14 + rush2::track2049::stunt_arena() - 1;
-        }
-        else if (t == rush2::track2049::stunt_host_slot && rush2::track2049::battle_arena() > 0) {
-            course = 6 + rush2::track2049::battle_arena() - 1;
-        }
-        if (course >= 0) {
-            // The course's N64 song or its disc song, whichever soundtrack is in use (with both, either one).
-            g = Game::Rush2049;
-            bool n64, disc;
-            soundtracks(n64, disc);
-            std::vector<int> own;
-            for (int k : { n64 ? find_song(g, rush2::audio2049::n64_track_song(course)) : -1,
-                           disc ? find_song(g, rush2::audio2049::disc_track_song(course)) : -1 }) {
-                if (k >= 0 && playable(k)) {
-                    own.push_back(k);
-                }
-            }
-            if (!own.empty()) {
-                original = own[std::uniform_int_distribution<size_t>(0, own.size() - 1)(rng)];
-            }
-            fprintf(stderr, "[Music] Rush 2049 course %d: original song %d\n", course,
-                    original >= 0 ? songs[original].id : -1);
-        }
-        else if (host && rush2::track1::race_track() > 0) {
-            g = Game::Rush1;
-            original = pick(false, Game::Rush1);
-        }
-        else if (host && rush2::calspeed::race_track() > 0) {
-            g = Game::CalSpeed;
-            original = pick(false, Game::CalSpeed);
-        }
-        else if (rush2::track2049::mod_random_song(rdram)) {
-            // A custom track without its own song ([audio] music): any song the player switched on, never its host's.
-            original = pick(false, g, true);
-        }
-        else if (t >= 0 && t < 12) {
-            original = find_song(Game::Rush2, (int16_t)MEM_H(0, (int32_t)(track_songs + t * 2)));
-        }
-        else {
-            original = pick(false, Game::Rush2);
-        }
-        return g;
+    // SF Rush's own choice on its N64 tracks: a random song of its random table, or of the PlayStation disc's (both
+    // play on any SF Rush track; the arcade's belong to their tracks).
+    int pick_sfrush() {
+        return pick(false, Game::Rush1, false, [](const Song& s) { return s.only == Only::Any || s.only == Only::PS1; });
     }
 
-    // The race's song (catalog index), or -1 to leave it to the game.
-    int choose(uint8_t* rdram) {
+    // A race track select id's game (what Race Music applies) and version song.
+    namespace t49 = rush2::track2049;
+    constexpr int r1_first = rush2::track1::first_menu_id;
+    constexpr int r1_end = r1_first + rush2::track1::track_count;
+    constexpr int cs_first = rush2::calspeed::first_menu_id;
+    constexpr int cs_end = cs_first + rush2::calspeed::track_count;
+
+    // A custom track's [audio] music entry as a catalog index: a song file (registered with the song player), a
+    // Rush 2 song by "track1".."track8", or a Sound tab song's key. -1 if it names none.
+    int mod_entry_song(const rush2::track_mod::Entry& e, const std::string& entry, const std::vector<Song>& mods) {
+        if (rush2::music_streams::is_song_file(entry)) {
+            std::vector<int> ids = rush2::music_streams::track_song_ids(e);
+            size_t k = 0;
+            for (const std::string& m : e.settings.music_list) {
+                if (!rush2::music_streams::is_song_file(m)) continue;
+                if (m == entry) return k < ids.size() ? find_mod_song(mods, ids[k]) : -1;
+                k++;
+            }
+            return -1;
+        }
+        if (entry.size() == 6 && entry.compare(0, 5, "track") == 0 && entry[5] >= '1' && entry[5] <= '8') {
+            return find_song(Game::Rush2, entry[5] - '1');
+        }
+        return find_key(entry);
+    }
+
+    // The arcade mods' tracks (src/arcade2049): their songs are their arcade's for their TRACKn (the 2049 arcade's
+    // track<n>.str, Rush The Rock's TRACKn song).
+    int arcade_track_song(const rush2::track_mod::Entry& e) {
+        if (e.mod_id == rush2::arcade2049::track_mod_id) {
+            for (const auto& t : rush2::arcade2049::arcade_tracks) {
+                if (e.folder == t.id) return find_song(Game::Rush2049, arc49 + (t.folder[5] - '1'));
+            }
+        }
+        if (e.mod_id == rush2::arcade2049::sfrush_track_mod_id) {
+            for (const auto& t : rush2::arcade2049::sfrush_tracks) {
+                if (e.folder == t.id) return find_song(Game::Rush1, rock + (t.folder[5] - '1'));
+            }
+        }
+        return -1;
+    }
+
+    // Track select id t's game: the game whose Race Music its races follow.
+    Game menu_game(int t, const std::vector<rush2::track_mod::Entry>& entries) {
+        if ((t >= t49::first_menu_id && t < t49::first_menu_id + t49::track_count) || t49::is_disc_course(t)) {
+            return Game::Rush2049;
+        }
+        if (t >= r1_first && t < r1_end) return Game::Rush1;
+        if (t >= cs_first && t < cs_end) return Game::CalSpeed;
+        int i = t49::mod_index(t);
+        if (i >= 0 && i < (int)entries.size()) {
+            const std::string& id = entries[(size_t)i].mod_id;
+            if (id == rush2::arcade2049::track_mod_id) return Game::Rush2049;
+            if (id == rush2::arcade2049::sfrush_track_mod_id || id == rush2::sfrush_ps1::mod_id) return Game::Rush1;
+        }
+        return Game::Rush2;
+    }
+
+    // Version t's own song (catalog index), -1 for none (SF Rush's and California Speed's tracks pick at random).
+    int version_song(int t, const std::vector<rush2::track_mod::Entry>& entries, const std::vector<Song>& mods,
+                     uint8_t* rdram) {
+        if (t >= t49::first_menu_id && t < t49::first_menu_id + t49::track_count) {
+            // The N64 version: the N64 ROM's song, or the disc's when the race tracks come from the disc.
+            int course = t - t49::first_menu_id;
+            return t49::courses_from_disc() ? find_song(Game::Rush2049, rush2::audio2049::disc_track_song(course))
+                                            : find_song(Game::Rush2049, rush2::audio2049::n64_track_song(course));
+        }
+        if (t49::is_disc_course(t)) {
+            return find_song(Game::Rush2049, rush2::audio2049::disc_track_song(t - t49::disc_menu_id));
+        }
+        int i = t49::mod_index(t);
+        if (i >= 0 && i < (int)entries.size()) {
+            const rush2::track_mod::Entry& e = entries[(size_t)i];
+            if (!e.settings.music_list.empty()) return mod_entry_song(e, e.settings.music_list[0], mods);
+            return arcade_track_song(e);
+        }
+        if (t >= 0 && t < 12) {
+            return find_song(Game::Rush2, (int16_t)MEM_H(0, (int32_t)(track_songs + t * 2)));
+        }
+        return -1;
+    }
+
+    // What a race plays: its game, the raced version's own song and the course's versions' songs.
+    struct RaceMusic {
+        Game game = Game::Rush2;
         int original = -1;
-        Game g = race_game(rdram, original);
+        std::vector<int> variants;
+    };
+
+    RaceMusic race_music(uint8_t* rdram) {
+        RaceMusic out;
+        auto mods = mod_snapshot();
+        int t = MEM_BU(0, (int32_t)track_id);
+        bool host = t == t49::host_slot;
+        // A Rush 2049 arena or the obstacle course: its 2049 track id's songs (N64's and disc's); its own is the song of
+        // the source the arenas come from (Primary Source).
+        int course = -1;
+        if (host && t49::race_track() == t49::obstacle) {
+            course = 18;
+        }
+        else if (t == t49::stunt_host_slot && t49::stunt_arena() > 0) {
+            course = 14 + t49::stunt_arena() - 1;
+        }
+        else if (t == t49::stunt_host_slot && t49::battle_arena() > 0) {
+            course = 6 + t49::battle_arena() - 1;
+        }
+        if (course >= 0) {
+            out.game = Game::Rush2049;
+            int n64 = find_song(Game::Rush2049, rush2::audio2049::n64_track_song(course));
+            int dc = find_song(Game::Rush2049, rush2::audio2049::disc_track_song(course));
+            out.original = disc_source() ? dc : n64;
+            for (int k : disc_source() ? std::array<int, 2>{ dc, n64 } : std::array<int, 2>{ n64, dc }) {
+                if (k >= 0) out.variants.push_back(k);
+            }
+            return out;
+        }
+        // The track select id of the version raced.
+        int v = -1;
+        int m = t49::raced_mod(rdram);
+        if (m >= 0) {
+            v = t49::mod_id(m);
+        }
+        else if (host && t49::race_track() >= 1 && t49::race_track() <= t49::track_count) {
+            int k = t49::race_track();
+            v = t49::race_track_disc() ? t49::disc_menu_id + k - 1 : t49::first_menu_id + k - 1;
+        }
+        else if (host && rush2::track1::race_track() > 0) {
+            v = r1_first + rush2::track1::race_track() - 1;
+        }
+        else if (host && rush2::calspeed::race_track() > 0) {
+            v = cs_first + rush2::calspeed::race_track() - 1;
+        }
+        else if (t >= 0 && t < 12) {
+            v = t;
+        }
+        if (v < 0) {
+            out.original = pick(false, Game::Rush2);
+            return out;
+        }
+        std::vector<rush2::track_mod::Entry> entries = rush2::track_mod::tracks();
+        std::vector<int> versions = t49::course_versions(v);
+        out.game = menu_game(versions.empty() ? v : versions[0], entries);
+        if (out.game == Game::Rush2) out.game = menu_game(v, entries);
+        auto add_variant = [&](int song) {
+            if (song >= 0 && std::find(out.variants.begin(), out.variants.end(), song) == out.variants.end()) {
+                out.variants.push_back(song);
+            }
+        };
+        for (int w : versions) {
+            add_variant(version_song(w, entries, *mods, rdram));
+            // A custom version's other songs ([audio] music lists several) follow its first.
+            int i = t49::mod_index(w);
+            if (i >= 0 && i < (int)entries.size()) {
+                const auto& list = entries[(size_t)i].settings.music_list;
+                for (size_t k = 1; k < list.size(); k++) add_variant(mod_entry_song(entries[(size_t)i], list[k], *mods));
+            }
+        }
+        if (versions.empty() || std::find(versions.begin(), versions.end(), v) == versions.end()) {
+            add_variant(version_song(v, entries, *mods, rdram));
+        }
+        out.original = version_song(v, entries, *mods, rdram);
+        if (out.original < 0 && !versions.empty() && versions[0] != v) {
+            // A custom version with no song of its own plays the course's.
+            out.original = version_song(versions[0], entries, *mods, rdram);
+        }
+        if (out.original < 0) {
+            if (out.game == Game::Rush1) out.original = pick_sfrush();
+            else if (out.game == Game::CalSpeed) out.original = pick(false, Game::CalSpeed);
+            // A custom track without a song of its own: any song the player switched on, never its host's.
+            else if (m >= 0) out.original = pick(false, out.game, true);
+            else out.original = pick(false, out.game);
+        }
+        return out;
+    }
+
+    // The course's next version song after `from` (catalog index, or -1 for the first) that can play and isn't in
+    // `skip`, going round once; -1 if none.
+    int next_variant(const std::vector<int>& variants, int from, const std::vector<int>& skip) {
+        auto mods = mod_snapshot();
+        size_t n = variants.size();
+        size_t start = 0;
+        auto at = std::find(variants.begin(), variants.end(), from);
+        if (at != variants.end()) start = (size_t)(at - variants.begin()) + 1;
+        for (size_t k = 0; k < n; k++) {
+            int song = variants[(start + k) % n];
+            if (song != from && std::find(skip.begin(), skip.end(), song) == skip.end() && playable(song, *mods)) {
+                return song;
+            }
+        }
+        return -1;
+    }
+
+    // A song by the game's Race Music when the race's own (or the course's versions') can't be had.
+    int pick_by_mode(Game g) {
+        int song = pick((Mode)modes[(int)g].load() == Mode::ShuffleAll, g);
+        return song >= 0 ? song : pick(true, g);
+    }
+
+    // The race's song (catalog index), or -1 to leave it to the game. Notes the course's versions for SKIP TRACK.
+    int choose(uint8_t* rdram) {
+        refresh_mod_catalog();
+        RaceMusic r = race_music(rdram);
+        auto mods = mod_snapshot();
         int song = -1;
-        switch ((Mode)modes[(int)g].load()) {
+        switch ((Mode)modes[(int)r.game].load()) {
             case Mode::Original:
-                song = original >= 0 && playable(original) ? original : pick(false, g);
+                // The raced version's own song; switched off or missing, the course's next version's.
+                song = r.original >= 0 && playable(r.original, *mods) ? r.original : next_variant(r.variants, r.original, {});
+                if (song < 0) song = pick(false, r.game);
                 break;
             case Mode::ShuffleByGame:
-                song = pick(false, g);
+                song = pick(false, r.game);
                 break;
             case Mode::ShuffleAll:
-                song = pick(true, g);
+                song = pick(true, r.game);
                 break;
         }
         if (song < 0) {
-            song = pick(true, g);
+            song = pick(true, r.game);
         }
+        race_variants = r.variants;
+        race_played = { song };
+        std::string list;
+        for (int k : r.variants) {
+            if (const Song* s = song_at(k, *mods)) list += (list.empty() ? "" : ", ") + s->name + " (" + s->plays_on + ")";
+        }
+        fprintf(stderr, "[Music] %s course, versions' songs: %s\n", game_name(r.game), list.empty() ? "none" : list.c_str());
+        race_game_now = r.game;
         return song;
     }
 
     // Rush 2's sequence number for a Rush 2 or SF Rush song, or -1.
-    int sequence_of(uint8_t* rdram, recomp_context* ctx, int i) {
-        const Song& s = songs[i];
+    int sequence_of(uint8_t* rdram, recomp_context* ctx, const Song& s) {
+        if (host_song(s)) {
+            return -1;
+        }
         if (s.game == Game::Rush2) {
             return (int16_t)MEM_H(0, (int32_t)(song_table + s.id * 2));
         }
@@ -540,25 +868,27 @@ namespace {
         int song_2049 = -1;
     };
 
-    // Rush 2049 menu song m's song number (the N64's song 6 or the disc's Select.rom).
+    // Rush 2049 menu song m's song number (the N64's song 6, the disc's Select.rom or the arcade's select.str).
     int menu_song_2049(int m) {
-        return menu_songs[m].only == Only::Disc ? disc_menu_song : rush2049_menu_song;
+        switch (menu_songs[m].only) {
+            case Only::Disc: return disc_menu_song;
+            case Only::Arcade: return arcade_menu_song;
+            default: return rush2049_menu_song;
+        }
     }
 
-    // Whether menu song m can play now: its soundtrack in use, and loaded (the 2049 sound banks load in the
-    // background).
+    // Whether menu song m can play now: its source installed, and loaded (the 2049 sound banks load in the
+    // background). Its own switch is all that turns it off.
     bool menu_playable(int m) {
         const MenuSong& s = menu_songs[m];
-        if (!game_available(s.game)) {
-            return false;
-        }
         if (s.game != Game::Rush2049) {
-            return true;
+            return rom_available(s.game);
         }
-        bool n64, disc;
-        soundtracks(n64, disc);
-        return (s.only == Only::Disc ? disc : n64) && rush2::track2049::music_ready() &&
-               rush2::audio2049::song_loaded(menu_song_2049(m));
+        int id = menu_song_2049(m);
+        if (id >= rush2::audio2049::stream_songs) {
+            return rush2::audio2049::song_loaded(id);
+        }
+        return source_present(s.game, s.only) && rush2::track2049::music_ready() && rush2::audio2049::song_loaded(id);
     }
 
     // Menu song m as a MenuChoice; false if it can't play (no ROM, or SF Rush's sequence not found).
@@ -637,12 +967,13 @@ namespace {
 
     // Starts preview id i as the preview. False to try again later (loader busy, 2049 banks still loading).
     bool start_preview(uint8_t* rdram, recomp_context* ctx, int i) {
-        if (i >= song_count) {
+        if (i >= song_count && i < mod_base) {
             int m = i - song_count;
             MenuChoice c;
             if (!menu_song(rdram, ctx, m, c)) {
                 // The 2049 banks may still be loading; anything else isn't available: give up.
-                return !(menu_songs[m].game == Game::Rush2049 && game_available(Game::Rush2049));
+                return !(menu_songs[m].game == Game::Rush2049 && rom_available(Game::Rush2049) &&
+                         menu_song_2049(m) < rush2::audio2049::stream_songs);
             }
             if (c.song_2049 >= 0) {
                 stop_rush2_song(rdram, ctx);
@@ -660,16 +991,21 @@ namespace {
             previewing = i;
             return true;
         }
-        if (songs[i].game == Game::Rush2049) {
-            if (!rush2::track2049::music_ready()) {
+        auto mods = mod_snapshot();
+        const Song* song = song_at(i, *mods);
+        if (song == nullptr) {
+            return true; // Gone (the mods changed): give up.
+        }
+        if (host_song(*song)) {
+            if (song->id < rush2::audio2049::stream_songs && !rush2::track2049::music_ready()) {
                 return false;
             }
             stop_rush2_song(rdram, ctx);
-            rush2::track2049::play_song_now(rdram, songs[i].id);
+            rush2::track2049::play_song_now(rdram, song->id);
             preview.sequence = -1;
         }
         else {
-            int sequence = sequence_of(rdram, ctx, i);
+            int sequence = sequence_of(rdram, ctx, *song);
             if (sequence < 0) {
                 return true; // Not available: give up.
             }
@@ -858,18 +1194,21 @@ namespace {
         struct Row {
             Element* row;
             PreviewButton* button;
-            Toggle* toggle;
+            Toggle* toggle;     // nullptr for a mod's song (the Mods column's switch covers them)
             Label* name;
             int id;     // Preview id: a race song's catalog index, or menu_preview(m).
+            Game game;
+            Only only;
         };
         struct Header {
             Element* column = nullptr;
             Toggle* toggle = nullptr;
             Select* modes = nullptr;
             Toggle* shuffle_all = nullptr;
-            Element* soundtrack_row = nullptr;  // Rush 2049's Soundtrack, while both its sources are installed.
-            Select* soundtrack = nullptr;
-            Element* headings[2] = {};          // Rush 2049's "N64" and "Dreamcast" over their songs, with both listed.
+            // The game's source switches (source_switches order) and its sources' headings over their songs, shown
+            // while more than one of its sources is installed.
+            std::array<Element*, source_switch_count> source_rows{};
+            std::map<Only, Element*> headings;
             bool shown = false;
         };
         Element* grid = nullptr;
@@ -880,20 +1219,18 @@ namespace {
         std::vector<Row> rows;
         Header headers[game_count];
         int shown_preview = -1;
-        int shown_state[game_count] = { -1, -1, -1, -1 };
+        int shown_state[game_count] = { -1, -1, -1, -1, -1 };
 
         static int game_state(Game g) {
             int state = (game_available(g) ? 1 : 0) | (game_enabled[(int)g].load() ? 2 : 0);
-            if (g == Game::Rush2049) {
-                bool n64, disc;
-                soundtracks(n64, disc);
-                state |= (n64 ? 4 : 0) | (disc ? 8 : 0) | (rush2::wings::both_sources() ? 16 : 0);
+            int bit = 4;
+            for (int k = 0; k < source_switch_count; k++) {
+                if (source_switches[k].game != g) continue;
+                state |= (source_present(g, source_switches[k].only) ? bit : 0) |
+                         (source_on[(size_t)k].load() ? bit << 1 : 0);
+                bit <<= 2;
             }
             return state;
-        }
-
-        static Game game_of(int id) {
-            return id >= song_count ? menu_songs[id - song_count].game : songs[id].game;
         }
 
         void show(const std::string& text) {
@@ -909,39 +1246,38 @@ namespace {
             shown_preview = now;
         }
 
-        // A game's column shows while its ROM is there. Its race songs' switches also need the game's switch on.
+        // A game's column shows while its ROM (or one of its sources) is there. A source's songs are listed while it is
+        // installed; its race songs' switches also need the game's switch and the source's on.
         void refresh_game(Game g) {
             int state = game_state(g);
             bool available = (state & 1) != 0;
             bool on = (state & 2) != 0;
-            bool n64 = (state & 4) != 0;
-            bool disc = (state & 8) != 0;
+            bool several = sources_present(g) > 1;
             Header& h = headers[(int)g];
             h.column->set_display(available ? Display::Block : Display::None);
             h.shown = available;
-            if (h.soundtrack_row != nullptr) {
-                h.soundtrack_row->set_display((state & 16) != 0 ? Display::Flex : Display::None);
-                h.soundtrack->set_enabled(available);
-                for (Element* heading : h.headings) {
-                    heading->set_display(n64 && disc ? Display::Block : Display::None);
+            for (int k = 0; k < source_switch_count; k++) {
+                if (Element* row = h.source_rows[(size_t)k]) {
+                    row->set_display(several && source_present(g, source_switches[k].only) ? Display::Flex : Display::None);
                 }
             }
+            for (auto& [only, heading] : h.headings) {
+                heading->set_display(several && source_present(g, only) ? Display::Block : Display::None);
+            }
             for (Row& r : rows) {
-                if (game_of(r.id) != g) {
+                if (r.game != g) {
                     continue;
                 }
-                bool menu = r.id >= song_count;
-                // Rush 2049's songs (race and menu) are the N64's, the disc's or both, as its Soundtrack says.
-                Only only = menu ? menu_songs[r.id - song_count].only : songs[r.id].only;
-                bool listed = only == Only::Any || (only == Only::Disc ? disc : n64);
-                bool active = available && (menu || on);
+                bool menu = r.id >= song_count && r.id < mod_base;
+                bool listed = source_present(g, r.only);
+                bool active = available && (menu || (on && source_allowed(g, r.only)));
                 r.row->set_display(listed ? Display::Flex : Display::None);
                 r.button->set_enabled(available);
-                r.toggle->set_enabled(active);
+                if (r.toggle != nullptr) r.toggle->set_enabled(active);
                 r.name->set_color(active ? theme::color::Text : theme::color::TextInactive);
             }
             h.toggle->set_enabled(available);
-            h.modes->set_enabled(available);
+            if (h.modes != nullptr) h.modes->set_enabled(available);
             h.shuffle_all->set_enabled(available);
             shown_state[(int)g] = state;
         }
@@ -962,7 +1298,9 @@ namespace {
                 holder->set_right(0.0f);
             }
             IconButton* arrow = context.create_element<IconButton>(holder, icon, ButtonStyle::Secondary, IconButtonSize::Small);
-            arrow->set_focusable(false);
+            // Out of d-pad navigation by its tab index, not set_focusable(false): RmlUi clicks the nearest focusable
+            // element under the mouse, so an unfocusable arrow's clicks went to the page instead.
+            arrow->set_tab_index(TabIndex::None);
             arrow->set_visibility(Visibility::Hidden);    // Until update_arrows finds a column cut off on its side.
             arrow->add_pressed_callback([this, direction]() { scroll_columns(direction); });
             return arrow;
@@ -1096,9 +1434,9 @@ namespace {
             return select;
         }
 
-        // A song's row: its play button, its name and its switch (option `option_id`).
-        void add_song_row(Element* column, int id, const std::string& name, const std::string& option_id,
-                          std::function<void()> on_show) {
+        // A song's row: its play button, its name and its switch (option `option_id`; none when empty).
+        void add_song_row(Element* column, int id, Game game, Only only, const std::string& name,
+                          const std::string& option_id, std::function<void()> on_show) {
             ContextId context = get_current_context();
             Element* row = add_row(column, std::move(on_show));
             PreviewButton* button = context.create_element<PreviewButton>(row, "icons/Play.svg", ButtonStyle::Secondary, IconButtonSize::Medium);
@@ -1107,13 +1445,24 @@ namespace {
                 preview_request = previewing.load() == id ? stop_request : id;
             });
             Label* label = add_name(row, name, theme::Typography::LabelMD);
-            Toggle* toggle = add_switch(row, option_id);
-            rows.push_back({ row, button, toggle, label, id });
+            Toggle* toggle = option_id.empty() ? nullptr : add_switch(row, option_id);
+            rows.push_back({ row, button, toggle, label, id, game, only });
+        }
+
+        static const char* source_heading(Only only) {
+            switch (only) {
+                case Only::Disc: return "Dreamcast";
+                case Only::Arcade: return "Arcade";
+                case Only::PS1: return "PlayStation";
+                default: return "N64";
+            }
         }
 
         void build() {
             ContextId context = get_current_context();
             recomp::config::Config& config = recompui::config::get_sound_config();
+            refresh_mod_catalog();
+            auto mods = mod_snapshot();
 
             general = add_column(general_width);
             add_title(general, "General", [this]() { show(page_description); });
@@ -1149,77 +1498,81 @@ namespace {
             });
 
             for (Game g : games) {
-                // The game's column: its title with the game's switch, its Race Music, In Shuffle All and menu song,
-                // then its race songs.
+                // The game's column: its title with the game's switch, its Race Music, source switches, In Shuffle All
+                // and menu song, then its race songs. The custom tracks' column has no Race Music (their races follow
+                // Rush 2's) and no switch per song.
                 Element* column = add_column(g == Game::CalSpeed ? calspeed_width : game_width);
                 Header& h = headers[(int)g];
                 h.column = column;
                 Element* title = add_title(column, game_name(g), [this, g]() {
-                    show(std::string("Lets races play ") + game_name(g) + "'s songs. Switched off, each song keeps its "
-                         "own switch for when it's back on.");
+                    show(g == Game::Mods
+                        ? std::string("Lets races play the custom tracks' own songs (their track.toml [audio] music). "
+                                      "Each custom track still plays its own song as its Original.")
+                        : std::string("Lets races play ") + game_name(g) + "'s songs. Switched off, each song keeps "
+                          "its own switch for when it's back on.");
                 });
                 h.toggle = add_switch(title, game_option_id(g));
 
-                Element* mode_row = add_setting(column, "Race Music", race_music_description);
-                std::vector<SelectOption> mode_options;
-                for (Mode m : game_modes(g)) {
-                    mode_options.emplace_back(mode_name(m), std::to_string((uint32_t)m));
-                }
-                h.modes = add_select(mode_row, mode_options,
-                    std::to_string(std::get<uint32_t>(config.get_option_value(mode_option_id(g)))));
-                h.modes->add_change_callback([g](SelectOption& choice, int) {
-                    recompui::config::get_sound_config().set_option_value(mode_option_id(g),
-                        (uint32_t)std::stoul(choice.value));
-                });
-
-                if (g == Game::Rush2049) {
-                    h.soundtrack_row = add_setting(column, "Soundtrack", soundtrack_description);
-                    std::vector<SelectOption> choices = {
-                        { "Same as Source", std::to_string((uint32_t)Soundtrack::Source) },
-                        { "N64", std::to_string((uint32_t)Soundtrack::N64) },
-                        { "Dreamcast", std::to_string((uint32_t)Soundtrack::Dreamcast) },
-                        { "Both", std::to_string((uint32_t)Soundtrack::Both) },
-                    };
-                    h.soundtrack = add_select(h.soundtrack_row, choices,
-                        std::to_string(std::get<uint32_t>(config.get_option_value(soundtrack_option_id))));
-                    h.soundtrack->add_change_callback([](SelectOption& choice, int) {
-                        recompui::config::get_sound_config().set_option_value(soundtrack_option_id,
+                if (g != Game::Mods) {
+                    Element* mode_row = add_setting(column, "Race Music", race_music_description);
+                    std::vector<SelectOption> mode_options;
+                    for (Mode m : game_modes(g)) {
+                        mode_options.emplace_back(mode_name(m), std::to_string((uint32_t)m));
+                    }
+                    h.modes = add_select(mode_row, mode_options,
+                        std::to_string(std::get<uint32_t>(config.get_option_value(mode_option_id(g)))));
+                    h.modes->add_change_callback([g](SelectOption& choice, int) {
+                        recompui::config::get_sound_config().set_option_value(mode_option_id(g),
                             (uint32_t)std::stoul(choice.value));
                     });
+                }
+
+                for (int k = 0; k < source_switch_count; k++) {
+                    if (source_switches[k].game != g) continue;
+                    Element* row = add_setting(column, source_switches[k].name, source_description);
+                    add_switch(row, source_switches[k].id);
+                    h.source_rows[(size_t)k] = row;
                 }
 
                 h.shuffle_all = add_switch(add_setting(column, "In Shuffle All", shuffle_all_description),
                                            shuffle_all_option_id(g));
 
-                // The game's menu song; Rush 2049's N64 and Dreamcast ones go first under their own headings.
+                // The game's menu song; a game with several sources lists each source's under its heading.
                 auto add_menu_rows = [&](Only only) {
                     for (int m = 0; m < menu_count; m++) {
                         if (menu_songs[m].game == g && menu_songs[m].only == only) {
-                            add_song_row(column, menu_preview(m), "Main Menu", menu_option_id(m),
+                            add_song_row(column, menu_preview(m), g, only, "Main Menu", menu_option_id(m),
                                 [this]() { show(menu_song_description); });
                         }
                     }
                 };
                 add_menu_rows(Only::Any);
 
-                for (int i = 0; i < song_count; i++) {
-                    if (songs[i].game != g) {
+                // The sources share song names (Rush 2049's N64 and disc songs, SF Rush's "Song 1"s): each source's
+                // songs go under its heading, shown while the game has more than one source installed.
+                bool first = true;
+                Only last = Only::Any;
+                for (int i : catalog(*mods)) {
+                    const Song& song = *song_at(i, *mods);
+                    if (song.game != g) {
                         continue;
                     }
-                    // Rush 2049's N64 and disc songs share names: with both listed, each group gets its heading.
-                    if (songs[i].only != Only::Any && (i == 0 || songs[i - 1].only != songs[i].only)) {
-                        Element*& heading = h.headings[songs[i].only == Only::Disc ? 1 : 0];
-                        heading = context.create_element<Label>(column,
-                            songs[i].only == Only::Disc ? "Dreamcast" : "N64", theme::Typography::LabelSM);
+                    if (g != Game::Mods && (first || song.only != last)) {
+                        Element* heading = context.create_element<Label>(column, source_heading(song.only),
+                                                                         theme::Typography::LabelSM);
                         heading->set_color(theme::color::TextDim);
                         heading->set_padding_top(8.0f);
-                        add_menu_rows(songs[i].only);
+                        h.headings[song.only] = heading;
+                        if (song.only != Only::Any) add_menu_rows(song.only);
                     }
-                    add_song_row(column, i, songs[i].name, song_option_id(songs[i]), [this, i]() {
-                        const Song& song = songs[i];
-                        show(std::string("<recomp-color primary>") + song.name + "</recomp-color>. Plays on: " +
-                             song.plays_on + ". Press play to hear it, or switch it off to keep it out of races.");
-                    });
+                    first = false;
+                    last = song.only;
+                    std::string text = std::string("<recomp-color primary>") + song.name + "</recomp-color>. Plays on: " +
+                                       song.plays_on + (i >= mod_base ? ". Press play to hear it."
+                                                                      : ". Press play to hear it, or switch it off to "
+                                                                        "keep it out of races.");
+                    add_song_row(column, i, song.game, song.only, song.name, i >= mod_base ? "" : song_option_id(song),
+                                 [this, text]() { show(text); });
                 }
             }
             for (Game g : games) {
@@ -1256,7 +1609,8 @@ void rush2::music::create_sound_tab() {
         Game g = menu_songs[m].game;
         menu_enabled[m] = g == Game::Rush2;
         config.add_bool_option(menu_option_id(m), std::string(game_name(g)) +
-            (menu_songs[m].only == Only::Disc ? " Dreamcast Menu Song" : " Menu Song"), menu_song_description,
+            (menu_songs[m].only == Only::Disc ? " Dreamcast Menu Song"
+             : menu_songs[m].only == Only::Arcade ? " Arcade Menu Song" : " Menu Song"), menu_song_description,
             g == Game::Rush2, true);
         config.add_option_change_callback(menu_option_id(m),
             [m](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
@@ -1280,6 +1634,9 @@ void rush2::music::create_sound_tab() {
             });
     }
     for (Game g : games) {
+        if (g == Game::Mods) {
+            continue; // Custom tracks' races follow Rush 2's Race Music.
+        }
         std::vector<recomp::config::ConfigOptionEnumOption> choices;
         for (Mode m : game_modes(g)) {
             const char* key = m == Mode::Original ? "Original" : m == Mode::ShuffleByGame ? "ShuffleByGame" : "ShuffleAll";
@@ -1293,20 +1650,17 @@ void rush2::music::create_sound_tab() {
                 modes[(int)g] = std::get<uint32_t>(cur_value);
             });
     }
-    config.add_enum_option(soundtrack_option_id, "Rush 2049 Soundtrack", soundtrack_description,
-        std::vector<recomp::config::ConfigOptionEnumOption>{
-            { Soundtrack::Source, "Source", "Same as Source" },
-            { Soundtrack::N64, "N64", "N64" },
-            { Soundtrack::Dreamcast, "Dreamcast", "Dreamcast" },
-            { Soundtrack::Both, "Both", "Both" },
-        },
-        Soundtrack::Source, true);
-    config.add_option_change_callback(soundtrack_option_id,
-        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
-            soundtrack = std::get<uint32_t>(cur_value);
-            // Starts loading the other source's songs (on a worker thread) if they're now wanted.
-            rush2::track2049::music_ready();
-        });
+    for (int k = 0; k < source_switch_count; k++) {
+        const SourceSwitch& sw = source_switches[k];
+        source_on[(size_t)k] = true;
+        config.add_bool_option(sw.id, std::string(game_name(sw.game)) + " " + sw.name, source_description, true, true);
+        config.add_option_change_callback(sw.id,
+            [k](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+                source_on[(size_t)k] = std::get<bool>(cur_value);
+                // Starts loading the other Rush 2049 source's songs (on a worker thread) if they're now wanted.
+                rush2::track2049::music_ready();
+            });
+    }
     for (Game g : games) {
         game_enabled[(int)g] = true;
         config.add_bool_option(game_option_id(g), std::string(game_name(g)) + " Songs",
@@ -1317,8 +1671,8 @@ void rush2::music::create_sound_tab() {
             });
     }
     for (int i = 0; i < song_count; i++) {
-        const Song& s = songs[i];
-        enabled[i] = true;
+        const Song& s = songs[(size_t)i];
+        enabled[(size_t)i] = true;
         config.add_bool_option(song_option_id(s), std::string(game_name(s.game)) + ": " + s.name,
             "Lets races play this song.", true, true);
         config.add_option_change_callback(song_option_id(s),
@@ -1349,7 +1703,9 @@ void rush2::music::load_config() {
         menu_enabled[m] = std::get<bool>(config.get_option_value(menu_option_id(m)));
     }
     for (Game g : games) {
-        modes[(int)g] = std::get<uint32_t>(config.get_option_value(mode_option_id(g)));
+        if (g != Game::Mods) {
+            modes[(int)g] = std::get<uint32_t>(config.get_option_value(mode_option_id(g)));
+        }
         in_shuffle_all[(int)g] = std::get<bool>(config.get_option_value(shuffle_all_option_id(g)));
     }
     for (int i = 0; i < song_count; i++) {
@@ -1358,11 +1714,18 @@ void rush2::music::load_config() {
     for (Game g : games) {
         game_enabled[(int)g] = std::get<bool>(config.get_option_value(game_option_id(g)));
     }
-    soundtrack = std::get<uint32_t>(config.get_option_value(soundtrack_option_id));
+    for (int k = 0; k < source_switch_count; k++) {
+        source_on[(size_t)k] = std::get<bool>(config.get_option_value(source_switches[k].id));
+    }
     // Start loading Rush 2049's sound banks now, so its songs are ready for the first race.
     if (rush2::wings::rom_available()) {
         rush2::track2049::music_ready();
     }
+    // Find the streamed songs (the arcade's, the PlayStation disc's, the custom tracks') off the main thread.
+    std::thread([]() {
+        rush2::music_streams::refresh_sources();
+        refresh_mod_catalog();
+    }).detach();
 }
 
 // func_8008C370 entry: $a0 = 2 starts the race's music with setting $a1.
@@ -1394,13 +1757,19 @@ extern "C" void rush2_music_race(uint8_t* rdram, recomp_context* ctx) {
     if (song < 0) {
         return;
     }
-    const Song& s = songs[song];
-    if (s.game == Game::Rush2049) {
+    auto mods = mod_snapshot();
+    const Song* found = song_at(song, *mods);
+    if (found == nullptr) {
+        race_song = -1;
+        return;
+    }
+    const Song& s = *found;
+    if (host_song(s)) {
         rush2::track2049::queue_race_song(s.id);
         ctx->r5 = 0;
     }
     else {
-        int sequence = sequence_of(rdram, ctx, song);
+        int sequence = sequence_of(rdram, ctx, s);
         if (sequence < 0) {
             race_song = -1;
             return;
@@ -1408,7 +1777,7 @@ extern "C" void rush2_music_race(uint8_t* rdram, recomp_context* ctx) {
         race_sequence = sequence;
     }
     last_song = song;
-    fprintf(stderr, "[Music] Race song: %s %s\n", game_name(s.game), s.name);
+    fprintf(stderr, "[Music] Race song: %s %s (%s)\n", game_name(s.game), s.name.c_str(), s.plays_on.c_str());
 }
 
 // func_8008C370 at 0x8008C46C: $v0 = the sequence Rush 2 chose for the race.
@@ -1484,7 +1853,7 @@ extern "C" void rush2_music_preview(uint8_t* rdram, recomp_context* ctx) {
         }
         return;
     }
-    if (request < 0 || request >= menu_preview(menu_count)) {
+    if (request < 0 || (request >= menu_preview(menu_count) && request < mod_base)) {
         preview_request.compare_exchange_strong(request, no_request);
         return;
     }
@@ -1546,10 +1915,11 @@ extern "C" void rush2_music_pause_frame(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-// The pause menu's SKIP TRACK (src/pause_menu.cpp), on the game thread: another song of the race's game (or of any
-// game with Shuffle All, or when the game has no other), never the one playing. A song playing in the pause (Keep
-// Music Playing When Paused) changes at once through func_8008C370, as a race's start does; a stopped one becomes
-// the song CONTINUE starts.
+// The pause menu's SKIP TRACK (src/pause_menu.cpp), on the game thread: first the course's other versions' songs (the
+// next one after the song playing, in the track select's version order, that hasn't played this race), then another
+// song by the game's Race Music (Shuffle All's pool with Shuffle All, else the game's; any game's when the game has no
+// other), never the one playing. A song playing in the pause (Keep Music Playing When Paused) changes at once through
+// func_8008C370, as a race's start does; a stopped one becomes the song CONTINUE starts.
 bool rush2::music::skip_song(uint8_t* rdram, recomp_context* ctx) {
     uint32_t setting = MEM_BU(0, (int32_t)music_setting);
     if (setting == 0) {
@@ -1558,20 +1928,24 @@ bool rush2::music::skip_song(uint8_t* rdram, recomp_context* ctx) {
     int song;
     {
         std::lock_guard lock{ choice_mutex };
-        int original = -1;
-        Game g = race_game(rdram, original);
+        Game g = race_game_now;
         int current = race_song.load();
         if (current >= 0) {
             last_song = current;
         }
-        song = pick((Mode)modes[(int)g].load() == Mode::ShuffleAll, g);
-        if (song < 0 || song == current) {
-            song = pick(true, g);
+        song = next_variant(race_variants, current, race_played);
+        if (song < 0) {
+            song = pick_by_mode(g);
         }
         if (song < 0 || song == current) {
             return false;
         }
+        race_played.push_back(song);
         last_song = song;
+        auto mods = mod_snapshot();
+        if (const Song* s = song_at(song, *mods)) {
+            fprintf(stderr, "[Music] Skip to %s %s (%s)\n", game_name(s->game), s->name.c_str(), s->plays_on.c_str());
+        }
     }
     int playing = pause_music.load();
     if (playing == 0) {
@@ -1592,20 +1966,24 @@ void rush2::music::rush2049_soundtracks(bool& n64, bool& disc) {
 }
 
 bool rush2::music::now_playing(NowPlaying& out) {
-    int i = race_song.load();
-    if (i < 0 || i >= song_count) {
+    auto mods = mod_snapshot();
+    const Song* found = song_at(race_song.load(), *mods);
+    if (found == nullptr) {
         return false;
     }
-    const Song& s = songs[i];
+    const Song& s = *found;
     out.song = s.name;
     out.game = game_name(s.game);
-    // Where the song plays: Rush 2's track, Rush 2049's courses (without the game's name); SF Rush plays its songs
-    // on any of its tracks.
-    std::string where = s.game == Game::Rush1 || s.game == Game::CalSpeed ? "" : s.plays_on;
+    // Where the song plays: Rush 2's track, Rush 2049's courses (without the game's name; the arcade's say "Arcade"),
+    // a custom track's name; SF Rush and California Speed play their songs on any of their tracks.
+    std::string where = (s.game == Game::Rush1 && s.only != Only::Arcade) || s.game == Game::CalSpeed ? "" : s.plays_on;
     if (where.rfind("Rush 2049 ", 0) == 0) {
         where = where.substr(10);
     }
-    else if (where.rfind("No Rush 2049", 0) == 0) {
+    else if (where.rfind("SF Rush ", 0) == 0) {
+        where = where.substr(8);
+    }
+    else if (where.rfind("No Rush 2049", 0) == 0 || where.rfind("No track", 0) == 0) {
         where = "";
     }
     out.course = where;

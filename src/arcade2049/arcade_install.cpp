@@ -371,6 +371,10 @@ void a49::add_options(rush2::ui::OptionsPage* page) {
     add_checkpoints_option(page);
 }
 
+std::filesystem::path a49::current_data_dir(const ArcadeGame& game) {
+    return data_dir(game);
+}
+
 bool a49::rebuilt() {
     return rebuilding;
 }

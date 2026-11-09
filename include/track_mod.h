@@ -96,7 +96,11 @@ namespace rush2::track_mod {
         std::array<uint8_t, 3> fog = { 0xA0, 0xB8, 0xD0 };
         std::string sky = "none";                             // none or a stock_skies name
         float cloud_scroll = 0.0f, sky_parallax = 0.0f;
+        // [audio] music: the track's own songs, played as its Original (src/music.cpp): a song of the game
+        // ("track1".."track8": Rush 2's by its track select order, or a Sound tab song's key such as "r49dc_5"), or
+        // music files in the track's folder (.ogg, .wav), one or a list. music is the first, music_list all of them.
         std::string music;
+        std::vector<std::string> music_list;
         std::string preview, logo, diorama;                   // [menu] files in the track's folder
         // [menu] after: where the track select lists the track: behind a game's tracks ("rush2", "sfrush", "rush2049",
         // "calspeed") or behind another custom track (its folder name). Empty: after the stock and added tracks.

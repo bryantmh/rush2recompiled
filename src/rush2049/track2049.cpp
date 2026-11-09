@@ -111,6 +111,7 @@ namespace {
     std::atomic_int applied_slot = -1; // `slot` while applied, or -1.
     std::atomic_bool applied_road_hold = false; // A custom track whose track.toml asks for road_hold is applied.
     std::atomic_bool applied_random_song = false; // A custom track without [audio] music is applied.
+    std::atomic_int applied_mod = -1;  // The custom track (track_mod index) applied, or -1.
     std::atomic_bool applied_smooth = false;    // A custom track racing with smooth collision is applied.
     std::atomic_bool applied_p2p = false;       // A point-to-point custom track is applied.
     std::atomic<float> applied_smooth_fold = 20.0f; // Its fold angle (degrees).
@@ -424,6 +425,7 @@ namespace {
         applied_slot = slot;
         applied_road_hold = is_mod_k(loaded_track) && mod_settings.road_hold;
         applied_random_song = is_mod_k(loaded_track) && !mod_song_set();
+        applied_mod = is_mod_k(loaded_track) ? loaded_track - mod_k : -1;
         applied_smooth = is_mod_k(loaded_track) && mod_settings.smooth_collision;
         applied_p2p = is_mod_k(loaded_track) && mod_settings.point_to_point && !rush2::track_mod::is_arena(mod_settings);
         applied_smooth_fold = mod_settings.smooth_fold;
@@ -457,6 +459,7 @@ namespace {
         applied_slot = -1;
         applied_road_hold = false;
         applied_random_song = false;
+        applied_mod = -1;
         applied_smooth = false;
         applied_p2p = false;
     }
@@ -485,6 +488,10 @@ void rush2::track2049::restore_host(uint8_t* rdram) {
 
 int rush2::track2049::race_track() {
     return raced_track;
+}
+
+bool rush2::track2049::race_track_disc() {
+    return raced_disc;
 }
 
 void rush2::track2049::set_race_track(int k, bool disc) {
@@ -543,6 +550,11 @@ bool rush2::track2049::mod_smooth_collision(uint8_t* rdram, float* fold) {
 bool rush2::track2049::mod_random_song(uint8_t* rdram) {
     int s = applied_slot;
     return applied_random_song && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
+}
+
+int rush2::track2049::raced_mod(uint8_t* rdram) {
+    int s = applied_slot;
+    return s >= 0 && MEM_BU(0, (int32_t)track_id) == s ? applied_mod.load() : -1;
 }
 
 bool rush2::track2049::mod_point_to_point(uint8_t* rdram) {

@@ -3137,7 +3137,14 @@ namespace rush2::audio2049 {
         return dc_primary ? dc::active() : dc::load(source, false);
     }
 
+    void set_stream_song(int song, std::shared_ptr<const StreamSong> stream) {
+        dc::set_stream_song(song, std::move(stream));
+    }
+
     bool song_loaded(int song) {
+        if (song >= stream_songs) {
+            return dc::stream_song_set(song);
+        }
         if (song >= disc_songs) {
             return dc::active();
         }

@@ -263,6 +263,9 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush1/track1_audio.cpp
     ${CMAKE_SOURCE_DIR}/src/rush1/track1_buses.cpp
     ${CMAKE_SOURCE_DIR}/src/music.cpp
+    ${CMAKE_SOURCE_DIR}/src/music_streams.cpp
+    ${CMAKE_SOURCE_DIR}/src/stream_decode.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/rock_music.cpp
     ${CMAKE_SOURCE_DIR}/src/announcer.cpp
     ${CMAKE_SOURCE_DIR}/src/sfx_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/pause_menu.cpp

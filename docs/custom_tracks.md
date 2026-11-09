@@ -333,7 +333,7 @@ like = "dirt"
 drag = 14
 
 [audio]
-music = "track5"           # default song: "track1" to "track8" (left out: each race a random one of every song, any game's, switched on in the Sound tab); players can still change it
+music = "track5"           # the track's own song: see Music below (left out: each race a random one of every song, any game's, switched on in the Sound tab); players can still change it
 
 [menu]
 logo    = "logo.png"
@@ -350,6 +350,30 @@ after   = "rush2049"      # where the track select lists it: see Track select ar
 - `[surfaces.mud]` and `[movers.lift]` above are examples: delete them, or use `COL_MUD_*` meshes and a `MOVE_lift`
   object in Blender.
 - The lap count and mirror mode are the players' choice and aren't set here.
+
+### Music
+
+`[audio] music` is the track's own song: the one its races play while the player's Race Music for Rush 2 (Settings >
+Sound) is Original. It can be a song file of your own in the track's folder, or a song the game already has.
+
+```toml
+[audio]
+music = "theme.ogg"                         # a file in the track's folder: Ogg Vorbis (.ogg) or WAV (.wav)
+# music = ["theme.ogg", "night.ogg"]        # several: the first is the track's song, SKIP TRACK plays the others
+# music = "track5"                          # Rush 2's songs, "track1" to "track8" in its track select order
+# music = "r49dc_5"                         # any song in the Sound tab, by its key (the song_<key> entries of sound.json)
+```
+
+- OGG files can be any sample rate, mono or stereo. WAV files can be 8, 16, 24 or 32-bit PCM or 32-bit float, mono,
+  stereo or 5.1 (folded to stereo). A song loops from its start, or from its `LOOPSTART` comment (in samples, as many
+  game music mods set it) in an OGG.
+- With a list, the first entry is the track's song and SKIP TRACK in the pause menu goes through the others (then
+  shuffles). Every file is listed in the Sound tab's Custom Tracks column (with a play button to hear it) and can come
+  up in Shuffle All.
+- A track that is a version of a course ([Versions](#versions)) plays its own song when it is raced, and its song
+  joins the course's: SKIP TRACK in the pause menu goes through the songs of the course's versions (N64, Dreamcast,
+  arcade, custom) before shuffling. A version without music plays the course's song.
+- Level your songs like the games' (about -16 LUFS integrated): the game plays them as they are.
 
 ## Sky
 

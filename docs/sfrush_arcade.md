@@ -163,6 +163,57 @@ roof (ACELLTOP) 52 ft above the finish 66-157 ft out (its marker: 52 ft), and th
 finish up to 180 ft out. `tools/gate_pass.py` (Rush 2's gate test along every AI line, 3 laps) finds no gate counted
 on another stretch at 500 ft on any of the seven tracks; in game The Rock's drone counted checkpoints 1-6 in order.
 
+## Music
+
+Rush The Rock's music isn't recorded: its sound board (Atari CAGE style, a TMS32C031 on a 32-bit ROM bus) plays
+sequenced songs, a script per track driving a voice that plays samples from the four sound ROMs `audio.u62`, `u61`,
+`u53`, `u49` (beside the unpacked disk in ProjectR's `sfrushrk` folder; the disk itself holds no sound). The game
+synthesizes them live from those ROMs (`src/arcade2049/rock_music.cpp`, a port of ProjectR's native version of the sound
+program; `tmp/music/rtr_render.py` was the Python proof it matches sample for sample), as a song player stream
+(`src/music_streams.cpp`). Each TRACKn's song is the Original of its arcade version and is listed under SF Rush >
+Arcade in the Sound tab. Addresses below are project-r.exe (base 0x140000000) unless they are DSP addresses (ROM).
+
+**ROM** (loader 0x1401B7E80): dword k of the 8 MB image = bytes u62[2k], u62[2k+1], u61[2k], u61[2k+1] (little
+endian) for the first 4 MB, u53/u49 likewise for the second; DSP address = 0xD00000 + dword index. Floats are TMS320C3x
+(0x140243320): the top byte the signed exponent (-128: 0.0), bit 23 the sign, a 23-bit mantissa.
+
+**Samples** (parse 0x1401B8B80): 256 pointers at byte 0x7E5800, each to a record of dwords R[0..16]: R[1] format (3
+8-bit: four a dword, most significant byte first, x 256, decoder 0x1402DD650; 1 16-bit: two a dword, high half first,
+0x1402DD3E0; 5 unsupported, records 0-3), R[2] rate multiplier (float), R[3] start, R[4] length (samples), R[7]/R[8]
+loop start/end (a loop only when start < end), R[10] root key, R[13] attack and R[16] release step per block (floats,
+negative: none). Tables (DSP addresses): 0xEFC963 semitone ratios 2^((i-36)/12) (73), 0xEFC9AB cent ratios
+2^((i-100)/1200) (457), 0xEFCB74 volume i/128 (256), 0xEFC8E3 velocity i/128 (128), 0xEFCDB4 the pan lobe sin(pi i/256)
+(130).
+
+**Songs**: the sound program's command table (0x1406EB6C0, 16 bytes an entry: track list pointer, type byte at +8: 8
+start a song, 5 stop one; even commands stop the odd one before them). A track list is {next, script PC, priority,
+channel}. The game's per-track starter (0x1402303A0, table 0x14065B626) sends sound calls 0x8052, 0x8050, 0x8056, 0x80D8,
+0x8054, 0x8058, 0x805A for TRACK1-7, which the call table 0x1406E4200 ({engine, arg count, command}) turns into
+commands 27, 25, 31, 41, 29, 33, 35 (TRACK4, The Rock, has the one call out of the run). No direct caller of 0x1402303A0
+was found, so the TRACKn order is the table's, taken as the folders' [I]. Command 29's scores are command 3's. Commands 37
+(17 s, the attract fanfare, 0x805C) and 61 (112 s) play once; 43-53 are 1-2 s stingers.
+
+**Sequencer** (tick 0x14024EDB0, spawn 0x14024E810; run once per 64-sample block at 22050 Hz by the stream thread
+0x14024BF10 through 0x14024C340, after that block's mix): per tick a track's counter c20 -= tempo, and below 0 its script
+runs to the next note; c24 -= tempo, and below 0 the note releases. Instructions are an opcode and an operand dword
+(branches a third). Opcodes below 0x80 are notes (0 a rest): operand 0 returns from a call or ends the track, else its
+low 4 bits pick the duration (16.16 ticks: 0, 0x3C0000, 0x1E0000, 0xF0000, 0x78000, 0x140000, 0xA0000, 0x50000, 0xC0000,
+0x3C000, 0x1E000, 0xF000, 0x7800, 0x28000, 0x14000, 0x60000), 0x40 adds half, 0x80 ties, (A & 0x30) == 0x10 is staccato,
+(A >> 4) & 3 adds 0/0/20/40 velocity. Key = transpose + note, through the patch map (0xBC) or + 11. Other opcodes (jump
+table 0x14070C368): 0x80/0x81 tempo =/+=, 0x82/0x88/0x83 volume, 0x84/0x85 transpose, 0x8D call through a pointer cell,
+0x8E/0x8F loop start (count, 0 forever) and end, 0x99 jump, 0x9C/0xBF pan +=/=, 0x9D sample, 0xA2/0xA3 velocity,
+0xA6/0xA7 cents, 0xA9-0xAD register arithmetic, 0xAE/0xAF table jumps, 0xB0-0xBA register moves, shifts, compares and
+conditional jumps, 0xBC patch. Not ported (effects): 0x8C, 0x97, 0xA4, 0xA5/0xA8, 0x9F/0xA0, 0xC0/0xC2, reverb sends
+(0x1402DE960) and portamento.
+
+**Voices** (0x14024B2D0, render 0x1402DDBA0, envelope 0x1402DD980): 16, one a channel. Rate = semitone[key + cents/100 -
+root] x cent[cents % 100] x the sample's rate, linear interpolation; level = velocity x volume x envelope (attack ramps
+up by R[13] a block; release fades by R[16] a block, or without one the sample just stops looping). ProjectR's stereo mix
+(0x14024AA20) pans by the lobe: left = g(a + 0xC0) + 0.707 g(a + 0x140), right = g(a + 0x40) + 0.707 g(a + 0x1C0), a the pan
+angle (512 a turn). Its output level also goes through ProjectR's own volume table (0x1406EA51C, by its game_volume
+setting), so the port levels the songs by loudness instead: -4.95 LUFS as synthesized, turned down 11.15 dB to Rush 2's
+-16.1 (`rock_music_compensation`).
+
 ## Checks
 
 All seven pass `tools/track_mod_test.bat` and `tools/track_mod_check.py` (every lane point has ground in its index

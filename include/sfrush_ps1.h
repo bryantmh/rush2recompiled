@@ -98,6 +98,20 @@ namespace rush2::sfrush_ps1 {
     // Whether `path` is (or is the .cue of) the supported disc: SLUS-00505 with the files the mod is built from.
     bool is_disc(const std::filesystem::path& path);
 
+    // The disc's CD audio tracks (its music: four songs on the supported disc), from its .cue (or the .cue next to
+    // the data track's .bin), its .ccd (or the .ccd next to the .img) or its .chd: each track's file, where its 16-bit
+    // stereo 44.1 kHz frames are in it (byte offset and length; in a .chd, `offset` is the CHD frame), and its number.
+    // An .iso alone has no music.
+    struct AudioTrack {
+        std::filesystem::path file;
+        uint64_t offset = 0, length = 0;
+        int number = 0;
+        bool chd = false;
+    };
+    std::vector<AudioTrack> audio_tracks(const std::filesystem::path& disc);
+    // A track's samples (little-endian PCM16 stereo, as a .bin holds them). Slow for a .chd: call from a worker.
+    bool read_audio(const AudioTrack& track, std::vector<uint8_t>& out);
+
     // The mod's files by their path in the mod. The log gets what each conversion did.
     using ModFiles = std::map<std::string, std::vector<uint8_t>>;
     bool build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
@@ -110,6 +124,9 @@ namespace rush2::sfrush_ps1 {
     // again now, on the calling thread.
     void refresh_now();
     bool rebuilt();
+    // The disc the mod is built from (the one picked this session, else the installed mod's), or empty when it isn't
+    // where it was. Any thread.
+    std::filesystem::path disc();
 }
 
 #endif

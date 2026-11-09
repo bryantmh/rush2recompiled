@@ -366,6 +366,35 @@ namespace {
         write_json(path, sound, 4);
     }
 
+    // Rush 2049's Soundtrack choice (sound.json "soundtrack_r49": "Source", "N64", "Dreamcast" or "Both") as a switch
+    // per source (r49_songs_n64 / r49_songs_dc, src/music.cpp; the arcade's, new, starts on): the sources it let play
+    // on. "Source" (Same as Source) followed Primary Source (games.json "rush2049_source", Dreamcast by default).
+    void migrate_soundtrack() {
+        fs::path path = app_folder() / "sound.json";
+        json sound;
+        if (!read_json(path, sound)) {
+            return;
+        }
+        auto it = sound.find("soundtrack_r49");
+        if (it == sound.end()) {
+            return;
+        }
+        std::string choice = it->is_string() ? it->get<std::string>() : "Source";
+        if (choice == "Source") {
+            json games;
+            choice = "Dreamcast";
+            if (read_json(app_folder() / "games.json", games)) {
+                auto src = games.find("rush2049_source");
+                if (src != games.end() && src->is_string() && *src == "N64") choice = "N64";
+            }
+        }
+        if (!sound.contains("r49_songs_n64")) sound["r49_songs_n64"] = choice != "Dreamcast";
+        if (!sound.contains("r49_songs_dc")) sound["r49_songs_dc"] = choice != "N64";
+        sound.erase("soundtrack_r49");
+        // As librecomp writes its configs.
+        write_json(path, sound, 4);
+    }
+
     // Rush 2049 Menus (games.json "rush2049_menus": false / true, then "Off", "Style" or "Layout") as its style
     // (Off, Minimal = "Style", Full = "Layout") plus switches for the fonts, sounds and background
     // (src/rush2049/wings.cpp), which "Style" and "Layout" both brought.
@@ -425,5 +454,6 @@ void rush2::data_files::migrate() {
     migrate_wing_styles();
     migrate_menu_music();
     migrate_menu_song_dc();
+    migrate_soundtrack();
     migrate_menus2049();
 }

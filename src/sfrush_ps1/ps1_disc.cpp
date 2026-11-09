@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -47,6 +49,58 @@ namespace {
             if (e.path().stem() == path.stem() && upper(e.path().extension().string()) == ext) return e.path();
         }
         return {};
+    }
+
+    // A .ccd's audio tracks: "[TRACK n]" sections with MODE=0 for audio and "INDEX 1=<sector>" (INDEX 0 for a
+    // pregap), counting 2352-byte sectors from the start of the .img. A track runs to the next one's INDEX 0 (or 1).
+    std::vector<ps1::AudioTrack> ccd_audio(const std::filesystem::path& ccd) {
+        struct T { int number = 0; bool audio = false; int64_t index0 = -1, index1 = -1; };
+        std::vector<T> tracks;
+        std::ifstream f(ccd);
+        std::string line;
+        bool in_track = false;
+        while (std::getline(f, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            std::string u = upper(line);
+            if (u.rfind("[", 0) == 0) {
+                in_track = u.rfind("[TRACK ", 0) == 0;
+                if (in_track) tracks.push_back({ std::atoi(u.c_str() + 7) });
+                continue;
+            }
+            if (!in_track) continue;
+            if (u.rfind("MODE=", 0) == 0) tracks.back().audio = std::atoi(u.c_str() + 5) == 0;
+            else if (u.rfind("INDEX 0=", 0) == 0) tracks.back().index0 = std::atoll(u.c_str() + 8);
+            else if (u.rfind("INDEX 1=", 0) == 0) tracks.back().index1 = std::atoll(u.c_str() + 8);
+        }
+        std::filesystem::path img = sibling(ccd, ".IMG");
+        std::error_code ec;
+        uint64_t size = img.empty() ? 0 : std::filesystem::file_size(img, ec);
+        std::vector<ps1::AudioTrack> out;
+        if (ec || size == 0) return out;
+        for (size_t i = 0; i < tracks.size(); i++) {
+            const T& t = tracks[i];
+            if (!t.audio || t.index1 < 0) continue;
+            uint64_t start = uint64_t(t.index1) * raw_sector, end = size;
+            if (i + 1 < tracks.size()) {
+                int64_t next = tracks[i + 1].index0 >= 0 ? tracks[i + 1].index0 : tracks[i + 1].index1;
+                if (next >= 0) end = std::min<uint64_t>(end, uint64_t(next) * raw_sector);
+            }
+            if (end > start) out.push_back({ img, start, end - start, t.number });
+        }
+        return out;
+    }
+
+    // A .chd's audio tracks: `offset` is the track's first CHD frame.
+    std::vector<ps1::AudioTrack> chd_audio(const std::filesystem::path& path) {
+        rush2::chd::Image image;
+        std::vector<ps1::AudioTrack> out;
+        if (!image.open(path)) return out;
+        for (const rush2::chd::Track& t : image.tracks()) {
+            if (t.audio && t.frames > 0) {
+                out.push_back({ path, t.chd_frame, uint64_t(t.frames) * raw_sector, t.number, true });
+            }
+        }
+        return out;
     }
 }
 
@@ -236,4 +290,102 @@ bool ps1::read_psv(const std::vector<uint8_t>& d, std::vector<std::array<double,
         o += 12 + 16 * size_t(n);
     }
     return true;
+}
+
+// The .cue's CD audio tracks (the disc's music, src/music_streams.cpp): FILE names a .bin (next to the .cue), TRACK nn
+// AUDIO starts a track and INDEX 01 mm:ss:ff (75 sectors a second, 2352 bytes each) is where its audio begins in that
+// file. A track runs to the next track's INDEX 00 (its pregap) or INDEX 01 in the same file, else to the file's end.
+// Given the data track's .bin, the .cue next to it that names it is read.
+std::vector<ps1::AudioTrack> ps1::audio_tracks(const std::filesystem::path& path) {
+    std::string ext = upper(path.extension().string());
+    if (ext == ".CHD") return chd_audio(path);
+    if (ext == ".CCD") return ccd_audio(path);
+    if (ext == ".IMG") {
+        std::filesystem::path ccd = sibling(path, ".CCD");
+        if (!ccd.empty()) return ccd_audio(ccd);
+    }
+    std::filesystem::path cue = path;
+    std::error_code ec;
+    if (ext != ".CUE") {
+        cue.clear();
+        for (const auto& e : std::filesystem::directory_iterator(path.parent_path(), ec)) {
+            if (upper(e.path().extension().string()) == ".CUE" && cue_track(e.path()) == path) {
+                cue = e.path();
+                break;
+            }
+        }
+        if (cue.empty()) return {};
+    }
+    struct Mark {
+        int track = 0;
+        bool audio = false;
+        std::filesystem::path file;
+        uint64_t start = 0;     // INDEX 01
+        uint64_t end_mark = 0;  // its INDEX 00 (or INDEX 01): where the track before it ends
+    };
+    std::vector<Mark> marks;
+    std::ifstream f(cue);
+    std::string line;
+    std::filesystem::path file;
+    while (std::getline(f, line)) {
+        size_t k = line.find_first_not_of(" \t");
+        if (k == std::string::npos) continue;
+        std::string word = upper(line.substr(k, line.find_first_of(" \t", k) - k));
+        if (word == "FILE") {
+            size_t a = line.find('"'), b = line.rfind('"');
+            if (a != std::string::npos && b > a) file = cue.parent_path() / std::filesystem::u8path(line.substr(a + 1, b - a - 1));
+        }
+        else if (word == "TRACK") {
+            Mark m;
+            m.track = std::atoi(line.c_str() + k + 5);
+            m.audio = upper(line).find("AUDIO") != std::string::npos;
+            m.file = file;
+            m.start = m.end_mark = UINT64_MAX;
+            marks.push_back(m);
+        }
+        else if (word == "INDEX" && !marks.empty()) {
+            int index = 0, mm = 0, ss = 0, ff = 0;
+            if (sscanf(line.c_str() + k + 5, "%d %d:%d:%d", &index, &mm, &ss, &ff) != 4) continue;
+            uint64_t at = (uint64_t(mm) * 60 * 75 + uint64_t(ss) * 75 + uint64_t(ff)) * raw_sector;
+            Mark& m = marks.back();
+            if (index == 0) m.end_mark = at;
+            if (index == 1) {
+                m.start = at;
+                if (m.end_mark == UINT64_MAX) m.end_mark = at;
+            }
+        }
+    }
+    std::vector<AudioTrack> out;
+    for (size_t i = 0; i < marks.size(); i++) {
+        const Mark& m = marks[i];
+        if (!m.audio || m.start == UINT64_MAX) continue;
+        uint64_t size = std::filesystem::file_size(m.file, ec);
+        if (ec || size <= m.start) continue;
+        uint64_t end = size;
+        if (i + 1 < marks.size() && marks[i + 1].file == m.file && marks[i + 1].end_mark != UINT64_MAX) {
+            end = std::min(end, marks[i + 1].end_mark);
+        }
+        if (end > m.start) out.push_back({ m.file, m.start, end - m.start, m.track });
+    }
+    return out;
+}
+
+// A track's samples: the bytes from the .bin/.img, or the .chd's frames (read_frame swaps them back to little-endian).
+bool ps1::read_audio(const AudioTrack& track, std::vector<uint8_t>& out) {
+    if (track.chd) {
+        rush2::chd::Image image;
+        if (!image.open(track.file)) return false;
+        uint32_t frames = uint32_t(track.length / raw_sector);
+        out.resize(size_t(frames) * raw_sector);
+        for (uint32_t i = 0; i < frames; i++) {
+            if (!image.read_frame(uint32_t(track.offset) + i, out.data() + size_t(i) * raw_sector)) return false;
+        }
+        return true;
+    }
+    std::ifstream f(track.file, std::ios::binary);
+    if (!f) return false;
+    out.resize((size_t)track.length);
+    f.seekg((std::streamoff)track.offset);
+    f.read(reinterpret_cast<char*>(out.data()), (std::streamsize)track.length);
+    return (bool)f;
 }

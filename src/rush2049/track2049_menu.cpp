@@ -1446,6 +1446,13 @@ bool rush2::track2049::mod_from_sfrush(int t) {
     return i >= 0 && i < mod_capacity && mod_arcade[size_t(i)].load() == 2;
 }
 
+std::vector<int> rush2::track2049::course_versions(int t) {
+    // The track select builds the groups when it reads the mods; a race started some other way (a test) builds them now.
+    if (version_groups.empty()) build_versions(rush2::track_mod::tracks());
+    if (t < 0 || t >= menu_tracks || group_of[size_t(t)] < 0) return { t };
+    return version_groups[size_t(group_of[size_t(t)])].members;
+}
+
 uint32_t rush2::track2049::diorama_name(uint8_t* rdram, int t) {
     return (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4));
 }

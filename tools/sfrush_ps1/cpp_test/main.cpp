@@ -37,6 +37,15 @@ int main(int argc, char** argv) {
     double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     printf("== %s: %s in %.1f s, %zu files\n%s", ps1::mod_id, ok ? "built" : "FAILED", s, files.size(), log.c_str());
     if (!ok) return 1;
+    // The disc's music (any image format): each track's length and an FNV-1a hash of its samples, to compare formats.
+    for (const ps1::AudioTrack& t : ps1::audio_tracks(disc_path)) {
+        std::vector<uint8_t> pcm;
+        bool read = ps1::read_audio(t, pcm);
+        uint64_t h = 1469598103934665603ull;
+        for (uint8_t c : pcm) h = (h ^ c) * 1099511628211ull;
+        printf("audio track %d: %llu bytes, %s, hash %016llx\n", t.number, (unsigned long long)t.length,
+               read ? "read" : "READ FAILED", (unsigned long long)h);
+    }
     std::filesystem::path dir = out / ps1::mod_id;
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);

@@ -181,7 +181,12 @@ namespace {
 
     // The disc to build from: the one picked this session, else the installed mod's.
     std::filesystem::path disc_path() {
-        if (!chosen_disc.empty() && ps1::is_disc(chosen_disc)) return chosen_disc;
+        std::filesystem::path chosen;
+        {
+            std::lock_guard lock{ state_mutex };
+            chosen = chosen_disc;
+        }
+        if (!chosen.empty() && ps1::is_disc(chosen)) return chosen;
         Installed have = installed();
         if (!have.disc.empty() && ps1::is_disc(have.disc)) return have.disc;
         return {};
@@ -222,7 +227,10 @@ void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
                                       ".cue, .chd or .ccd file, or the .bin, .img or .iso of its first track.");
                 return;
             }
-            chosen_disc = path;
+            {
+                std::lock_guard lock{ state_mutex };
+                chosen_disc = path;
+            }
             start(path);
         });
     });
@@ -246,6 +254,16 @@ void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
 
 bool ps1::rebuilt() {
     return rebuilding;
+}
+
+std::filesystem::path ps1::disc() {
+    std::filesystem::path d = disc_path();
+    // Test aid: SFRUSH_PS1_DISC (as tools/sfrush_ps1 read it) when the installed mod's disc isn't where it was.
+    const char* env = std::getenv("SFRUSH_PS1_DISC");
+    if (d.empty() && env != nullptr && *env && ps1::is_disc(std::filesystem::u8path(env))) {
+        d = std::filesystem::u8path(env);
+    }
+    return d;
 }
 
 void ps1::refresh_now() {

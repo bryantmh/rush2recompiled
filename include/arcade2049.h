@@ -114,6 +114,9 @@ namespace rush2::arcade2049 {
     void refresh_now();
     // A mod has been built this session (by refresh_now or the Games tab): the launch's progress screen shows.
     bool rebuilt();
+    // The game's arcade data folder in use (the one picked this session, else the installed mods', else ProjectR's),
+    // or empty when there is none: the music plays from it (src/music_streams.cpp). Any thread.
+    std::filesystem::path current_data_dir(const ArcadeGame& game);
 
     // The Games tab's options under Rush 2049 Arcade: Arcade Checkpoints.
     void init_config();
