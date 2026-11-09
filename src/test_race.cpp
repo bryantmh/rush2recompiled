@@ -15,6 +15,7 @@
 // - RUSH2_TEST_RACE_VIEW_CAR=<car>: the first view follows that car (a drone: 1 and up) for the whole race, as
 //   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course. RUSH2_TEST_RACE_VIEW_LANE=<0-3> keeps that
 //   drone to one AI lane (left to right as you drive).
+// - RUSH2_TEST_RACE_FINISH_BANNER=1: the finish banner turns to FINISH as the race starts (the last lap's swap).
 // - RUSH2_TEST_RACE_WAIT=<seconds>: the race starts that long after the title screen is first up (a mod rebuilt at
 //   launch finished first, as when a player starts a race after it).
 //
@@ -51,6 +52,7 @@ extern "C" void car_record_get_main_color_800B2694(uint8_t* rdram, recomp_contex
 extern "C" void car_record_get_accent_color_800B2640(uint8_t* rdram, recomp_context* ctx);
 extern "C" void car_options_get_color_lo_800B2608(uint8_t* rdram, recomp_context* ctx);
 extern "C" void car_record_get_stripe_color_800B25D0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void track_finish_line_setup_8008F080(uint8_t* rdram, recomp_context* ctx);
 
 namespace {
     constexpr uint32_t player_records = 0x800C2140;    // 0x28 each, +0x24 the profile
@@ -215,6 +217,15 @@ extern "C" void rush2_test_race_frame(uint8_t* rdram, recomp_context* ctx) {
     if (spec != nullptr && done && view_lane != nullptr && view_car != nullptr && !rush2::race_setup::in_menus(rdram)) {
         uint32_t state = 0x801124A0u + uint32_t(std::atoi(view_car)) * 0x354u + 0x30Cu;
         MEM_H(0x2A, (int32_t)state) = (int16_t)std::atoi(view_lane);
+    }
+    // RUSH2_TEST_RACE_FINISH_BANNER=1: turns the finish banner to FINISH once the race is on, as passing the last
+    // checkpoint of the last lap does (checkpoint_passed_8008F220 -> track_finish_line_setup_8008F080), so a test
+    // sees it from the grid (docs/custom_tracks.md#finish-banner).
+    static const bool finish_banner = env("RUSH2_TEST_RACE_FINISH_BANNER") != nullptr;
+    static bool banner_done = false;
+    if (finish_banner && done && !banner_done && MEM_W(0, (int32_t)0x8010C0D0) == 3) {
+        banner_done = true;
+        call(rdram, ctx, track_finish_line_setup_8008F080);
     }
     if (spec == nullptr || done || rush2::online::state() != rush2::online::State::Offline ||
         !rush2::race_setup::in_menus(rdram)) {

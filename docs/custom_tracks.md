@@ -18,6 +18,7 @@ found and what is wrong (see [Checking your track](#checking-your-track)), so re
 - [track.toml](#tracktoml)
 - [Sky](#sky)
 - [Moving objects](#moving-objects)
+- [Finish banner](#finish-banner)
 - [Billboards and props](#billboards-and-props)
 - [Point to point](#point-to-point)
 - [Run-in circuits](#run-in-circuits)
@@ -488,6 +489,19 @@ The report has a line per moving object (`MOVE_lift: 2 keys over 4.00 s, ride, 2
 it.`) and warns about a `MOVE_` object without an animation (it stays put, as ordinary track) and a `[movers.<name>]`
 with no object of that name.
 
+## Finish banner
+
+A banner over the finish line that reads CHECKPOINT and changes to FINISH on the last lap, as Rush 2's own tracks do:
+
+1. **Model the banner as a mesh named `FINISH_BANNER`** (or several, `FINISH_BANNER.001` ...), over the `FINISH` marker.
+2. **Give its sign faces a material named `CHKPNT`**: the picture shown until the last lap.
+3. **Add a material named `FINISH`** with the last lap's picture, laid out like CHKPNT's (same size; the faces keep
+   their UVs). Blender only exports materials in use, so put it on a mesh named `FINISH_BANNER_LAST`, which isn't drawn.
+
+When a player passes the last checkpoint before the finish on the last lap, the game draws FINISH's picture in place of CHKPNT's (Rush 2's
+track_finish_line_setup_8008F080, in both directions). The report says `Finish banner: ...`, and warns when CHKPNT or
+FINISH is missing or their pictures differ in size.
+
 ## Billboards and props
 
 ### Billboards
@@ -788,6 +802,7 @@ Every name, custom property and setting a track can use, on one page. Each links
 | `BILLBOARD_<name>` | Turns to face the camera ([Billboards](#billboards)) |
 | `PROP_KNOCK_*`, `PROP_TIP_*` | Knocked flying or tipped over by cars ([Props](#props)) |
 | `SKY` | Your own sky dome ([Your own sky](#your-own-sky)) |
+| `FINISH_BANNER`, `FINISH_BANNER_LAST` | The finish banner, CHKPNT turning to FINISH on the last lap ([Finish banner](#finish-banner)) |
 | `START_1` to `START_4`, `PICKUP_<kind>` | Arenas only ([Stunt and battle arenas](#stunt-and-battle-arenas)) |
 | `ROAD_SPLINES` | Spline road, for converter tools ([Spline road](#spline-road)) |
 

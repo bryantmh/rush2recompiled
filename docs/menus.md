@@ -197,6 +197,10 @@ To look at a spot on a track, don't hold the gas and hope: watch a drone drive t
 `tools/test_race.py TRACK --drones 1 --env RUSH2_TEST_RACE_VIEW_CAR=1 --env RUSH2_TEST_RACE_VIEW_LANE=1` (the view on
 drone 1, kept to lane 1 of 0-3, left to right), with `--shots` as it passes.
 
+`--env RUSH2_TEST_RACE_FINISH_BANNER=1` turns the finish banner to FINISH as the race starts (Rush 2's last-lap swap,
+which otherwise needs a player past the last checkpoint of the last lap). The grid is under or past most banners, so
+watch a drone come back to it at the end of lap 1.
+
 - `RUSH2_TEST_RACE_CARS=T[,T...]`: one car type per player, 1 to 4 players (split screen). View p follows car p
   (`view_cars` 0x80240380, as online sets them): left unset, view 0 kept another car and split screen's first view
   watched it from far off. Without it one player, in

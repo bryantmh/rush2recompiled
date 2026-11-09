@@ -24,6 +24,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Collision](#collision)
 - [AI paths](#ai-paths)
 - [Checkpoints](#checkpoints)
+- [Start and finish banner](#start-and-finish-banner)
 - [Race times](#race-times)
 - [Cars](#cars)
 - [Wheels](#wheels)
@@ -203,6 +204,25 @@ nx, ny, nz, d (16384 = 1; n . (x, -height, y) = d in 0.1 ft). Plane 0 is the fin
 - **Into Rush 2:** each gate goes where the AI path crosses its plane (from n . p > d to below) inside one of its
   sectors, the finish nearest the path's first point and each checkpoint the first such crossing after the gate
   before it (path points 0, 279, 613 and 724 of 1121 on track 4).
+
+## Start and finish banner
+
+The gantry over the start line is two scenery chunks with the same 217 vertices: SCN2 chunk 1's two panels read
+CHECKPOINT (red, page (384, 0)) and chunk 89's read FINISH (texture entry 3, u 0-127; faces 15, 19, 99, 103). The
+START texture beside FINISH on that page isn't on the gantry. **[V]** (rendered from the converted chunks)
+
+- **The swap:** the scenery draw loop in `func_80042FF0` takes chunk id s2 from the visible list and its pointer from
+  the table 0x800B5C88 (ids from 1, so id n is SCN2 chunk n - 1). On track 4 (0x800B34F8 = 3), when gp+0x20 is set
+  and the id is 2 (0x80044628), it draws the chunk at 0x800B5DF0 (id 90) instead (0x80044638). Tracks 2 and 3 have
+  their own pairs (ids 0x5F, 0x82 -> 0x800B5EA4, 0x800B5E94; 0x95 -> 0x800B5F44). **[V]**
+- **gp+0x20 (0x800B26F0):** set per view before each player's scenery pass (0x80016468 player 1, 0x80016884 player
+  2) when that player's laps still to go (0x80101250 / 0x80101658, car stride 0x408; laps 0x800B2888 - 1 at race
+  setup 0x80015EE0) are 0 or fewer: the viewing player's own last lap. **[V]**
+- **Into Rush 2:** Rush 2's own finish banner swap (track_finish_line_setup_8008F080: CHKPNT's texture-load list for
+  FINISH's in `<prefix>FINISH`, when a player passes the last checkpoint of the last lap). Chunk 1 is the custom track's `FINISH_BANNER`
+  ([Finish banner](custom_tracks.md#finish-banner)); its four panel faces (the ones chunk 89 retextures) are the
+  CHKPNT material, the CHECKPOINT strip resampled corner for corner onto FINISH's 128 x 32 rectangle, and FINISH is
+  that rectangle of chunk 89's page. Chunk 89 isn't drawn. Rush 2's swap is for the whole screen, so in split screen the first player there turns it for everyone.
 
 ## Race times
 

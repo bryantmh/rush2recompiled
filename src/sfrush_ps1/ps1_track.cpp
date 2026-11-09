@@ -246,13 +246,45 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         return m;
     };
     size_t scenery_tris = 0, chunk_count = 0;
+    // The finish banner (docs/sfrush_ps1.md#start-and-finish-banner): the scenery draw loop (func_80042FF0's chunk
+    // loop at 0x80044604, track index 3) draws chunk id 2 (the gantry reading CHECKPOINT) on every lap but the viewing
+    // player's last, and on that one the chunk at 0x800B5DF0 (id 90: the same gantry reading FINISH) in its place. Ids
+    // index the chunk table 0x800B5C88 from 1, so they are SCN2 chunks 1 and 89. Rush 2 swaps its own finish banner the
+    // same way (track_finish_line_setup_8008F080, when a player passes the last checkpoint of the last lap), so chunk 1 is the custom track's
+    // FINISH_BANNER, its CHECKPOINT panels in a CHKPNT material, and chunk 89's FINISH panels are the FINISH material,
+    // both resampled to one rectangle so the swap keeps the panels' coordinates (docs/custom_tracks.md#finish-banner).
+    int start_banner = -1, finish_banner = -1;
+    {
+        constexpr uint32_t id_insn = 0x80044628, alt_insn = 0x80044638, chunk_table = 0x800B5C88;
+        if (exe.in(id_insn, 4) && exe.in(alt_insn, 4) && exe.w(id_insn) >> 16 == 0x2402 && exe.w(alt_insn) >> 16 == 0x8C42) {
+            start_banner = int(exe.w(id_insn) & 0xFFFF) - 1;
+            finish_banner = int((0x800B0000u + (exe.w(alt_insn) & 0xFFFF) - chunk_table) / 4) - 1;
+        }
+        else {
+            report.push_back("the finish banner swap couldn't be read: both banners stay");
+        }
+    }
+    auto face_texel = [&](const Face& f, int c) {
+        return std::array<double, 2>{ double(f.uv[c][0] & 255), double((f.uv[c][1] + entry(f.tex, 3)) & 255) };
+    };
+    auto face_ring = [](const Face& f) {
+        std::vector<int> ring;
+        for (int c = 0; c < 4; c++) {
+            if (ring.empty() || f.idx[c] != f.idx[ring.back()]) ring.push_back(c);
+        }
+        if (ring.size() == 4 && f.idx[ring[3]] == f.idx[ring[0]]) ring.pop_back();
+        return ring;
+    };
+    bool banner_built = false;
     for (const char* kind : { "ROAD2", "SCN2" }) {
         std::vector<std::vector<uint8_t>> raw;
         if (!disc.chunks("T" + t + "ROAD/T" + t + kind, raw)) {
             log += std::string("T") + t + "ROAD/T" + t + kind + ".DAT couldn't be read\n";
             return false;
         }
+        const bool scenery = std::string(kind) == "SCN2";
         for (size_t k = 0; k < raw.size(); k++) {
+            if (scenery && banner_built && int(k) == finish_banner) continue;   // drawn as the FINISH material
             Chunk ch;
             if (!read_chunk(raw[k], ch)) {
                 snprintf(line, sizeof(line), "%s chunk %zu doesn't add up\n", kind, k);
@@ -260,29 +292,106 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
                 return false;
             }
             std::map<int, a49::Glb::Prim> prims;
-            for (const Face& f : ch.faces) {
+            // The start gantry's panels: the faces whose texture the FINISH chunk changes.
+            std::set<size_t> panels;
+            Chunk fin;
+            if (scenery && int(k) == start_banner && finish_banner > start_banner && size_t(finish_banner) < raw.size() &&
+                read_chunk(raw[size_t(finish_banner)], fin) && fin.faces.size() == ch.faces.size()) {
+                for (size_t i = 0; i < ch.faces.size(); i++) {
+                    const Face& a = ch.faces[i];
+                    const Face& b = fin.faces[i];
+                    if (a.idx == b.idx && (a.tex != b.tex || a.uv != b.uv) && face_ring(a).size() == 4 &&
+                        std::all_of(a.idx.begin(), a.idx.end(), [&](uint16_t v) { return v < ch.verts.size(); }) &&
+                        a.tex < uint32_t(tex_entries) && b.tex < uint32_t(tex_entries) && a.clut >= 0 &&
+                        a.clut < clut_id_count && b.clut >= 0 && b.clut < clut_id_count) {
+                        panels.insert(i);
+                    }
+                }
+            }
+            if (!panels.empty()) {
+                // FINISH's rectangle on its page and each image in it: FINISH as the PS1 has it, CHKPNT the CHECKPOINT
+                // panel mapped corner for corner onto the same rectangle (from the first panel face; all four show it).
+                std::array<double, 2> lo{ 1e9, 1e9 }, hi{ -1e9, -1e9 };
+                for (size_t i : panels) {
+                    for (int c = 0; c < 4; c++) {
+                        auto q = face_texel(fin.faces[i], c);
+                        for (int a = 0; a < 2; a++) lo[a] = std::min(lo[a], q[a]), hi[a] = std::max(hi[a], q[a]);
+                    }
+                }
+                int w = int(hi[0] - lo[0]) + 1, h = int(hi[1] - lo[1]) + 1;
+                const Face& f1 = ch.faces[*panels.begin()];
+                const Face& f9 = fin.faces[*panels.begin()];
+                auto page = [&](const Face& f) {
+                    return std::array<int, 3>{ entry(f.tex, 0) & ~63, entry(f.tex, 1) & 256, clut_id(f.clut) };
+                };
+                std::vector<uint8_t> chk(size_t(w) * h * 4), fn(size_t(w) * h * 4);
+                bool chk_clear = false, fn_clear = false;
+                auto p1 = page(f1), p9 = page(f9);
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        double s = w > 1 ? double(x) / (w - 1) : 0.0, tt = h > 1 ? double(y) / (h - 1) : 0.0;
+                        std::array<double, 2> src{};
+                        for (int c = 0; c < 4; c++) {
+                            auto n = face_texel(f9, c);
+                            double wc = (n[0] > lo[0] ? s : 1.0 - s) * (n[1] > lo[1] ? tt : 1.0 - tt);
+                            auto q = face_texel(f1, c);
+                            src[0] += wc * q[0], src[1] += wc * q[1];
+                        }
+                        auto c1 = vram.texel(p1[0], p1[1], p1[2], int(std::lround(src[0])) & 255, int(std::lround(src[1])) & 255);
+                        auto c9 = vram.texel(p9[0], p9[1], p9[2], (int(lo[0]) + x) & 255, (int(lo[1]) + y) & 255);
+                        std::memcpy(&chk[(size_t(y) * w + x) * 4], c1.data(), 4);
+                        std::memcpy(&fn[(size_t(y) * w + x) * 4], c9.data(), 4);
+                        chk_clear = chk_clear || c1[3] == 0;
+                        fn_clear = fn_clear || c9[3] == 0;
+                    }
+                }
+                int chk_material = g.material("CHKPNT", g.image("CHKPNT", a49::png(chk, w, h)), chk_clear ? "MASK" : "OPAQUE",
+                                              false, { 33071, 33071 });
+                g.material("FINISH", g.image("FINISH", a49::png(fn, w, h)), fn_clear ? "MASK" : "OPAQUE", false, { 33071, 33071 });
+                a49::Glb::Prim& p = prims[-1 - chk_material];
+                p.material = chk_material;
+                for (size_t i : panels) {
+                    const Face& a = ch.faces[i];
+                    const Face& b = fin.faces[i];
+                    uint32_t base = uint32_t(p.verts.size());
+                    std::array<double, 2> centre{};
+                    for (int c = 0; c < 4; c++) {
+                        auto q = face_texel(b, c);
+                        centre[0] += (q[0] - lo[0]) / 4.0, centre[1] += (q[1] - lo[1]) / 4.0;
+                    }
+                    for (int c = 0; c < 4; c++) {
+                        auto q = face_texel(b, c);
+                        p.verts.push_back(gl(ch.verts[a.idx[c]]));
+                        std::array<double, 2> uv = ps1::texel_inset({ q[0] - lo[0], q[1] - lo[1] }, centre);
+                        p.uvs.push_back({ uv[0] / w, uv[1] / h });
+                    }
+                    auto tris = fan(4, base);
+                    V3 n = a49::unit(a49::cross(p.verts[tris[0][1]] - p.verts[tris[0][0]], p.verts[tris[0][2]] - p.verts[tris[0][0]]));
+                    for (int c = 0; c < 4; c++) p.normals.push_back(n);
+                    for (auto& tri : tris) p.tris.push_back(tri);
+                    scenery_tris += 2;
+                }
+            }
+            for (size_t fi = 0; fi < ch.faces.size(); fi++) {
+                const Face& f = ch.faces[fi];
+                if (panels.count(fi)) continue;
                 if (f.tex >= uint32_t(tex_entries) || f.clut < 0 || f.clut >= clut_id_count) continue;
-                int tx = entry(f.tex, 0), ty = entry(f.tex, 1), voff = entry(f.tex, 3);
+                int tx = entry(f.tex, 0), ty = entry(f.tex, 1);
                 int m = material(tx & ~63, ty & 256, clut_id(f.clut));
                 a49::Glb::Prim& p = prims[m];
                 p.material = m;
                 // A ring of 3 or 4 corners (a triangle repeats a corner).
-                std::vector<int> ring;
-                for (int c = 0; c < 4; c++) {
-                    if (ring.empty() || f.idx[c] != f.idx[ring.back()]) ring.push_back(c);
-                }
-                if (ring.size() == 4 && f.idx[ring[3]] == f.idx[ring[0]]) ring.pop_back();
+                std::vector<int> ring = face_ring(f);
                 if (ring.size() < 3) continue;
                 if (std::any_of(ring.begin(), ring.end(), [&](int c) { return f.idx[c] >= ch.verts.size(); })) continue;
                 uint32_t base = uint32_t(p.verts.size());
                 // The draw record keeps a corner's u and v + the entry's v offset as bytes (track_chunk_fixup), so the
                 // GPU samples them modulo 256.
-                auto texel = [&](int c) { return std::array<double, 2>{ double(f.uv[c][0] & 255), double((f.uv[c][1] + voff) & 255) }; };
                 std::array<double, 2> centre{};
-                for (int c : ring) centre[0] += texel(c)[0] / double(ring.size()), centre[1] += texel(c)[1] / double(ring.size());
+                for (int c : ring) centre[0] += face_texel(f, c)[0] / double(ring.size()), centre[1] += face_texel(f, c)[1] / double(ring.size());
                 for (int c : ring) {
                     p.verts.push_back(gl(ch.verts[f.idx[c]]));
-                    std::array<double, 2> uv = ps1::texel_inset(texel(c), centre);
+                    std::array<double, 2> uv = ps1::texel_inset(face_texel(f, c), centre);
                     p.uvs.push_back({ uv[0] / 256.0, uv[1] / 256.0 });
                 }
                 auto tris = fan(ring.size(), base);
@@ -295,7 +404,16 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
             std::vector<a49::Glb::Prim> list;
             for (auto& [m, p] : prims) if (!p.tris.empty()) list.push_back(std::move(p));
             if (list.empty()) continue;
-            snprintf(line, sizeof(line), "%s_%02zu", std::string(kind) == "ROAD2" ? "PS1_ROAD" : "PS1_SCENERY", k);
+            if (!panels.empty()) {
+                g.textured_mesh("FINISH_BANNER", list);
+                banner_built = true;
+                report.push_back("finish banner: SCN2 chunk " + std::to_string(k) + " as FINISH_BANNER, its " +
+                                 std::to_string(panels.size()) + " CHECKPOINT panels turning to chunk " +
+                                 std::to_string(finish_banner) + "'s FINISH on the last lap");
+                chunk_count++;
+                continue;
+            }
+            snprintf(line, sizeof(line), "%s_%02zu", scenery ? "PS1_SCENERY" : "PS1_ROAD", k);
             g.textured_mesh(line, list);
             chunk_count++;
         }

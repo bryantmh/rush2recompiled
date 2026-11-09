@@ -191,6 +191,16 @@ area = "track"
 ref = "docs/sfrush_ps1.md#props"
 
 [[func]]
+vram = 0x80042FF0
+name = "track_draw_chunks"
+desc = "Draws the visible track chunks (ids from the list it is given, pointers from the table 0x800B5C88, ids from 1) through func_8006F33C / func_8006F95C; per track swaps a chunk for another while gp+0x20 (the viewing player's last lap) is set: track 4 id 2 (start gantry reading CHECKPOINT) -> id 90 (the same gantry reading FINISH), and sets gp+0x310 (semi-transparent) for some ids."
+consts = "0x800B34F8 = track index (3 = track 4); 0x80044628 addiu 2 = start gantry (CHECKPOINT) id; 0x800B5DF0 = FINISH banner chunk pointer (id 90); 0x59 = semi-transparent chunk on track 4"
+status = "verified"
+ported = true
+area = "render"
+ref = "docs/sfrush_ps1.md#start-and-finish-banner"
+
+[[func]]
 vram = 0x8004AA58
 name = "file_load"
 sig = "void file_load(const char *name, s32 size, s32 zero, void *dest)"

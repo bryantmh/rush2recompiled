@@ -1555,7 +1555,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::map<int, const rush2::gltf::Node*> checkpoints, grid;
     std::vector<std::pair<float, const rush2::gltf::Node*>> aispeeds;
     std::vector<std::pair<int, const rush2::gltf::Node*>> pickup_nodes;   // PICKUP_<kind>: kind as PickupRecord::kind
-    std::vector<const rush2::gltf::Node*> visual, sky, billboard_nodes;
+    std::vector<const rush2::gltf::Node*> visual, sky, billboard_nodes, finish_banner;
     std::vector<std::pair<int, const rush2::gltf::Node*>> prop_nodes;    // PROP_: PropRecord::type
     const bool arena = is_arena(settings);
     // A point-to-point race ([track] point_to_point): run once from START to FINISH along an open AIPATH_main, as
@@ -1688,6 +1688,15 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (int k = number_after(name, "START_"); k >= 0) { grid[k] = &n; continue; }
         if (int k = number_after(name, "AISPEED_"); k >= 0) { aispeeds.push_back({ float(k), &n }); continue; }
         if (name == "SKY") { if (mesh) sky.push_back(&n); else report.warning(n.name + " has no mesh; ignored."); continue; }
+        // The finish banner (FINISH_BANNER*): Rush 2's own <prefix>FINISH model, whose CHKPNT faces turn to FINISH on the
+        // last lap. FINISH_BANNER_LAST is never drawn: it only keeps the FINISH material in an export that drops unused
+        // ones.
+        if (starts(name, "FINISH_BANNER_LAST")) continue;
+        if (starts(name, "FINISH_BANNER")) {
+            if (mesh) finish_banner.push_back(&n);
+            else report.warning(n.name + " has no mesh; ignored.");
+            continue;
+        }
         if (starts(name, "PROP_")) {
             std::string kind = upper(name.substr(5));
             int type = starts(kind, "KNOCK") ? rush2::track2049::prop_knock : starts(kind, "TIP") ? rush2::track2049::prop_tip : 0;
@@ -3463,6 +3472,30 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     for (const BillboardModel& b : billboard_models) {
         for (const VisualTri& t : b.tris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     }
+    // The finish banner (Rush 2's <prefix>FINISH, func_8008F080): its faces, and the materials named CHKPNT and FINISH,
+    // whose texture-load lists are the texture table's CHKPNT and FINISH entries. When a player passes the last
+    // checkpoint of the last lap (checkpoint_passed_8008F220), Rush 2 points the banner's calls to CHKPNT's list at
+    // FINISH's (mirror_winding_walk_80077518), so FINISH is drawn with CHKPNT's coordinates.
+    std::vector<VisualTri> btris;
+    for (const auto* n : finish_banner) append_tris(*n, btris);
+    auto material_named = [&](const char* nm) {
+        for (size_t i = 0; i < scene.materials.size(); i++) if (scene.materials[i].name == nm) return int(i);
+        return -1;
+    };
+    int chkpnt_material = -1, finish_material = -1;
+    if (!btris.empty()) {
+        for (const VisualTri& t : btris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
+        int c = material_named("CHKPNT"), f = material_named("FINISH");
+        bool on_banner = std::any_of(btris.begin(), btris.end(), [&](const VisualTri& t) { return c >= 0 && t.material == c; });
+        if (!on_banner) report.warning("FINISH_BANNER has no faces in a material named CHKPNT: it never changes to FINISH.");
+        else if (f < 0) report.warning("There is no material named FINISH (keep it on a mesh named FINISH_BANNER_LAST): the finish banner never changes.");
+        else {
+            chkpnt_material = c;
+            finish_material = f;
+            if (std::find(used_materials.begin(), used_materials.end(), f) == used_materials.end()) used_materials.push_back(f);
+        }
+        if (gates.empty()) report.warning("FINISH_BANNER needs the FINISH gate; it isn't drawn.");
+    }
     auto is_blend = [&](int m) { return m >= 0 && m < (int)scene.materials.size() && scene.materials[m].alpha_mode == "BLEND"; };
     std::map<int, int> texture_of;      // material -> out.textures
     std::map<int, bool> cutout_of;
@@ -3472,6 +3505,16 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         texture_of[m] = int(out.textures.size());
         cutout_of[m] = cutout;
         out.textures.push_back(make_texture(scene, mat, cutout ? (mat->alpha_mode == "MASK" ? mat->alpha_cutoff : 0.5f) : 0.0f));
+    }
+    if (chkpnt_material >= 0) {
+        // The swap keeps CHKPNT's texture coordinates, so FINISH's image has to come out at the same size.
+        const auto& c = out.textures[size_t(texture_of[chkpnt_material])];
+        const auto& f = out.textures[size_t(texture_of[finish_material])];
+        if (c.width != f.width || c.height != f.height) {
+            report.warning("The FINISH and CHKPNT images have different shapes: give them the same size, or FINISH "
+                           "is drawn stretched.");
+        }
+        report.info("Finish banner: FINISH_BANNER, CHKPNT turning to FINISH on the last lap.");
     }
 
     // Sections on a grid, by triangle center. A triangle wider than a cell, or too big for its cell, joins the first
@@ -3659,16 +3702,23 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     for (const BillboardModel& b : billboard_models) names.push_back(b.name);
     for (const ExtraCopy& ec : extra_copies) names.push_back(ec.section.name);
     names.push_back(prefix + "FINISH");
-    names.push_back(prefix + "FINISHB");
+    // FINISHB only as an empty stand-in: with a FINISH_BANNER it is left out, so a backward race's func_8008F080 falls
+    // back to FINISH, the model drawn (a list shared by two models would be relocated twice).
+    if (btris.empty() || gates.empty()) names.push_back(prefix + "FINISHB");
     std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return strncmp(a.c_str(), b.c_str(), 15) < 0; });
     uint32_t model_table = uint32_t(g.size());
     g.resize(g.size() + names.size() * 0x34, 0);
     uint32_t texture_table = uint32_t(g.size());
-    for (const char* tn : { "CHKPNT", "FINISH" }) {
-        add_name(g, tn);
+    // Entry +0x18 is the texture-load list func_8008F080 swaps (empty without a FINISH_BANNER).
+    auto load_list_of = [&](int material) {
+        auto it = std::find(used_materials.begin(), used_materials.end(), material);
+        return material >= 0 && it != used_materials.end() ? load_lists[size_t(it - used_materials.begin())] : empty_list;
+    };
+    for (int k = 0; k < 2; k++) {
+        add_name(g, k ? "FINISH" : "CHKPNT");
         add16(g, 0); add16(g, 0);
         add32(g, 0xFFFF);
-        add32(g, empty_list);
+        add32(g, load_list_of(k ? finish_material : chkpnt_material));
         add32(g, 0);
     }
     uint32_t palette_table = uint32_t(g.size());
@@ -3840,6 +3890,30 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (size_t i : m.vtx_commands) m.list[i].second += base;
         for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
     }
+    // The finish banner: <prefix>FINISH, placed at the FINISH gate (the placement's finish record).
+    Section finish_model;
+    if (!btris.empty() && !gates.empty()) {
+        std::vector<int> all(btris.size());
+        for (size_t i = 0; i < all.size(); i++) all[i] = int(i);
+        MeshList m;
+        m.cmd(0xE3001001, 0x00000000);
+        m.cmd(0xE3000F00, 0x00000000);
+        m.cmd(combine[0], combine[1]);
+        m.cmd(0xD7000002, 0xFFFFFFFF);
+        emit_mesh(btris, all, used_materials, draw_materials, gates[0].pos, 16.0f,
+                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m);
+        m.cmd(0xE3001001, 0x00008000);
+        m.cmd(0xDF000000, 0);
+        align8(g);
+        uint32_t base = uint32_t(g.size());
+        g.insert(g.end(), m.vertices.begin(), m.vertices.end());
+        align8(g);
+        finish_model.name = prefix + "FINISH";
+        finish_model.list = uint32_t(g.size());
+        finish_model.radius = m.radius;
+        for (size_t i : m.vtx_commands) m.list[i].second += base;
+        for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
+    }
     align8(g);
     uint32_t name_table = uint32_t(g.size());
     for (size_t i = 0; i < names.size(); i++) {
@@ -3847,6 +3921,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (const Section& s : sections) if (s.name == names[i]) sec = &s;
         for (const Mover& mv : movers) if (mv.model == names[i]) sec = &mv.section;
         for (const BillboardModel& bm : billboard_models) if (bm.name == names[i]) sec = &bm.section;
+        if (finish_model.list && names[i] == prefix + "FINISH") sec = &finish_model;
         uint16_t behaviour = 0;                      // a plain model
         for (const ExtraCopy& ec : extra_copies) {
             if (ec.section.name == names[i]) { sec = &ec.section; behaviour = ec.behaviour; }
