@@ -170,7 +170,8 @@ vertices are (x, -height, y) of the track frame. **[V]**
   triangle. **[V]**
 - The ground query (`func_8004D12C`) checks the bounds with 15 units of slack, then the quad. **[V]**
 - **FLAGS bits:** `& 0x18` is the surface: 0 road, 0x08 dirt, 0x10 grass, 0x18 water (read from the textures drawn
-  over each class's polygons). 0x40 = the next record is skipped by the ground query; 0x80 (ordinary road and grass
+  over each class's polygons; on track 4 the 0x10 class is the park's grass and sand shoulders, and 0x18 the
+  channel beside the shortcut). 0x40 = the next record is skipped by the ground query; 0x80 (ordinary road and grass
   on track 4) sets a per-car flag (0x801015C4 + car x 0x408) read at 0x8005E134 and 0x80062F04. `& 7 != 0` marks the
   0x28-byte records. **[V]** surfaces, **[I]** 0x80.
 
@@ -367,7 +368,8 @@ runs it outside the game) builds one mod, `sfrush_ps1`:
   middle of its map). Scenery = every road and scenery face, one material per (texture page, CLUT), sampled from a
   VRAM laid out by replaying the game's page and CLUT loaders (`scan` in ps1_track.cpp), each vertex with the UV the
   renderer gives it ([Track geometry](#track-geometry)). Faces wind clockwise from the front in the game frame,
-  written un-mirrored ([Handedness](#handedness)). Collision = the ground polygons by surface, the walls as faces from 10 ft under the ground
+  written un-mirrored ([Handedness](#handedness)). Collision = the ground polygons by surface (the grass class as the custom surface `COL_VERGE`, `like = "dirt"`,
+  `drag = 15`, since Rush 2's `COL_GRASS` is wheel material 2, its water, which throws the water splash), the walls as faces from 10 ft under the ground
   beside them to 40 ft over it (cut short under ground above). FINISH and CHECKPOINT_1-3 from the CPF planes. AI:
   AIPATH_main between PATHDAT and EXTDAT (at least 12 ft to a side), AIPATH_lane1-4 at 0, 1/3, 2/3 and 1 across the
   corridor (the drones' own spread); speeds left to the converter. Logo: `assets/sfrush_ps1/chinatown_logo.png`

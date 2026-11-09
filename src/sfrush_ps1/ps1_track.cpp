@@ -393,7 +393,10 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         fo += size_t(npol);
     }
     if (b_records) report.push_back(std::to_string(b_records) + " raised walls (B records), each over its own height band");
-    // Ground by surface (FLAGS & 0x18: road, dirt, grass, water).
+    // Ground by surface (FLAGS & 0x18: road, dirt, grass, water). The grass class (the park's grass and sand shoulders)
+    // is the custom surface VERGE (track.toml below): COL_GRASS stores wheel material 2, which is Rush 2's water and
+    // throws its splash (docs/calspeed_research.md#wheel-effects), so VERGE drives with grass's drag and takes dirt's
+    // dust and sound.
     struct Mesh {
         std::vector<V3> verts, normals;
         std::vector<std::array<uint32_t, 3>> tris;
@@ -401,7 +404,7 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     std::map<std::string, Mesh> by_surface;
     for (const Ground& gr : grounds) {
         int s = gr.flags & 0x18;
-        Mesh& m = by_surface[s == 0 ? "ROAD" : s == 0x08 ? "DIRT" : s == 0x10 ? "GRASS" : "WATER"];
+        Mesh& m = by_surface[s == 0 ? "ROAD" : s == 0x08 ? "DIRT" : s == 0x10 ? "VERGE" : "WATER"];
         for (int k = 0; k < gr.tri_count; k++) {
             std::array<V3, 3> p{ gr.p[gr.tris[k][0]], gr.p[gr.tris[k][1]], gr.p[gr.tris[k][2]] };
             V3 n = a49::cross(p[1] - p[0], p[2] - p[0]);
@@ -893,3 +896,5 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     for (const std::string& r : report) log += r + "\n";
     return true;
 }
+        // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
+        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" +
