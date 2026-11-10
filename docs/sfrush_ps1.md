@@ -33,6 +33,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Props](#props)
 - [What the converter makes](#what-the-converter-makes)
 - [Track select diorama](#track-select-diorama)
+- [Snow and night](#snow-and-night)
 - [Music](#music)
 - [Not ported](#not-ported)
 
@@ -147,6 +148,11 @@ converter pairs them as the renderer does (`read_chunk`, `uv[k ^ 1]`). PSV model
   is at VRAM (x & ~63 + u / 4, (y & 256) + v + v offset), 4-bit, through its CLUT. **[V]** The fixup
   (`func_800369B8`) stores u and v + v offset as bytes, so they wrap at 256 (18 corners on track 4); the converter
   wraps them too.
+- **Snow and night:** every track has an `S` (snow) and `N` (night) set of pages and CLUTs as well: see
+  [Snow and night](#snow-and-night).
+- **Against the N64 courses (tracks 1-3):** same routes, but the PS1's own lower-detail models and 16-color textures;
+  props only on track 2 (33 cones, 8 + 6 of `T2KNOCK`'s models, against the N64's 89 cones, 15 trash munchers, 15
+  traffic lights and more) and track 4; none on tracks 1 and 3 (the N64's track 3 has 112). **[V]**
 - `vram.py` replays the loaders' calls (straight-line code) to get the RECTs and CLUT positions, and samples VRAM as
   the GPU does.
 
@@ -514,6 +520,84 @@ cable car) and `T2KNOCK/T2K003.PSV`, into gp+0xD60, 0xD64 and 0xD6C. **[V]**
 - **The second table** 0x800A59C4 (71 records, the fourth field a track 0-3, only when gp+0x3C is set; kinds 8 and 9
   spin) is the PS1's hidden pickups. **[I]** Not ported: mods carry no collectibles.
 
+## Snow and night
+
+The PS1 races every track (1-4) in three conditions over the same road, scenery and collision: day, snow and night.
+gp+0x40 (0x800B2710) == 1 is snow, gp+0x98 (0x800B2768) set is night. **[V]** No falling snow or other weather
+effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
+
+- **Textures:** the page and CLUT loaders of every track read `T<n>PAGES/T<n>CLUTS` (snow) or `T<n>PAGEN/T<n>CLUTN`
+  (night). Snow: snow on grass, roofs, walls and trees, the road kept; the CLUTs' median brightness is the day's
+  (x 1.00), channels x 1.08, 1.09, 1.27 (whiter, bluer). Night: lit windows, median brightness x 0.30, channels x 0.49,
+  0.49, 0.67 (bluer). The page loaders (`func_80039A88` for track 4) only pick the file by the flags (night first,
+  then snow); the uploads after are the day's, the same RECTs. Every chunk is the day's size except track 4's night
+  page chunk 28 (64 x 28 texels against its RECT's 64 x 32): the loader reads the whole .DAT into one buffer, steps
+  through it by the .SIZ's sizes and uploads 64 x 32 from the chunk whatever its size, so that RECT's last 4 rows
+  come from the start of chunk 29. **[V]**
+- **Night-only and day-only chunks:** the visible-chunk lists `track_draw_chunks` walks (static, in RUSH.EXE around
+  0x8009C86C: u32 chunk id | flags, ended by -1) carry flags: 0x4000 = not drawn at night, 0x2000 = drawn only at
+  night, 0x1000 = semi-transparent (gp+0x310). The lists come from per-track section tables (32-byte records, the
+  two list pointers at +0x18 and +0x1C: track 1 0x8009DEF4, 2 0x800A0180, 3 0x800A2798, 4 0x800A4188). Track 1
+  (Golden Gate): ids 112 and 114 day-only; track 2 (Embarcadero): 132 and 133 night-only (0x3000: night-only,
+  semi-transparent); track 3 (Market): none; track 4 (Chinatown): 89 day-only. `track_draw_chunks` also draws a
+  few ids semi-transparent by number whatever their flags: track 1 0x70 and 0x72, track 2 0x82 and 0x83, track 4
+  0x59. **[V]**
+- **Night fog and sky:** `clut_upload_shaded` steps the fog rows down to 1 instead of up to 26 (distant scenery fades
+  to black, 8, 8, 8, against the day's 214 grey); `sky_draw` makes the sky grey 64 at the top and (0, 0, 25) at the
+  horizon. Snow keeps the day's fog and sky. **[V]**
+- **Night cars:** the paint pages come from `CARSGFXN` (`car_paint_load`), the body textures (`<tex>01.GFX`) too, and
+  `EXTRA/WHEELSN.GFX` for the wheels (`func_8003CF20`). Paint ramps go to 0.25-0.35 of the day's (BLUE 168 -> 88 in
+  blue, RED 192 -> 64, WHITE 208 -> 56), while CLUT entry 7 (white, 248) stays: the light lenses keep full
+  brightness. **[V]**
+- **Car lights** (`track_draw_chunks` after each car): `func_80041C58` draws a glow sprite at a point of the car (car
+  frame, 0.1 ft: x across, y down, z ahead) with a size. **[I]** (the sprite: `ART/LIGHT*.GFX`, loaded by
+  `func_8003CF20`.)
+  - Tail lights, day and night, at (±x, y, z) of 0x800A8FA8 (12 bytes per car index: car +0x4C, 0-7 the SF Rush cars;
+    8-15 the special cars **[I]**; BMW (26, -8, -82)), size car +0x90 (0x80101278): +32 a frame while car +0x3E0 is set
+    (braking **[I]**), to 128, else -8 a frame to 0; +63 at night, so they always glow then. **[V]**
+  - Headlights, night only, at (±x, y, z) of 0x800A8EE8 (BMW (24, -6, 82): 2.4 ft out, 8.2 ft ahead), size 0xC0.
+    **[V]**
+  - Each light goes out when its corner's damage (car +0x352, 3 bits per corner: rear bits 0-2 and 3-5, front right
+    6-8, front left 9-11) reaches 3. **[I]** (which bits are which corner)
+- **Snow physics** (`car_integrate`): every car's horizontal forces for the frame (thrust, tire friction; 0x800ED0FC
+  and +8; the vertical one is kept) are halved at speed (car +0x30) 151 and up and halved again at 301 and up (a
+  quarter). With the UFO picked (special car 8) every car's are halved instead. PIGGY's own taper and the other rule
+  of the dry path are skipped. Against the BMW's top speed (768) that is 20% and 39%: the top speed is kept (thrust and
+  friction scale together), but above 39% of it a car accelerates, brakes and grips a quarter as hard. **[V]**
+- **Snow race times:** `checkpoint_passed` adds 8 s more at each gate (gp+0x40, [Race times](#race-times)), and the
+  race starts with 60 s on the clock on every track (0x80015E04; the day and night starts: track 1 38 s at
+  0x80015DF0, track 2 38 s at 0x80015DCC, track 3 60 s at 0x80015DA8, track 4 45 s at 0x80015D80). **[V]**
+- **Into Rush 2** (`src/sfrush_ps1/ps1_track.cpp` `tracks` and `conditions`): the converter makes track 4 three
+  times, custom tracks `chinatown` (DAY), `chinatown_snow` (SNOW) and `chinatown_night` (NIGHT), the last two
+  versions of the first (`variant_of`, docs/custom_tracks.md#versions), each from its own page and CLUT set (the
+  night set's chunk 28 read through into chunk 29 as above). Tracks 1-3 are the PS1's own models of N64 courses:
+  only their SNOW and NIGHT are made (`golden_gate_snow` / `_night`, `embarcadero_*`, `market_*`), versions of the
+  N64 SF Rush course (`variant_of = "sfrush:golden_gate"` and so on), so the track select shows the course's diorama
+  with the version's band. Per track the converter reads its own loaders (page / CLUT: track 1 0x80037C2C /
+  0x8003A4A0, track 2 0x80038644 / 0x8003AF18, track 3 0x80039048 / 0x8003B990; track 2's CLUT loader uploads 50 of
+  its 52 chunks, the last two unused), texture table (0x800A7478 for track index 1, 0x800A77C0 for the others),
+  banner instructions (track 1 0x80044524 / 0x80044534, track 2 0x8004459C / 0x800445AC, track 3 0x800445DC /
+  0x800445EC), gate tables (counts / sectors / first / times: track 1 0x800B2AF8 / 0x800AA388 / 0x800B2B00 /
+  0x800B2AD8, track 2 0x800B2B08 / 0x800AA394 / 0x800B2B10 / 0x800B2AE0, track 3 0x800AA3A0 / 0x800AA3BC /
+  0x800AA3CC / 0x800AA37C) and start time; the bonus instruction 0x800542D8 is track 4's only. Track 2's knock-over
+  props (table 0x800A55B4: T2K001 cone at scale 0x380, T2K002 traffic light and T2K003 tree at 0x280, both 6.4 ft up
+  and the tree upside down, all turned 90 degrees as `model_prepare` 0x8003E714 does) become `PROP_KNOCK_` props. Snow: the race times 8 s more at every gate (read from 0x80054358), and
+  `[handling] traction = [[32.1, 0.5], [64.1, 0.25]]` (speeds 151 and 301 from 0x8005D204 / 0x8005D240 in mph at the
+  car conversion's 25 frames a second: `src/track_traction.cpp` scales every car's across and ahead forces, gravity's
+  share kept, before car_linear_accel_stage_80069A54 turns them into accelerations: car +0x1C..+0x24 = the car-frame force sum +0x4..+0xC x 0x80110018 / the weight +0x5AC). Checked: over 23 s of the same start, the
+  drones covered 0.76 of their night (full traction) distance with no wrecks, against the 0.75 the PS1's 8 s per gate
+  allows for. The drones' target speeds take the traction into account (docs/custom_tracks.md#handling): without
+  it they reached Market's and Golden Gate's tight corners at their dry speed and wrecked there (7 and 3 wrecks in
+  60 s, none at night); with it none of the four tracks had a wreck, the drones at 0.58-0.71 of their night pace.
+  Scaling the tires' grip alone (the first version) left the engine and drag whole: cars reached full
+  speed and slid off (0.58, two drones wrecking over and over). Night: fog #080808, a `SKY` dome colored as the PS1's
+  gradient (grey 64 at 25.6 degrees and up to (0, 0, 25) at the horizon), `car_light` the night car pages' ratio to
+  the day's over every car texture both sets have (entries 1-6: #454046) and `car_lamps` (src/car_lamps.cpp: the glows
+  above for every car, the PS1 cars at the PS1's points through their .json's `lamps`). The diorama, logo and picture
+  are the day track's.
+- **Not a texture:** `ART/T<n>P08.GFX` / `P08N.GFX` (VRAM (384, 32), 64 x 128) loads only while gp+0x3C (the hidden
+  pickups) is set: the pickups' page, which mods don't carry. **[V]**
+
 ## Music
 
 The disc's four CD audio tracks (tracks 2-5, 16-bit stereo at 44.1 kHz) are the game's music. The port plays them as
@@ -528,5 +612,4 @@ in the game). **[I]**
 ## Not ported
 
 - The hidden pickups (0x800A59C4, [Props](#props)): mods carry no collectibles.
-- The PS1's other times of day (`T4PAGES/N`, the night colors above).
 - The second road of track 1 (`T5ROAD2`, `COLLDAT5`): a variant of a course the N64 game has.

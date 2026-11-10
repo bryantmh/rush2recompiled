@@ -28,15 +28,57 @@ namespace a49 = rush2::arcade2049;
 using namespace a49;   // V3 and its operators
 
 namespace {
-    constexpr const char* track_id = "chinatown";
-    constexpr const char* track_name = "Chinatown";
-    constexpr int track = 4;
+    // The PS1 races each track in three conditions over the same road, scenery and collision (docs/sfrush_ps1.md#snow-
+    // and-night): day, snow (gp+0x40, 0x800B2710 == 1) and night (gp+0x98, 0x800B2768 set). Each is a custom track of
+    // its own (docs/custom_tracks.md#versions): track 4, the PS1's own course, by day (Chinatown) with its snow and night
+    // versions; tracks 1-3, the N64 game's first three courses in the PS1's own models, as snow and night versions of
+    // the N64 courses (their day is the N64 version's).
+    enum class Condition { day, snow, night };
+    struct ConditionInfo {
+        Condition condition;
+        const char* suffix;      // T<n>PAGE<suffix>.DAT, T<n>CLUT<suffix>.DAT, the folder's _snow / _night
+        const char* variant;     // the version button's label
+    };
+    constexpr ConditionInfo conditions[] = {
+        { Condition::day, "", "DAY" },
+        { Condition::snow, "S", "SNOW" },
+        { Condition::night, "N", "NIGHT" },
+    };
+
+    // What differs between the PS1's four tracks in RUSH.EXE, by track index (0x800B34F8 / gp+0x70: 0-3).
+    struct TrackInfo {
+        int n;                      // the PS1's track number, T<n>... and COLLDAT<n>
+        const char* id;             // the day version's folder (and the assets' names); others add _snow / _night
+        const char* name;
+        const char* course;         // the N64 course the versions are of ([menu] variant_of), nullptr: the day track
+        bool day;                   // a day version of its own (track 4: the N64 game hasn't the course)
+        uint32_t page_loader, clut_loader;   // docs/sfrush_ps1.md#textures
+        uint32_t tex_table;                  // func_800369B8: 0x800A7478 for track index 1, 0x800A77C0 for the others
+        uint32_t banner_id_insn, banner_alt_insn;   // track_draw_chunks' finish banner swap (addiu id, lw the other)
+        uint32_t gate_counts, gate_sectors, gate_first, gate_times;   // checkpoint_test / checkpoint_passed's tables
+        uint32_t start_insn;        // the race setup's forward start time (0x80015D60: addiu $v0, seconds)
+        uint32_t bonus_insn;        // checkpoint_passed's extra on the first two gates (track 4 forward), 0: none
+        uint32_t sections;          // track_draw_chunks' section table (32 bytes each: +0x18, +0x1C visible lists)
+        std::array<int, 2> semi;    // chunk ids the draw loop draws semi-transparent (gp+0x310), 0: none
+        uint32_t prop_table;        // props_place's records (func_800155F8), 0: none
+    };
+    constexpr TrackInfo tracks[] = {
+        { 1, "golden_gate", "Golden Gate", "sfrush:golden_gate", false, 0x80037C2C, 0x8003A4A0, 0x800A77C0, 0x80044524,
+          0x80044534, 0x800B2AF8, 0x800AA388, 0x800B2B00, 0x800B2AD8, 0x80015DF0, 0, 0x8009DEF4, { 0x70, 0x72 }, 0 },
+        { 2, "embarcadero", "Embarcadero", "sfrush:embarcadero", false, 0x80038644, 0x8003AF18, 0x800A7478, 0x8004459C,
+          0x800445AC, 0x800B2B08, 0x800AA394, 0x800B2B10, 0x800B2AE0, 0x80015DCC, 0, 0x800A0180, { 0x82, 0x83 }, 0x800A55B4 },
+        // Track 3's gate sectors forward (0x800AA3AC backward, gp+0x4C set).
+        { 3, "market", "Market", "sfrush:market", false, 0x80039048, 0x8003B990, 0x800A77C0, 0x800445DC, 0x800445EC,
+          0x800AA3A0, 0x800AA3BC, 0x800AA3CC, 0x800AA37C, 0x80015DA8, 0, 0x800A2798, { 0, 0 }, 0 },
+        { 4, "chinatown", "Chinatown", nullptr, true, 0x80039A88, 0x8003C408, 0x800A77C0, 0x80044628, 0x80044638,
+          0x800B2B18, 0x800B2B1C, 0x800AA3D8, 0x800B2AE8, 0x80015D80, 0x800542D8, 0x800A4188, { 0x59, 0 }, 0x800A58B4 },
+    };
+    // In snow the race setup sets the clock to 60 whatever the track (0x80015E04, gp+0x40 == 1).
+    constexpr uint32_t snow_start_insn = 0x80015E04;
 
     // RUSH.EXE (docs/sfrush_ps1.md#textures).
     constexpr uint32_t exe_base = ps1::Exe::base;
     constexpr uint32_t load_image = 0x80092C58, load_clut = 0x80014F38;
-    constexpr uint32_t page_loader = 0x80039A88, clut_loader = 0x8003C408;   // track 4's
-    constexpr uint32_t tex_table = 0x800A77C0;                               // tracks 1, 3 and 4 (0x800A7478: track 2)
     constexpr int tex_entries = 35;
     constexpr uint32_t clut_ids = 0x800A7B08;
     constexpr int clut_id_count = 64;
@@ -176,8 +218,13 @@ namespace {
     };
 }
 
-bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log) {
+static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& assets_dir, ps1::ModFiles& out,
+                            std::string& log, const TrackInfo& tr, const ConditionInfo& cond) {
+    using ps1::Disc;
     char line[256];
+    const char* folder_suffix = cond.condition == Condition::snow ? "_snow" : cond.condition == Condition::night ? "_night" : "";
+    const char* name_suffix = cond.condition == Condition::snow ? " Snow" : cond.condition == Condition::night ? " Night" : "";
+    const std::string track_id = tr.id, folder = track_id + folder_suffix, track_name = std::string(tr.name) + name_suffix;
     std::vector<std::string> report;
     Exe exe;
     // A PS1 frame in seconds: the car conversion puts the BMW's top speed (9.6 ft a frame) at Rush 2's PICKUP's
@@ -190,43 +237,55 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     }
     // Texture pages and CLUTs in VRAM.
     Calls pages, cluts;
-    scan(exe, page_loader, pages);
-    scan(exe, clut_loader, cluts);
+    scan(exe, tr.page_loader, pages);
+    scan(exe, tr.clut_loader, cluts);
     std::vector<std::vector<uint8_t>> page_chunks, clut_chunks;
-    const std::string t = std::to_string(track);
-    if (!disc.chunks("T" + t + "PAGE/T" + t + "PAGE", page_chunks) || !disc.chunks("T" + t + "CLUT/T" + t + "CLUT", clut_chunks) ||
-        pages.images.size() != page_chunks.size() || cluts.cluts.size() != clut_chunks.size()) {
+    const std::string t = std::to_string(tr.n);
+    const std::string sfx = cond.suffix;
+    if (!disc.chunks("T" + t + "PAGE/T" + t + "PAGE" + sfx, page_chunks) || !disc.chunks("T" + t + "CLUT/T" + t + "CLUT" + sfx, clut_chunks) ||
+        pages.images.size() != page_chunks.size() || cluts.cluts.size() > clut_chunks.size()) {
         snprintf(line, sizeof(line), "texture pages: %zu loads for %zu chunks, CLUTs: %zu for %zu\n", pages.images.size(),
                  page_chunks.size(), cluts.cluts.size(), clut_chunks.size());
         log += line;
         return false;
     }
+    // The page loader (func_80039A88) loads the whole .DAT into one buffer, steps through it by the .SIZ's sizes and
+    // uploads each chunk with its fixed RECT whatever the chunk's size: the night set's chunk 28 is 64 x 28 texels
+    // against the RECT's 64 x 32, so its last 4 rows are read from the start of chunk 29, as here.
+    std::vector<uint8_t> page_data;
+    std::vector<size_t> page_at;
+    for (const auto& c : page_chunks) {
+        page_at.push_back(page_data.size());
+        page_data.insert(page_data.end(), c.begin(), c.end());
+    }
     Vram vram;
     for (size_t k = 0; k < page_chunks.size(); k++) {
         auto [x, y, w, h] = pages.images[k];
-        const auto& c = page_chunks[k];
-        if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1024 || y + h > 512 || c.size() < 0x28 + size_t(w) * h * 2) {
+        if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1024 || y + h > 512 || page_at[k] + 0x28 + size_t(w) * h * 2 > page_data.size()) {
             log += "a texture page's RECT is outside VRAM\n";
             return false;
         }
+        const uint8_t* c = &page_data[page_at[k] + 0x28];
         for (int r = 0; r < h; r++) {
-            for (int i = 0; i < w; i++) vram.v[size_t(y + r) * 1024 + size_t(x + i)] = u16(&c[0x28 + 2 * (size_t(r) * w + i)]);
+            for (int i = 0; i < w; i++) vram.v[size_t(y + r) * 1024 + size_t(x + i)] = u16(&c[2 * (size_t(r) * w + i)]);
         }
     }
-    for (size_t k = 0; k < clut_chunks.size(); k++) {
+    // Track 2's CLUT loader uploads the first 50 of its file's 52 chunks; the last two are never used.
+    for (size_t k = 0; k < cluts.cluts.size(); k++) {
         auto [x, y] = cluts.cluts[k];
         if (x < 0 || y < 0 || x + 16 > 1024 || y >= 512 || clut_chunks[k].size() < 40) return false;
         for (int i = 0; i < 16; i++) vram.v[size_t(y) * 1024 + size_t(x + i)] = u16(&clut_chunks[k][8 + 2 * i]);
     }
-    if (!exe.in(tex_table, tex_entries * 24) || !exe.in(clut_ids, clut_id_count * 4)) return false;
-    auto entry = [&](uint32_t i, int f) { return s32(&exe.data[tex_table - exe_base + i * 24 + f * 4]); };
+    if (!exe.in(tr.tex_table, tex_entries * 24) || !exe.in(clut_ids, clut_id_count * 4)) return false;
+    auto entry = [&](uint32_t i, int f) { return s32(&exe.data[tr.tex_table - exe_base + i * 24 + f * 4]); };
     auto clut_id = [&](int i) { return int(exe.w(clut_ids + uint32_t(i) * 4)); };
 
     // Scenery: the road and the scenery chunks, one material per (texture page, CLUT).
     a49::Glb g("rush2-recomp src/sfrush_ps1 (PS1 SF Rush track " + t + ")", true);
-    std::map<std::array<int, 3>, int> materials;
-    auto material = [&](int tx, int ty, int clut) {
-        std::array<int, 3> key{ tx, ty, clut };
+    std::map<std::array<int, 4>, int> materials;
+    // semi: the chunk is drawn semi-transparent (gp+0x310: the GPU's half and half, its texels at half alpha here).
+    auto material = [&](int tx, int ty, int clut, bool semi = false) {
+        std::array<int, 4> key{ tx, ty, clut, semi ? 1 : 0 };
         auto it = materials.find(key);
         if (it != materials.end()) return it->second;
         std::vector<uint8_t> rgba(256 * 256 * 4);
@@ -234,14 +293,15 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         for (int v = 0; v < 256; v++) {
             for (int u = 0; u < 256; u++) {
                 auto c = vram.texel(tx, ty, clut, u, v);
+                if (semi && c[3] != 0) c[3] = 128;
                 std::memcpy(&rgba[(size_t(v) * 256 + u) * 4], c.data(), 4);
                 clear = clear || c[3] == 0;
             }
         }
-        snprintf(line, sizeof(line), "P%d_%d_C%d", tx, ty, clut);
+        snprintf(line, sizeof(line), semi ? "P%d_%d_C%d_semi" : "P%d_%d_C%d", tx, ty, clut);
         int image = g.image(line, a49::png(rgba, 256, 256));
         // Clamped: a page holds several textures, and a face's UVs never leave its own.
-        int m = g.material(line, image, clear ? "MASK" : "OPAQUE", false, { 33071, 33071 });
+        int m = g.material(line, image, semi ? "BLEND" : clear ? "MASK" : "OPAQUE", false, { 33071, 33071 });
         materials[key] = m;
         return m;
     };
@@ -255,7 +315,7 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     // both resampled to one rectangle so the swap keeps the panels' coordinates (docs/custom_tracks.md#finish-banner).
     int start_banner = -1, finish_banner = -1;
     {
-        constexpr uint32_t id_insn = 0x80044628, alt_insn = 0x80044638, chunk_table = 0x800B5C88;
+        const uint32_t id_insn = tr.banner_id_insn, alt_insn = tr.banner_alt_insn, chunk_table = 0x800B5C88;
         if (exe.in(id_insn, 4) && exe.in(alt_insn, 4) && exe.w(id_insn) >> 16 == 0x2402 && exe.w(alt_insn) >> 16 == 0x8C42) {
             start_banner = int(exe.w(id_insn) & 0xFFFF) - 1;
             finish_banner = int((0x800B0000u + (exe.w(alt_insn) & 0xFFFF) - chunk_table) / 4) - 1;
@@ -275,6 +335,21 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         if (ring.size() == 4 && f.idx[ring[3]] == f.idx[ring[0]]) ring.pop_back();
         return ring;
     };
+    // Each scenery chunk id's flags in the track's visible lists (track_draw_chunks: the section table's 32-byte records,
+    // +0x18 and +0x1C lists of u32 id | flags ended by -1): 0x4000 not drawn at night, 0x2000 drawn only at night,
+    // 0x1000 semi-transparent. Track 1's ids 112 and 114 are day-only, track 2's 132 and 133 night-only (and
+    // semi-transparent), track 4's 89 day-only; plus the ids the draw loop itself draws semi-transparent (tr.semi).
+    std::map<int, uint32_t> chunk_flags;
+    for (uint32_t rec = tr.sections; exe.in(rec + 0x18, 8); rec += 32) {
+        uint32_t lists[2] = { exe.w(rec + 0x18), exe.w(rec + 0x1C) };
+        if ((lists[0] == 0 && lists[1] == 0) || (lists[0] != 0 && !exe.in(lists[0], 4)) || (lists[1] != 0 && !exe.in(lists[1], 4))) break;
+        for (uint32_t list : lists) {
+            for (uint32_t a = list; list != 0 && exe.in(a, 4) && exe.w(a) != 0xFFFFFFFFu && a - list < 4096; a += 4) {
+                chunk_flags[int(exe.w(a) & 0xFF)] |= exe.w(a) & 0x7000;
+            }
+        }
+    }
+    for (int id : tr.semi) if (id != 0) chunk_flags[id] |= 0x1000;
     bool banner_built = false;
     for (const char* kind : { "ROAD2", "SCN2" }) {
         std::vector<std::vector<uint8_t>> raw;
@@ -285,6 +360,9 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         const bool scenery = std::string(kind) == "SCN2";
         for (size_t k = 0; k < raw.size(); k++) {
             if (scenery && banner_built && int(k) == finish_banner) continue;   // drawn as the FINISH material
+            const uint32_t cflags = scenery ? chunk_flags[int(k) + 1] : 0u;     // ids from 1
+            if ((cond.condition == Condition::night && (cflags & 0x4000)) || (cond.condition != Condition::night && (cflags & 0x2000))) continue;
+            const bool semi = (cflags & 0x1000) != 0;
             Chunk ch;
             if (!read_chunk(raw[k], ch)) {
                 snprintf(line, sizeof(line), "%s chunk %zu doesn't add up\n", kind, k);
@@ -377,7 +455,7 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
                 if (panels.count(fi)) continue;
                 if (f.tex >= uint32_t(tex_entries) || f.clut < 0 || f.clut >= clut_id_count) continue;
                 int tx = entry(f.tex, 0), ty = entry(f.tex, 1);
-                int m = material(tx & ~63, ty & 256, clut_id(f.clut));
+                int m = material(tx & ~63, ty & 256, clut_id(f.clut), semi);
                 a49::Glb::Prim& p = prims[m];
                 p.material = m;
                 // A ring of 3 or 4 corners (a triangle repeats a corner).
@@ -720,7 +798,7 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         }
         return sector;
     };
-    constexpr uint32_t gate_counts = 0x800B2B18, gate_sectors = 0x800B2B1C, gate_first = 0x800AA3D8;
+    const uint32_t gate_counts = tr.gate_counts, gate_sectors = tr.gate_sectors, gate_first = tr.gate_first;
     if (!exe.in(gate_counts, 4) || !exe.in(gate_first, 4)) return false;
     auto gate_has = [&](int k, int sector) {
         int n = uint8_t(exe.b(gate_counts + uint32_t(k))), first = uint8_t(exe.b(gate_first + uint32_t(k)));
@@ -818,23 +896,47 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     // the texture table entry; flags >> 24: the CLUT). func_80041244 knocks a cone away when a car hits it and runs each
     // tram back and forth between x 6397 and 22115 at 24 a frame (state 1 up, 2 down, turning at either end), wrecking
     // a car within 23.2 ft along and 9.6 ft across it: PROP_KNOCK_ cones, and MOVE_ trams (pingpong) with a wall box.
+    // Track 2's table 0x800A55B4 places T2KNOCK's three models (kinds 0-2), every one knocked away as a cone is. The
+    // loader's model_prepare (0x8003E714) bakes a turn and an offset into each: 0x800B31EC = 0x400 (90 degrees about
+    // the vertical) for every model but the tram, 0x800B31DC = 0x800 (half a turn more about x: upside down) for T2K003,
+    // and 0x800B3264 = -0x40 (6.4 ft up, GTE y down in 0.1 ft) for T2K002 and T2K003.
     std::string mover_toml;
     size_t cone_count = 0, tram_count = 0;
-    {
-        constexpr uint32_t prop_table = 0x800A58B4;
+    if (tr.prop_table != 0) {
+        const uint32_t prop_table = tr.prop_table;
         constexpr int tram_low = 6397, tram_high = 22115, tram_step = 24;   // 0x18FD, 0x5663, a frame
         struct Model {
             const char* file;
             int scale;
+            const char* name;    // PROP_KNOCK_<name>_nn; "tram": track 4's mover
+            bool spin;           // 90 degrees about the vertical
+            bool flip;           // half a turn about x
+            double lift;         // ft up
             std::vector<V3> V;
             std::vector<ps1::PsvFace> F;
         };
-        Model models[2] = { { "T4KNOCK/CONE.PSV", 0x380, {}, {} }, { "T4KNOCK/TRAM.PSV", 0x280, {}, {} } };
+        std::vector<Model> models;
+        if (tr.n == 2) {
+            models = { { "T2KNOCK/T2K001.PSV", 0x380, "cone", true, false, 0.0, {}, {} },
+                       { "T2KNOCK/T2K002.PSV", 0x280, "traffic_light", true, false, 6.4, {}, {} },
+                       { "T2KNOCK/T2K003.PSV", 0x280, "tree", true, true, 6.4, {}, {} } };
+        }
+        else {
+            models = { { "T4KNOCK/CONE.PSV", 0x380, "cone", true, false, 0.0, {}, {} },
+                       { "T4KNOCK/TRAM.PSV", 0x280, "tram", false, false, 0.0, {}, {} } };
+        }
         for (Model& md : models) {
             std::vector<uint8_t> d;
             if (!disc.read(md.file, d) || !ps1::read_psv(d, md.V, md.F) || md.V.empty()) {
                 log += std::string(md.file) + " couldn't be read\n";
                 return false;
+            }
+            double k = md.scale / 640.0;
+            for (V3& v : md.V) {
+                V3 q{ v[0], v[1], v[2] };
+                if (md.flip) q = V3{ q[0], -q[1], -q[2] };
+                if (md.spin) q = V3{ -q[1], q[0], q[2] };
+                v = V3{ q[0], q[1], q[2] + md.lift / k };
             }
         }
         // A model in its own glTF frame, its origin at its foot (its lowest point): the track's axes (a prop isn't
@@ -882,16 +984,16 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         if (!exe.in(prop_table, 16)) return false;
         for (uint32_t a = prop_table; exe.in(a, 16) && int32_t(exe.w(a)) != -1; a += 16) {
             int32_t x = int32_t(exe.w(a)), y = int32_t(exe.w(a + 4)), h = int32_t(exe.w(a + 8)), kind = int32_t(exe.w(a + 12));
-            if (kind != 0 && kind != 1) continue;
-            const Model& md = models[kind];
+            if (kind < 0 || size_t(kind) >= models.size()) continue;
+            const Model& md = models[size_t(kind)];
             double foot;
             V3 lo, hi;
             std::vector<a49::Glb::Prim> list = prims_of(md, foot, lo, hi);
             a49::Glb::Trs trs;
             V3 at = game_coll(x, h, y);   // the model's origin
             trs.translation = gl({ at[0], at[1] + foot, at[2] });
-            if (kind == 0) {
-                snprintf(line, sizeof(line), "PROP_KNOCK_cone_%02zu", cone_count++);
+            if (std::string(md.name) != "tram") {
+                snprintf(line, sizeof(line), "PROP_KNOCK_%s_%02zu", md.name, cone_count++);
                 g.textured_mesh(line, list, trs);
                 continue;
             }
@@ -921,24 +1023,71 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         }
     }
 
-    // The sky (docs/sfrush_ps1.md#sky): the PS1 draws no sky model, only a grey screen gradient (func_8002FCB0). The
-    // track takes Rush 2's cloud dome, as the other converted tracks do (track.toml's sky = "clouds").
+    // The sky (docs/sfrush_ps1.md#sky): the PS1 draws no sky model, only a grey screen gradient (func_8002FCB0). By day
+    // and in snow the track takes Rush 2's cloud dome, as the other converted tracks do (track.toml's sky = "clouds").
+    // At night the gradient runs from grey 64 at the top of the screen (25.6 degrees over a level horizon: the
+    // 320 x 240 screen at projection distance 250, func_8002C208) down to (0, 0, 25) at the horizon line
+    // (docs/sfrush_ps1.md#snow-and-night): a SKY dome colored so, by elevation, with those colors past either end.
+    if (cond.condition == Condition::night) {
+        constexpr double top_elevation = 25.6, radius = 30000.0;   // degrees, ft
+        const std::array<double, 3> top{ 64 / 255.0, 64 / 255.0, 64 / 255.0 }, horizon{ 0.0, 0.0, 25 / 255.0 };
+        const double rings[] = { -20, -5, 0, 4, 8, 12, 16, 20, 25.6, 40, 60, 80, 90 };
+        constexpr int segments = 32;
+        constexpr double pi = 3.14159265358979323846;
+        a49::Glb::Prim p;
+        p.material = g.material("NIGHT_SKY", std::nullopt, "OPAQUE", false, { 33071, 33071 });
+        auto add = [&](double elevation, double azimuth) {
+            double e = elevation * pi / 180.0, a = azimuth * pi / 180.0;
+            p.verts.push_back(gl({ radius * std::cos(e) * std::cos(a), radius * std::sin(e), radius * std::cos(e) * std::sin(a) }));
+            double k = std::clamp(elevation / top_elevation, 0.0, 1.0);
+            p.colors.push_back({ horizon[0] + (top[0] - horizon[0]) * k, horizon[1] + (top[1] - horizon[1]) * k,
+                                 horizon[2] + (top[2] - horizon[2]) * k, 1.0 });
+            p.uvs.push_back({ 0.0, 0.0 });
+            V3 n = p.verts.back();
+            double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            p.normals.push_back({ -n[0] / len, -n[1] / len, -n[2] / len });   // inward: seen from inside
+        };
+        for (size_t r = 0; r + 1 < std::size(rings); r++) {
+            for (int s = 0; s < segments; s++) {
+                double a0 = 360.0 * s / segments, a1 = 360.0 * (s + 1) / segments;
+                uint32_t b = uint32_t(p.verts.size());
+                add(rings[r], a0), add(rings[r], a1), add(rings[r + 1], a0), add(rings[r + 1], a1);
+                for (std::array<uint32_t, 3> tri : { std::array<uint32_t, 3>{ b, b + 1, b + 2 }, std::array<uint32_t, 3>{ b + 1, b + 3, b + 2 } }) {
+                    // Front faces (counter-clockwise in glTF) toward the dome's middle.
+                    const V3 &A = p.verts[tri[0]], &B = p.verts[tri[1]], &C = p.verts[tri[2]];
+                    V3 u{ B[0] - A[0], B[1] - A[1], B[2] - A[2] }, v{ C[0] - A[0], C[1] - A[1], C[2] - A[2] };
+                    V3 n{ u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+                    if (n[0] * A[0] + n[1] * A[1] + n[2] * A[2] > 0) std::swap(tri[1], tri[2]);
+                    p.tris.push_back(tri);
+                }
+            }
+        }
+        g.textured_mesh("SKY", { p });
+    }
 
     // The PS1's timer (docs/sfrush_ps1.md#race-times): the race setup (0x80015D60) starts the clock at 45 on track 4
     // forward (addiu 0x2D at 0x80015D80); passing gate k (checkpoint_passed, 0x80054130) adds byte k of 0x800B2AE8
     // (the stretch after it: 26, 29, 11, 32), and 5 more (0x800542D8) while the player has passed fewer than 3 gates
     // (the first two checkpoints of lap 1). Rush 2 grants checkpoint k's time when it is passed, too. The times stand
     // as seconds: on the courses both versions have, the PS1's lap times are the N64's (real seconds) to 10%.
+    // In snow checkpoint_passed adds 8 more at every gate, the finish line too (0x80054358, while gp+0x40 is 1), and the
+    // race setup starts the clock at 60 whatever the track (0x80015E04). The other tracks (forward): 38 on tracks 1 and 2
+    // (0x80015DF0, 0x80015DCC), 60 on track 3 (0x80015DA8), each gate's time from their own tables (gp+0xC60, set by
+    // checkpoint_passed per track index), and no first-gates bonus.
     std::string race_toml;
     {
-        constexpr uint32_t start_insn = 0x80015D80, gate_times = 0x800B2AE8, bonus_insn = 0x800542D8;
-        if (!exe.in(start_insn, 4) || !exe.in(bonus_insn, 4) || !exe.in(gate_times, 4) ||
-            exe.w(start_insn) >> 16 != 0x2402 || exe.w(bonus_insn) >> 16 != 0x2482) {
+        constexpr uint32_t snow_insn = 0x80054358;
+        const uint32_t start_insn = cond.condition == Condition::snow ? snow_start_insn : tr.start_insn;
+        const uint32_t gate_times = tr.gate_times, bonus_insn = tr.bonus_insn;
+        if (!exe.in(start_insn, 4) || !exe.in(gate_times, 4) || !exe.in(snow_insn, 4) ||
+            exe.w(start_insn) >> 16 != 0x2402 || exe.w(snow_insn) >> 16 != 0x2442 ||
+            (bonus_insn != 0 && (!exe.in(bonus_insn, 4) || exe.w(bonus_insn) >> 16 != 0x2482))) {
             log += "the race times couldn't be read\n";
             return false;
         }
-        int start = int(exe.w(start_insn) & 0xFFFF), bonus = int(exe.w(bonus_insn) & 0xFFFF);
-        auto gate_time = [&](int k) { return int(uint8_t(exe.b(gate_times + uint32_t(k)))); };
+        int start = int(exe.w(start_insn) & 0xFFFF), bonus = bonus_insn != 0 ? int(exe.w(bonus_insn) & 0xFFFF) : 0;
+        int snow = cond.condition == Condition::snow ? int(exe.w(snow_insn) & 0xFFFF) : 0;
+        auto gate_time = [&](int k) { return int(uint8_t(exe.b(gate_times + uint32_t(k)))) + snow; };
         race_toml = "[race]\nstart_time = " + std::to_string(start) + "\nfinish_time = " + std::to_string(gate_time(0)) +
                     "\ncheckpoint_time = [";
         for (size_t gi = 1; gi < gates.size(); gi++) {
@@ -951,12 +1100,66 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
                          " s, " + race_toml.substr(race_toml.find("checkpoint_time")));
     }
 
-    const std::string dir = std::string("tracks/") + track_id + "/";
+    // What the conditions change in track.toml (docs/sfrush_ps1.md#snow-and-night).
+    std::string condition_toml, look_toml, menu_toml = std::string("variant = \"") + cond.variant + "\"\n";
+    // Track 4's versions are of its day track; the others' of the N64 course (without the N64 ROM they are tracks of
+    // their own after the SF Rush tracks: `after`).
+    if (cond.condition != Condition::day) menu_toml += "variant_of = \"" + std::string(tr.course ? tr.course : tr.id) + "\"\n";
+    if (cond.condition == Condition::night) {
+        // The fog: clut_upload_shaded (0x80014F38) steps each channel of a texture's CLUT down to 1 of 31 at night
+        // (up to 26 by day), so distant scenery fades to black (8, 8, 8). The sky is the dome above.
+        // The cars: the PS1 draws them with their night paint pages and textures (CARSGFXN, func_80030930), the paint
+        // ramps (CLUT entries 1-6) at about a quarter of the day's; here every car, whatever game it is from, is tinted
+        // by that ratio, measured over every car texture both sets have (car_light), and carries the PS1's light glows
+        // (car_lamps).
+        std::array<double, 3> day{}, night{};
+        for (const char* f : { "BLACK", "BLUE", "BROWN", "GREEN", "ORANGE", "PURPLE", "RED", "WHITE", "YELLOW", "BMW01", "BMW02",
+                               "BUGETT01", "BUGETT02", "CAM01", "CAM02", "CONCEP01", "CONCEP02", "HUTCH01", "JEP01", "JET01",
+                               "MINI01", "PIGGY14", "SUPRA01", "SUPRA02", "VIPER01", "VIPER02", "VWBUG01", "VWBUG02",
+                               "VWBUS01", "VWBUS02", "BBUS", "TATS12" }) {
+            std::vector<uint8_t> a, b;
+            if (!disc.read(std::string("CARSGFX/") + f + ".GFX", a) || !disc.read(std::string("CARSGFXN/") + f + ".GFX", b) ||
+                a.size() < 40 || b.size() < 40) continue;
+            for (int i = 1; i <= 6; i++) {
+                uint16_t ca = u16(&a[8 + 2 * i]), cb = u16(&b[8 + 2 * i]);
+                for (int k = 0; k < 3; k++) day[k] += (ca >> (5 * k)) & 31, night[k] += (cb >> (5 * k)) & 31;
+            }
+        }
+        char light[8];
+        auto channel = [&](int k) { return day[k] > 0 ? int(std::lround(std::clamp(night[k] / day[k], 0.0, 1.0) * 255.0)) : 255; };
+        snprintf(light, sizeof(light), "#%02x%02x%02x", channel(0), channel(1), channel(2));
+        look_toml = std::string("[look]\nfog_color = \"#080808\"\nsky = \"none\"\ncar_light = \"") + light + "\"\ncar_lamps = true\n\n";
+        report.push_back(std::string("night: car light ") + light);
+    }
+    else {
+        // The PS1's fog: clut_upload_shaded (0x80014F38) steps each channel of a texture's CLUT up by one a band
+        // to 26 of 31 (day and snow), so distant scenery fades to 214 grey. The sky is Rush 2's cloud dome, scrolling
+        // at 0.2 as on most Rush 2 tracks and the N64 SF Rush ones (src/rush1/track1.cpp).
+        look_toml = "[look]\nfog_color = \"#d6d6d6\"\nsky = \"clouds\"\ncloud_scroll = 0.2\n\n";
+    }
+    if (cond.condition == Condition::snow) {
+        // car_integrate (0x8005D190), in snow: every car's horizontal forces for the frame (thrust and the tires'
+        // friction) halved from speed 151 (slti 0x97 at 0x8005D204) and again from 301 (0x12D at 0x8005D240). Speed is
+        // the horizontal |v| / 32 (v in 1/2560 ft a frame), at the car conversion's frames_per_second. Rush 2 scales
+        // the same forces ([handling] traction, src/track_traction.cpp).
+        constexpr uint32_t first_insn = 0x8005D204, second_insn = 0x8005D240;
+        if (!exe.in(first_insn, 4) || !exe.in(second_insn, 4) || exe.w(first_insn) >> 16 != 0x2842 || exe.w(second_insn) >> 16 != 0x2842) {
+            log += "the snow handling couldn't be read\n";
+            return false;
+        }
+        auto mph = [&](uint32_t insn) { return int(exe.w(insn) & 0xFFFF) * 32.0 / 2560.0 * frames_per_second * 3600.0 / 5280.0; };
+        snprintf(line, sizeof(line), "[handling]\ntraction = [[%.1f, 0.5], [%.1f, 0.25]]\n\n", mph(first_insn), mph(second_insn));
+        condition_toml = line;
+        report.push_back(std::string("snow: ") + line);
+    }
+
+    const std::string dir = "tracks/" + folder + "/";
     out[dir + "track.glb"] = g.bytes();
     // The track select diorama (docs/sfrush_ps1.md#track-select-diorama): hand-made round the AI path. Without it
-    // (a broken layout file) the track select shows the route preview instead.
+    // (a broken layout file) the track select shows the route preview instead. Track 4's only: the versions of the N64
+    // courses show their course's diorama (src/rush2049/track2049_menu.cpp, as the SF Rush arcade versions do).
     std::string diorama_toml;
-    {
+    if (tr.course == nullptr) {
         std::vector<std::array<double, 3>> route(m);
         for (size_t i = 0; i < m; i++) route[i] = gl(mid[i]);
         std::vector<uint8_t> diorama;
@@ -965,17 +1168,14 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
             diorama_toml = "diorama = \"diorama.glb\"\n";
         }
     }
+    const char* described = cond.condition == Condition::snow ? " in the snow" : cond.condition == Condition::night ? " at night" : "";
     out[dir + "track.toml"] = a49::text_bytes(
-        std::string("[track]\nname = \"") + track_name + "\"\n" +
+        "[track]\nname = \"" + track_name + "\"\n" +
         "author = \"San Francisco Rush, PlayStation (converted)\"\n"
-        "description = \"Track 4 of the PlayStation San Francisco Rush\"\n\n" + race_toml +
+        "description = \"Track " + t + " of the PlayStation San Francisco Rush" + described + "\"\n\n" + race_toml +
         // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
-        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" +
-        // The PS1's fog: clut_upload_shaded (0x80014F38) steps each channel of a texture's CLUT up by one a band
-        // to 26 of 31 (day), so distant scenery fades to 214 grey. The sky is Rush 2's cloud dome, scrolling at 0.2 as
-        // on most Rush 2 tracks and the N64 SF Rush ones (src/rush1/track1.cpp).
-        "[look]\nfog_color = \"#d6d6d6\"\nsky = \"clouds\"\ncloud_scroll = 0.2\n\n"
-        "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + diorama_toml + mover_toml);
+        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" + condition_toml + look_toml +
+        "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + menu_toml + diorama_toml + mover_toml);
     // The track select picture: the PS1's own (TITLETGA/TRK<n>N.TGA, 512 x 168, 15-bit, rows top-down whatever the
     // header says), a map of the course with its districts named, whole: the route preview keeps its 512 x 168 texels
     // and shows it between the carousel arrows (docs/custom_tracks.md#track-select-art).
@@ -1014,7 +1214,7 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         }
         out[dir + "logo.png"].assign(std::istreambuf_iterator<char>(f), {});
     }
-    snprintf(line, sizeof(line), "%zu knock-over cones, %zu trams", cone_count, tram_count);
+    snprintf(line, sizeof(line), "%zu knock-over props, %zu trams", cone_count, tram_count);
     report.push_back(line);
 
     snprintf(line, sizeof(line), "wrote %s: %zu chunks, %zu scenery triangles, %zu textures, %zu collision triangles "
@@ -1026,5 +1226,15 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
         log += line;
     }
     for (const std::string& r : report) log += r + "\n";
+    return true;
+}
+
+bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log) {
+    for (const TrackInfo& tr : tracks) {
+        for (const ConditionInfo& c : conditions) {
+            if (c.condition == Condition::day && !tr.day) continue;
+            if (!build_condition(disc, assets_dir, out, log, tr, c)) return false;
+        }
+    }
     return true;
 }

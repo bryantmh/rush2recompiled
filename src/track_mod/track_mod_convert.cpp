@@ -1452,6 +1452,32 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     }
     if (auto v = t["look"]["cloud_scroll"].value<double>()) s.cloud_scroll = float(*v);
     if (auto v = t["look"]["sky_parallax"].value<double>()) s.sky_parallax = float(*v);
+    if (auto v = t["look"]["car_light"].value<std::string>()) {
+        unsigned r, g, b;
+        if (v->size() == 7 && (*v)[0] == '#' && sscanf(v->c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+            s.car_light = std::array<uint8_t, 3>{ uint8_t(r), uint8_t(g), uint8_t(b) };
+        }
+        else {
+            report.error("track.toml: car_light must look like \"#454046\".");
+        }
+    }
+    if (auto v = t["look"]["car_lamps"].value<bool>()) s.car_lamps = *v;
+    if (auto* arr = t["handling"]["traction"].as_array()) {
+        float last = -1.0f;
+        for (auto& e : *arr) {
+            auto* step = e.as_array();
+            auto speed = step && step->size() == 2 ? (*step)[0].value<double>() : std::nullopt;
+            auto factor = step && step->size() == 2 ? (*step)[1].value<double>() : std::nullopt;
+            if (!speed || !factor || *speed < 0.0 || *factor <= 0.0 || *factor > 4.0 || float(*speed) <= last) {
+                report.error("track.toml: each [handling] traction step is [speed in mph, factor above 0, up to 4], "
+                             "in rising speed.");
+                s.traction.clear();
+                break;
+            }
+            last = float(*speed);
+            s.traction.push_back({ float(*speed), float(*factor) });
+        }
+    }
     if (auto* arr = t["audio"]["music"].as_array()) {
         for (auto& e : *arr) {
             if (auto v = e.value<std::string>()) s.music_list.push_back(*v);
@@ -2766,18 +2792,41 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                                           { 347, 131 }, { 430, 136 }, { 538, 142 }, { 725, 149 }, { 1088, 153 },
                                           { 1800, 158 } };
         const size_t ahead = size_t(500.0f / spine_step);
+        // [handling] traction (snow): a car at or past a step's speed pushes along the ground with that step's
+        // factor, cornering and braking alike (src/track_traction.cpp). The table's speeds are grip-limited up to its
+        // last radius (the same sideways grip, s^2 / r, carries on for gentler corners, capped at the straights'
+        // speed), so with factor f a corner takes sqrt(f) of that speed, solved over the steps since f depends on
+        // the speed; braking (below) is f times as hard. No traction: the table's speeds, unchanged.
+        const auto& steps = settings.traction;
+        auto grip_at = [&](float mph) {
+            float f = 1.0f;
+            for (const auto& st : steps) if (mph >= st[0]) f = st[1];
+            return f;
+        };
+        auto with_traction = [&](float s_grip, float cap) {
+            if (steps.empty()) return std::min(s_grip, cap);
+            // From the fastest step's range down: the first range the scaled speed reaches is the answer, held
+            // to the range's top (the speed just below the next step, whose weaker grip it can't take).
+            for (size_t k = steps.size() + 1; k-- > 0;) {
+                float lo = k == 0 ? 0.0f : steps[k - 1][0];
+                float hi = k == steps.size() ? 1e9f : steps[k][0];
+                float s = std::sqrt(k == 0 ? 1.0f : steps[k - 1][1]) * s_grip;
+                if (s >= lo || k == 0) return std::min({ s, hi, cap });
+            }
+            return std::min(s_grip, cap);
+        };
         for (size_t i = 0; i < n; i++) {
             float r = 1e9f;
             for (size_t k = 0; k <= ahead; k++) r = std::min(r, radius[ahead_of(i, k)]);
             float s = table[0][1];
-            if (r >= table[10][0]) s = table[10][1];
+            if (r >= table[10][0]) s = table[10][1] * std::sqrt(std::min(r, 1e7f) / table[10][0]);
             else for (int t = 0; t < 10; t++) {
                 if (r > table[t][0] && r <= table[t + 1][0]) {
                     float f = std::log(r / table[t][0]) / std::log(table[t + 1][0] / table[t][0]);
                     s = table[t][1] + (table[t + 1][1] - table[t][1]) * f;
                 }
             }
-            v[i] = s * 1.4667f;
+            v[i] = with_traction(s, table[10][1]) * 1.4667f;
         }
         // Authored speeds (AIPATH_main's _SPEED, forward races only) replace the computed ones and keep their own
         // braking; AISPEED caps still apply.
@@ -2822,7 +2871,11 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             for (size_t k = 0; k < n; k++) {
                 size_t i = (n - 1 - k), j = ahead_of(i, 1);
                 if (authored[i] || (p2p && i + 1 == n)) continue;
-                v[i] = std::min(v[i], std::sqrt(v[j] * v[j] + 2.0f * decel * spine_step));
+                // The grip at the speed braked from: the slower point's factor first, then the factor at the speed
+                // that gives (never more, the steps weakening as the speed rises).
+                float from = std::sqrt(v[j] * v[j] + 2.0f * decel * grip_at(v[j] / 1.4667f) * spine_step);
+                from = std::sqrt(v[j] * v[j] + 2.0f * decel * grip_at(from / 1.4667f) * spine_step);
+                v[i] = std::min(v[i], from);
             }
         }
         for (size_t i = 0; i < n; i++) mph[i] = std::clamp(v[i] / 1.4667f, authored[i] ? 1.0f : 25.0f, authored[i] ? 255.0f : 200.0f);

@@ -1707,9 +1707,12 @@ bool rush2::track1::extend_menu_container(const std::vector<uint8_t>& container,
             if (!i) fail(std::string("no diorama ") + diorama_models[t]);
             const std::string model = "R1TRACK" + std::to_string(t + 1);
             b.add_model(s, *i, model, false);
-            // Its version bands (shown for a course with another version: the SF Rush arcade tracks'): N64 and ARCADE.
+            // Its version bands (shown for a course with another version: the SF Rush arcade tracks', the PlayStation
+            // SF Rush's SNOW and NIGHT): N64, ARCADE, SNOW and NIGHT.
             add_band_model(b, model, model + "N", rush2::track2049::version_ring_n64);
             add_band_model(b, model, model + "A", rush2::track2049::version_ring_arcade);
+            add_band_model(b, model, model + "S", rush2::track2049::version_ring_snow);
+            add_band_model(b, model, model + "K", rush2::track2049::version_ring_night);
             Bytes texels, palette;
             build_logo(t, texels, palette);
             b.add_texels("R1LOGO" + std::to_string(t + 1), logo_w, logo_h, 0x01, 0x02, 0x48008000, texels, palette);

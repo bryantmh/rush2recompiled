@@ -155,7 +155,15 @@ namespace rush2::car2049 {
         bool dust_hidden = false;      // "no_wheel_dust": its wheels throw no dust, smoke or spray (src/surface_fx.cpp)
         float shadow_radius = 0.0f;    // "round_shadow": a round shadow this many feet across the middle (src/mod_car_shadow.cpp); 0: the game's
         std::vector<uint8_t> logo;     // "logo": the car select name logo, an encoded 128 x 32 image; empty: lettered
+        // "lamps": where the car's light glows go on a track with [look] car_lamps (src/car_lamps.cpp), the right
+        // side's headlight and tail light (feet, the body's frame; the left side mirrors them). Without "lamps" they
+        // are measured from the body; a lamp given as null the car has none of (the PS1 UFO's headlights).
+        bool has_lamps = false;
+        bool head_lamp = true, tail_lamp = true;
+        float head[3] = {}, tail[3] = {};
     };
+    // Mod car `type`'s "lamps" (ModCar::has_lamps and the rest). False when it isn't a mod car or has none set.
+    bool mod_car_lamps(int type, ModCar& out);
     // Mod car n from the car container `car` (as set_body_car's), parts named `prefix` (at most 7 characters).
     void set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car, const std::string& prefix,
                      const std::map<uint32_t, std::vector<uint8_t>>& scuffed, const ModCar& spec);

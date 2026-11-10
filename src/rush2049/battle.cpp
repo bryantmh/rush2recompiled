@@ -615,25 +615,36 @@ namespace {
     // How high a roof weapon sits on car i (its origin's y in the body's axes) when Rush 2049's offset (x, z) places
     // it: its base, the model's lowest vertices (within 0.3 ft of its least y), rests on the highest point of the body
     // under it, so it neither floats over a low roof nor sinks into a raised one. False without the car's geometry.
-    bool roof_height(uint8_t* rdram, int i, int weapon, float x, float z, float& out) {
+    // Car i's body parts' display lists (frame, the four corners, the top) and a key of them and its type: the lists
+    // change when the car or its damage stage does.
+    static constexpr int body_parts[] = { rush2::car_types::part_frame, rush2::car_types::part_front_right, rush2::car_types::part_front_left,
+                                          rush2::car_types::part_rear_right, rush2::car_types::part_rear_left, rush2::car_types::part_top };
+    uint64_t body_lists(uint8_t* rdram, int i, uint32_t (&lists)[std::size(body_parts)]) {
         int type = MEM_BU(0, (int32_t)(car_at(i) + car_type));
-        static constexpr int parts[] = { rush2::car_types::part_frame, rush2::car_types::part_front_right, rush2::car_types::part_front_left,
-                                         rush2::car_types::part_rear_right, rush2::car_types::part_rear_left, rush2::car_types::part_top };
-        uint32_t lists[std::size(parts)] = {};
         uint64_t key = 0xCBF29CE484222325ull ^ uint64_t(type + 1);
-        for (size_t k = 0; k < std::size(parts); k++) {
-            uint32_t record = rush2::car_types::part_record(rdram, i, parts[k]);
+        for (size_t k = 0; k < std::size(body_parts); k++) {
+            uint32_t record = rush2::car_types::part_record(rdram, i, body_parts[k]);
             lists[k] = record != 0 && rush2::in_game_ram(record) ? (uint32_t)MEM_W(0xC, (int32_t)record) : 0;
             key = (key ^ lists[k]) * 0x100000001B3ull;
         }
+        return key;
+    }
+
+    void body_lists_triangles(uint8_t* rdram, const uint32_t (&lists)[std::size(body_parts)], std::vector<std::array<float, 9>>& out) {
+        std::array<uint32_t, 64> slots{};
+        for (uint32_t list : lists) {
+            if (list != 0) body_triangles(rdram, list, slots, out, 0);
+        }
+    }
+
+    bool roof_height(uint8_t* rdram, int i, int weapon, float x, float z, float& out) {
+        uint32_t lists[std::size(body_parts)] = {};
+        uint64_t key = body_lists(rdram, i, lists);
         Roof& roof = roofs[i];
         if (roof.key != key) {
             roof = Roof{};
             roof.key = key;
-            std::array<uint32_t, 64> slots{};
-            for (uint32_t list : lists) {
-                if (list != 0) body_triangles(rdram, list, slots, roof.triangles, 0);
-            }
+            body_lists_triangles(rdram, lists, roof.triangles);
         }
         if (!roof.measured[weapon]) {
             std::vector<std::array<float, 3>> v;
@@ -3580,4 +3591,18 @@ void rush2::battle::online_sync(rush2::online::sync::Walker& w) {
             s::field(w, slots[i].color);
         }
     }
+}
+
+void rush2::battle::car_body_pose(uint8_t* rdram, int car, float pos[3], float m[9]) {
+    body_pose(rdram, car, pos, m);
+}
+
+uint64_t rush2::battle::car_body_triangles(uint8_t* rdram, int car, std::vector<std::array<float, 9>>* out) {
+    uint32_t lists[std::size(body_parts)] = {};
+    uint64_t key = body_lists(rdram, car, lists);
+    if (out != nullptr) {
+        out->clear();
+        body_lists_triangles(rdram, lists, *out);
+    }
+    return key;
 }

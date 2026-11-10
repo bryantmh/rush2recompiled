@@ -401,6 +401,13 @@ bool update(uint8_t* rdram) {
             state.light.step(*set, pos, has_paint ? &painted : nullptr, dt, params);
             state.drawn = state.light.lit(state.light.painted.amount > 0 ? &state.light.painted : nullptr, params);
         }
+        // A custom track's [look] car_light (a night track): the probes give the light's shape (an open road 1, darker
+        // under cover), the colour its level, as Original's car lighting takes it (rush2::car2049::light_model).
+        if (uint32_t tint = rush2::track2049::mod_car_light(rdram); tint != 0) {
+            for (auto& face : state.drawn.c) {
+                for (int k = 0; k < 3; k++) face[k] *= float((tint >> (24 - k * 8)) & 0xFF) / 255.0f;
+            }
+        }
         state.updated = now;
     }
     return true;

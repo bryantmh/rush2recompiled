@@ -115,6 +115,10 @@ namespace {
     std::atomic_bool applied_smooth = false;    // A custom track racing with smooth collision is applied.
     std::atomic_bool applied_p2p = false;       // A point-to-point custom track is applied.
     std::atomic<float> applied_smooth_fold = 20.0f; // Its fold angle (degrees).
+    std::atomic_uint32_t applied_car_light = 0;     // Its [look] car_light as 0xRRGGBBFF, 0 for none.
+    std::atomic_bool applied_car_lamps = false;     // Its [look] car_lamps.
+    std::mutex traction_mutex;
+    std::vector<std::array<float, 2>> applied_traction; // Its [handling] traction steps (mph, factor), under traction_mutex.
     rush2::track2049::ConvertedTrack track;
     bool track_has_sky = false;        // The converted geometry has a SKYO1 model.
     std::set<std::string> shared_models;   // Rush 2's shared model names, read once.
@@ -429,6 +433,16 @@ namespace {
         applied_smooth = is_mod_k(loaded_track) && mod_settings.smooth_collision;
         applied_p2p = is_mod_k(loaded_track) && mod_settings.point_to_point && !rush2::track_mod::is_arena(mod_settings);
         applied_smooth_fold = mod_settings.smooth_fold;
+        const bool mod = is_mod_k(loaded_track);
+        applied_car_light = mod && mod_settings.car_light
+            ? (uint32_t((*mod_settings.car_light)[0]) << 24) | (uint32_t((*mod_settings.car_light)[1]) << 16) |
+                  (uint32_t((*mod_settings.car_light)[2]) << 8) | 0xFFu
+            : 0u;
+        applied_car_lamps = mod && mod_settings.car_lamps;
+        {
+            std::lock_guard lock{ traction_mutex };
+            applied_traction = mod ? mod_settings.traction : std::vector<std::array<float, 2>>{};
+        }
     }
 
     void restore(uint8_t* rdram) {
@@ -458,6 +472,12 @@ namespace {
         applied = false;
         applied_slot = -1;
         applied_road_hold = false;
+        applied_car_light = 0;
+        applied_car_lamps = false;
+        {
+            std::lock_guard lock{ traction_mutex };
+            applied_traction.clear();
+        }
         applied_random_song = false;
         applied_mod = -1;
         applied_smooth = false;
@@ -560,6 +580,27 @@ int rush2::track2049::raced_mod(uint8_t* rdram) {
 bool rush2::track2049::mod_point_to_point(uint8_t* rdram) {
     int s = applied_slot;
     return applied_p2p && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
+}
+
+uint32_t rush2::track2049::mod_car_light(uint8_t* rdram) {
+    int s = applied_slot;
+    return s >= 0 && MEM_BU(0, (int32_t)track_id) == s ? applied_car_light.load() : 0u;
+}
+
+bool rush2::track2049::mod_car_lamps(uint8_t* rdram) {
+    int s = applied_slot;
+    return applied_car_lamps && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
+}
+
+float rush2::track2049::mod_traction(uint8_t* rdram, float mph) {
+    int s = applied_slot;
+    if (s < 0 || MEM_BU(0, (int32_t)track_id) != s) return 1.0f;
+    std::lock_guard lock{ traction_mutex };
+    float factor = 1.0f;
+    for (const auto& step : applied_traction) {
+        if (mph >= step[0]) factor = step[1];
+    }
+    return factor;
 }
 
 bool rush2::track2049::mod_road_hold(uint8_t* rdram) {

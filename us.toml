@@ -466,6 +466,12 @@ func = "view_fog_setup_8007C624"
 before_vram = 0x8007D980
 text = "    rush2_car49_flames_draw(rdram, ctx);"
 
+# The same flames drawn before the race start countdown sign polygon ($fp), which sits in front of the camera.
+[[patches.hook]]
+func = "view_fog_setup_8007C624"
+before_vram = 0x8007D024
+text = "    rush2_car49_flames_before_poly(rdram, ctx);"
+
 # Function exit (reached by both paths after the deferred scene graph draw).
 [[patches.hook]]
 func = "view_fog_setup_8007C624"
@@ -776,6 +782,13 @@ text = "    rush2_calspeed_tire_load(rdram, ctx);"
 func = "car_wheel_force_loop_8006ABB0"
 before_vram = 0x8006AD10
 text = "    rush2_calspeed_wheel_damper(rdram, ctx);"
+
+# A custom track's [handling] traction (src/track_traction.cpp): the car's across and ahead accelerations, gravity's
+# share kept, scaled by its speed's step, before car_linear_accel_stage's jal (its delay slot stores $f6 to +0x24).
+[[patches.hook]]
+func = "car_linear_accel_stage_80069A54"
+before_vram = 0x80069A9C
+text = "    rush2_track_traction(rdram, ctx);"
 
 # Rush 2049 wings physics (src/rush2049/wings_state.cpp). func_800706D0 is the per-car physics step; the drawing hook is
 # part of rush2_model_draw.
@@ -2491,10 +2504,11 @@ text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rd
 
 # SF Rush visibility (src/rush1/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
 # Views 2 and 3 move the sky model node they draw to their own camera (rush2_players4_sky_view, src/players4.cpp).
+# The cars' light glows on a custom track with [look] car_lamps are placed for the view (src/car_lamps.cpp).
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
-text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx);"
+text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_car_lamps_view(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx);"
 
 [[patches.hook]]
 func = "model_find_by_name_8005BE3C"

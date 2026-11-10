@@ -872,6 +872,12 @@ extern "C" void rush2_track49_movers_car(uint8_t* rdram, recomp_context* ctx) {
         car_lights[index] = car_light_colour(polys, read_f(rdram, car + car_wheel_height_2), &painted);
         car_painted[index] = painted;
     }
+    else {
+        // A custom track's [look] car_light (a night track): every car takes the one colour, painted by nothing (Light
+        // Probes multiply it in after the probes, src/car_probes.cpp). 0 elsewhere.
+        car_lights[index] = rush2::track2049::mod_car_light(rdram);
+        car_painted[index] = 0;
+    }
     if (!active) {
         return;
     }

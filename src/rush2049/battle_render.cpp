@@ -106,6 +106,7 @@ namespace {
         bool billboard = false;
         float push = 0.0f;
         bool last = false;
+        bool own = false;       // an add_model model, drawn without the Rush 2049 models loaded too
         uint32_t gen = 0;
     };
 
@@ -574,8 +575,9 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     if (slot < 0 || slot >= max_slots) return;
     Item& it = items[slot];
     uint32_t dl = 0;
+    bool own_model = false;
     if (auto found = models.find(std::string(model).substr(0, 15)); found != models.end()) dl = found->second;
-    else if (auto own = own_models.find(model); own != own_models.end()) dl = own->second;
+    else if (auto own = own_models.find(model); own != own_models.end()) dl = own->second, own_model = true;
     if (dl == 0) {
         it.on = false;
         return;
@@ -595,6 +597,7 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     it.billboard = billboard;
     it.push = push;
     it.last = last;
+    it.own = own_model;
 }
 
 void rush2::battle_render::add_model(const char* name, uint32_t dl) {
@@ -628,10 +631,14 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
     }
     uint32_t view = 0, gen = 0, root = 0, projection = 0, lookat = 0;
     rush2_interp_get_generation(&view, &gen);
-    if (!loaded || !rush2_interp_view_matrices(view, &root, &projection, &lookat)) return;
+    if (!rush2_interp_view_matrices(view, &root, &projection, &lookat)) return;
+    // Without the Rush 2049 models loaded (no ROM) only the port's own models draw.
+    auto drawn = [&](const Item& it) {
+        return it.on && (loaded || it.own) && (it.view < 0 || it.view == (int)view) && it.hidden_view != (int)view;
+    };
     int count = 0, attached = 0;
     for (const Item& it : items) {
-        if (it.on && (it.view < 0 || it.view == (int)view) && it.hidden_view != (int)view) {
+        if (drawn(it)) {
             count++;
             attached += it.attached;
         }
@@ -665,7 +672,7 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
         for (int order = 0; order < rush2::battle_render::max_slots * 2; order++) {
             int slot = order % rush2::battle_render::max_slots;
             const Item& it = items[slot];
-            if (!it.on || (it.view >= 0 && it.view != (int)view) || it.hidden_view == (int)view || it.attached != (pass == 1)) continue;
+            if (!drawn(it) || it.attached != (pass == 1)) continue;
             if (it.last != (order >= rush2::battle_render::max_slots)) continue;
             float m[4][4] = {};
             float rel[3] = { it.pos[0] - cam[0], it.pos[1] - cam[1], it.pos[2] - cam[2] };

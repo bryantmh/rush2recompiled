@@ -44,8 +44,10 @@ namespace {
         uint64_t size_time[2] = { (uint64_t)std::filesystem::file_size(disc.data_track(), ec),
                                   (uint64_t)std::filesystem::last_write_time(disc.data_track(), ec).time_since_epoch().count() };
         h = rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(size_time), sizeof(size_time), h);
-        std::vector<uint8_t> logo = rush2::upscale::read_file(assets_dir() / "chinatown_logo.png");
-        h = rush2::track_cache::hash(logo.data(), logo.size(), h);
+        for (const char* track : { "chinatown", "golden_gate", "embarcadero", "market" }) {
+            std::vector<uint8_t> logo = rush2::upscale::read_file(assets_dir() / (std::string(track) + "_logo.png"));
+            h = rush2::track_cache::hash(logo.data(), logo.size(), h);
+        }
         std::vector<uint8_t> diorama = rush2::upscale::read_file(assets_dir() / "chinatown_diorama.json");
         h = rush2::track_cache::hash(diorama.data(), diorama.size(), h);
         char text[17];

@@ -63,6 +63,7 @@ void rush2_hud_laps_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_view_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_flames_view_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_flames_before_poly(uint8_t* rdram, recomp_context* ctx);
 void rush2_interp_projection(uint8_t* rdram, recomp_context* ctx);
 // Sky Fog (src/sky_fog.cpp), from rush2_model_draw: model_draw_8007AA48 about to call a node's model ($s7 node, $fp
 // list); marks the sky model as the sky.
@@ -437,6 +438,10 @@ void rush2_calspeed_demo_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_advance(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
+// A custom track's [handling] traction in car_linear_accel_stage (src/track_traction.cpp).
+void rush2_track_traction(uint8_t* rdram, recomp_context* ctx);
+// The cars' light glows on a custom track with [look] car_lamps, before each view (src/car_lamps.cpp).
+void rush2_car_lamps_view(uint8_t* rdram, recomp_context* ctx);
 // California Speed's walls and missed wheels (src/calspeed/calspeed_walls.cpp) and physics (calspeed_physics.cpp),
 // with the CS Physics option.
 int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx);

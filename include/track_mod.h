@@ -96,6 +96,16 @@ namespace rush2::track_mod {
         std::array<uint8_t, 3> fog = { 0xA0, 0xB8, 0xD0 };
         std::string sky = "none";                             // none or a stock_skies name
         float cloud_scroll = 0.0f, sky_parallax = 0.0f;
+        // [look] car_light: every car on the track is drawn multiplied by this color (a night track's darkness, the
+        // PS1 SF Rush's night: src/rush2049/track2049_movers.cpp, src/car_probes.cpp). Unset: the cars' own lighting.
+        std::optional<std::array<uint8_t, 3>> car_light;
+        // [look] car_lamps: the cars carry the PS1 SF Rush's night light glows, headlights and tail lights
+        // (src/car_lamps.cpp).
+        bool car_lamps = false;
+        // [handling] traction: [speed in mph, factor] steps, in rising speed: a car at or past a step's speed has its
+        // push along the ground (engine, brakes, tires, drag; not gravity) times that factor, the last step reached
+        // counting (src/track_traction.cpp; the PS1 SF Rush's snow). Empty: Rush 2's.
+        std::vector<std::array<float, 2>> traction;
         // [audio] music: the track's own songs, played as its Original (src/music.cpp): a song of the game
         // ("track1".."track8": Rush 2's by its track select order, or a Sound tab song's key such as "r49dc_5"), or
         // music files in the track's folder (.ogg, .wav), one or a list. music is the first, music_list all of them.

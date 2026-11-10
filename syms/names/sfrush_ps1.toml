@@ -93,56 +93,62 @@ ref = "docs/sfrush_ps1.md#track-geometry"
 [[func]]
 vram = 0x80037C2C
 name = "track1_load_pages"
-desc = "Track 1's texture pages (T1PAGE, S, N variants by 0x800B2710 / 0x800B2768) uploaded chunk by chunk at hard-coded RECTs."
-status = "inferred"
+desc = "Track 1's texture pages: T1PAGE.DAT, T1PAGES (snow, 0x800B2710) or T1PAGEN (night, 0x800B2768), uploaded chunk by chunk at hard-coded RECTs. Replayed by src/sfrush_ps1/ps1_track.cpp scan for the Golden Gate snow and night versions."
+status = "verified"
+ported = true
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
 [[func]]
 vram = 0x80038644
 name = "track2_load_pages"
-desc = "Track 2's texture pages at hard-coded RECTs (see track1_load_pages)."
-status = "inferred"
+desc = "Track 2's texture pages: T2PAGE.DAT, T2PAGES (snow) or T2PAGEN (night), uploaded chunk by chunk at hard-coded RECTs. Replayed by src/sfrush_ps1/ps1_track.cpp for the Embarcadero snow and night versions."
+status = "verified"
+ported = true
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
 [[func]]
 vram = 0x80039048
 name = "track3_load_pages"
-desc = "Track 3's texture pages at hard-coded RECTs (see track1_load_pages)."
-status = "inferred"
+desc = "Track 3's texture pages: T3PAGE.DAT, T3PAGES (snow) or T3PAGEN (night), uploaded chunk by chunk at hard-coded RECTs. Replayed by src/sfrush_ps1/ps1_track.cpp for the Market snow and night versions."
+status = "verified"
+ported = true
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
 [[func]]
 vram = 0x80039A88
 name = "track4_load_pages"
-desc = "Track 4's texture pages at hard-coded RECTs (see track1_load_pages); replayed by src/sfrush_ps1/ps1_track.cpp scan."
-status = "inferred"
+desc = "Track 4's texture pages: loads T4PAGE/T4PAGEN.DAT (night, 0x800B2768) or T4PAGES.DAT (snow, 0x800B2710) whole into the buffer 0x800B3100 with its .SIZ after it, then uploads chunk k (stepping by the .SIZ's sizes) at a hard-coded RECT whatever its size (the night set's chunk 28 is 4 rows short, so they come from chunk 29). Replayed by src/sfrush_ps1/ps1_track.cpp scan."
+status = "verified"
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
 [[func]]
 vram = 0x8003A4A0
 name = "track1_load_cluts"
-desc = "Track 1's CLUT chunks (T1CLUT, S, N) placed with clut_upload_shaded at hard-coded (x, y)."
-status = "inferred"
+desc = "Track 1's CLUT chunks (T1CLUT, T1CLUTS snow, T1CLUTN night) placed with clut_upload_shaded at hard-coded (x, y). Replayed by src/sfrush_ps1/ps1_track.cpp."
+status = "verified"
+ported = true
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
 [[func]]
 vram = 0x8003AF18
 name = "track2_load_cluts"
-desc = "Track 2's CLUT chunks (see track1_load_cluts)."
-status = "inferred"
+desc = "Track 2's CLUT chunks (T2CLUT, S, N) placed with clut_upload_shaded at hard-coded (x, y): uploads only 50 of the 52 chunks. Replayed by src/sfrush_ps1/ps1_track.cpp."
+status = "verified"
+ported = true
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
 [[func]]
 vram = 0x8003B990
 name = "track3_load_cluts"
-desc = "Track 3's CLUT chunks (see track1_load_cluts)."
-status = "inferred"
+desc = "Track 3's CLUT chunks (T3CLUT, S, N) placed with clut_upload_shaded at hard-coded (x, y). Replayed by src/sfrush_ps1/ps1_track.cpp."
+status = "verified"
+ported = true
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
 
@@ -153,6 +159,16 @@ desc = "Track 4's CLUT chunks (see track1_load_cluts); replayed by src/sfrush_ps
 status = "inferred"
 area = "track"
 ref = "docs/sfrush_ps1.md#textures"
+
+[[func]]
+vram = 0x8003CF20
+name = "track_load_extra_pages"
+sig = "void track_load_extra_pages(void)"
+desc = "Runs the track's page loader (func_80037C2C/80038644/80039048/80039A88), loads ART/T<n>P08(N).GFX at (384, 32, 64, 128) while gp+0x3C (hidden pickups) is set, EXTRA/WHEELS.GFX or WHEELSN.GFX at night (CLUT at 0x3F0 via func_80014F38), ART/CLOUD64.GFX and the ART/LIGHT*.GFX light sprites."
+consts = "0x800B2768 = night flag; 0x800B270C = pickups on"
+status = "verified"
+area = "render"
+ref = "docs/sfrush_ps1.md#snow-and-night"
 
 [[func]]
 vram = 0x8003DBCC
@@ -191,10 +207,19 @@ area = "track"
 ref = "docs/sfrush_ps1.md#props"
 
 [[func]]
+vram = 0x80041C58
+name = "light_sprite_draw"
+sig = "void light_sprite_draw(void *model, s32 x, s32 y, s32 z, s32 size, s32 kind)"
+desc = "Draws a car light glow at a point of the car (car frame, 0.1 ft) with a size; called by track_draw_chunks for tail lights (size = brake glow) and, at night, headlights (size 0xC0)."
+status = "inferred"
+area = "render"
+ref = "docs/sfrush_ps1.md#snow-and-night"
+
+[[func]]
 vram = 0x80042FF0
 name = "track_draw_chunks"
-desc = "Draws the visible track chunks (ids from the list it is given, pointers from the table 0x800B5C88, ids from 1) through func_8006F33C / func_8006F95C; per track swaps a chunk for another while gp+0x20 (the viewing player's last lap) is set: track 4 id 2 (start gantry reading CHECKPOINT) -> id 90 (the same gantry reading FINISH), and sets gp+0x310 (semi-transparent) for some ids."
-consts = "0x800B34F8 = track index (3 = track 4); 0x80044628 addiu 2 = start gantry (CHECKPOINT) id; 0x800B5DF0 = FINISH banner chunk pointer (id 90); 0x59 = semi-transparent chunk on track 4"
+desc = "Draws the visible track chunks (ids from the list it is given, pointers from the table 0x800B5C88, ids from 1) through func_8006F33C / func_8006F95C; per track swaps a chunk for another while gp+0x20 (the viewing player's last lap) is set: track 4 id 2 (start gantry reading CHECKPOINT) -> id 90 (the same gantry reading FINISH), and sets gp+0x310 (semi-transparent) for some ids. List entries carry flags: 0x4000 skipped at night, 0x2000 drawn only at night, 0x1000 semi-transparent (only track 3 uses the night pair). After each car it draws its light sprites (func_80041C58): tail lights at 0x800A8FA8 sized by car +0x90 (brake glow, +63 at night), headlights at 0x800A8EE8 at night (size 0xC0), each skipped once its corner's damage (car +0x352, 3 bits a corner) reaches 3."
+consts = "0x800B34F8 = track index (3 = track 4); 0x80044628 addiu 2 = start gantry (CHECKPOINT) id; 0x800B5DF0 = FINISH banner chunk pointer (id 90); 0x59 = semi-transparent chunk on track 4; 0x800A8EE8 / 0x800A8FA8 = headlight / tail light points (12 bytes per car index, 0.1 ft); 0x800B2768 = night flag"
 status = "verified"
 ported = true
 area = "render"
@@ -320,8 +345,8 @@ ref = "docs/sfrush_ps1.md#car-physics"
 vram = 0x8005D190
 name = "car_integrate"
 sig = "void car_integrate(void)"
-desc = "Moves every car: position += velocity x step / 128 (step by class 0x80/0x84/0x88/0x94; drones the player's class, 0x90 for class 3, plus 6 after their first 40 frames), then velocity += the frame's forces (0x800ED0FC). As the player's car the UFO doubles them under speed 100 and halves the vertical one above; PIGGY halves them over 301 and quarters them over 351."
-consts = "0x80/0x84/0x88/0x94 = class steps; 0x64/0x12D/0x15F = speeds; 0x408 = car stride"
+desc = "Moves every car: position += velocity x step / 128 (step by class 0x80/0x84/0x88/0x94; drones the player's class, 0x90 for class 3, plus 6 after their first 40 frames), then velocity += the frame's forces (0x800ED0FC). As the player's car the UFO doubles them under speed 100 and halves the vertical one above; PIGGY halves them over 301 and quarters them over 351. In snow (0x800B2710 == 1) every car's horizontal forces are halved from speed 151 and quartered from 301 instead (all halved with the UFO picked), and the dry rules are skipped."
+consts = "0x80/0x84/0x88/0x94 = class steps; 0x64/0x12D/0x15F = speeds; 0x97/0x12D = snow speeds; 0x408 = car stride"
 status = "verified"
 area = "car"
 ref = "docs/sfrush_ps1.md#car-physics"

@@ -323,6 +323,11 @@ fog_color    = "#a0b8d0"   # also the color seen past the draw distance
 sky          = "none"      # a stock sky: see Sky
 cloud_scroll = 0.0         # sky texture scroll speed (the clouds sky)
 sky_parallax = 0.0         # how much the sky shifts as the camera moves (the clouds sky)
+# car_light  = "#454046"   # a night track: every car drawn darkened by this color: see Night
+# car_lamps  = true        # the cars show headlights and tail lights: see Night
+
+# [handling]
+# traction = [[32, 0.5], [64, 0.25]]   # a slippery track (snow, ice): see Handling
 
 [movers.lift]              # a moving object's settings (and start, open, close...): see Moving objects
 mode  = "ride"
@@ -374,6 +379,45 @@ music = "theme.ogg"                         # a file in the track's folder: Ogg 
   joins the course's: SKIP TRACK in the pause menu goes through the songs of the course's versions (N64, Dreamcast,
   arcade, custom) before shuffling. A version without music plays the course's song.
 - Level your songs like the games' (about -16 LUFS integrated): the game plays them as they are.
+
+### Night
+
+A night track darkens its world in its own textures and `fog_color`. Two `[look]` settings do the same for the cars,
+whatever game they come from:
+
+```toml
+[look]
+car_light = "#454046"   # every car is drawn multiplied by this color
+car_lamps = true        # every car shows glowing headlights and tail lights
+```
+
+- `car_light` darkens (or tints) the cars the way a Rush 2049 night track's painted lighting does, in both Car
+  Lighting settings (Graphics tab): with Light Probes the cars still darken under bridges and in tunnels, then take
+  this color on top. Rush 2's own tunnel shading stays too.
+- `car_lamps` gives every car the PlayStation SF Rush's night lights: a warm glow on each headlight, seen from ahead,
+  and a red one on each tail light, seen from behind, dim while driving and bright while braking. A light goes out
+  when its corner of the car is badly damaged, and a wrecked car shows none. Where the lights go comes from the
+  car mod's `lamps` (docs/car_mods.md#new-cars), or is measured from the car's body.
+- The SF Rush PlayStation mod's NIGHT version of Chinatown uses both, with the PlayStation's night textures, fog and
+  sky.
+
+### Handling
+
+`[handling] traction` makes a track slippery, as the PlayStation SF Rush's snow: steps of speed (mph) at which every
+car's push along the ground (engine, brakes, tires and drag together, not gravity) is multiplied by a factor. The
+last step a car's speed has reached counts.
+
+```toml
+[handling]
+traction = [[32, 0.5], [64, 0.25]]   # from 32 mph half, from 64 mph a quarter
+```
+
+Top speed stays the same (the engine and the drag weaken together), but speeding up, braking and turning take two or
+four times as long, so cars drift wide through corners. The computer opponents drive it too: their target speeds
+along the AI path take it into account (a corner at sqrt(factor) of its dry speed, braking factor times as hard), so
+they slow for the corners instead of sliding into the walls. Steps go in rising speed, each factor above 0 and up to
+4. The SF Rush PlayStation mod's SNOW versions of Golden Gate Park, Embarcadero, Market Street and Chinatown use the
+steps above, the PlayStation's own.
 
 ## Sky
 
@@ -852,7 +896,8 @@ Attributes (tick Data > Mesh > Attributes when you export).
 |---|---|---|
 | `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `smooth_collision`, `smooth_fold` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
 | `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
-| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax` | [Sky](#sky) |
+| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light`, `car_lamps` | [Sky](#sky), [Night](#night) |
+| `[handling]` | `traction` | [Handling](#handling) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
 | `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |
 | `[audio]` | `music` | [track.toml](#tracktoml) |

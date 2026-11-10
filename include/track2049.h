@@ -202,6 +202,12 @@ namespace rush2::track2049 {
     bool mod_smooth_collision(uint8_t* rdram, float* fold = nullptr);
     // Whether the race is on a point-to-point custom track ([track] point_to_point = true).
     bool mod_point_to_point(uint8_t* rdram);
+    // The raced custom track's [look] car_light as 0xRRGGBBFF (every car drawn multiplied by it), 0 for none.
+    uint32_t mod_car_light(uint8_t* rdram);
+    // Whether the raced custom track asks for the cars' light glows ([look] car_lamps; src/car_lamps.cpp).
+    bool mod_car_lamps(uint8_t* rdram);
+    // The factor the raced custom track's [handling] traction gives a car going `mph`, 1 without one.
+    float mod_traction(uint8_t* rdram, float mph);
     // Whether the race is on the obstacle course.
     bool obstacle_race(uint8_t* rdram);
     // Whether the race is in a battle arena (also true at race setup, before the menu id becomes the host slot's).
@@ -251,6 +257,8 @@ namespace rush2::track2049 {
     constexpr uint32_t version_ring_n64 = 0x2E7DFF;       // blue
     constexpr uint32_t version_ring_dc = 0xFF8A1E;        // orange
     constexpr uint32_t version_ring_arcade = 0xE51E2A;    // red
+    constexpr uint32_t version_ring_snow = 0xE6F0FF;      // ice white: the PlayStation SF Rush's SNOW versions
+    constexpr uint32_t version_ring_night = 0x7C4DFF;     // violet: its NIGHT versions
     // The ring's commands sit between G_NOOPs with these words, so the track select can branch over them: it shows
     // the ring only when the course has another version (the X prompt names the version).
     constexpr uint32_t version_ring_start = 0x52494E47;   // "RING"

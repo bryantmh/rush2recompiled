@@ -216,6 +216,7 @@ Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any 
 | `schemes` | Color schemes: a list of glb file names in `rush2/new_cars/` (up to 16), in STYLE order. Without it the car is `<ID>.glb` with paint colors. |
 | `hoods` | The hood camera hood of each scheme: a list as long as `schemes` (one entry without schemes), each a glb file name in `rush2/new_cars/`, or `""` for none. Without it the hood camera shows no hood. |
 | `brakes` | The [brake lights](#brake-lights) of each scheme: a list as long as `schemes` (one entry without schemes), each a glb file name in `rush2/new_cars/`, or `""` for none. |
+| `lamps` | Where the car's night lights go on a track with `car_lamps` (docs/custom_tracks.md#night): `{ "head": [x, y, z], "tail": [x, y, z] }`, the right side's headlight and tail light in the glb's space as `wheels` (the left side mirrors them); `null` for a light the car hasn't got. Default: measured from the body, 70% of its half width out and 40% up its height, on its nose and tail. The SF Rush PlayStation cars carry the PlayStation's own points. |
 | `physics_from` | A Rush 2049 car (`"BRUISER"`, `"8-BALL"`, ...) whose physics the car takes in place of the base car's (see [Physics](#physics)). |
 | `physics` | The car's handling, speed and weight (see [Physics](#physics)). Each value you leave out is the base car's. |
 

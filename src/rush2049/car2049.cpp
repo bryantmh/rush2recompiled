@@ -2345,6 +2345,19 @@ float rush2::car2049::mod_car_shadow_radius(int type) {
                                           : 0.0f;
 }
 
+bool rush2::car2049::mod_car_lamps(int type, ModCar& out) {
+    if (!rush2::car_types::is_mod(type)) return false;
+    std::lock_guard lock{ side_mutex };
+    const ModSlot& slot = mod_slots[type - rush2::car_types::first_mod];
+    if (!slot.loaded || !slot.spec.has_lamps) return false;
+    out.has_lamps = true;
+    out.head_lamp = slot.spec.head_lamp;
+    out.tail_lamp = slot.spec.tail_lamp;
+    memcpy(out.head, slot.spec.head, sizeof(out.head));
+    memcpy(out.tail, slot.spec.tail, sizeof(out.tail));
+    return true;
+}
+
 bool rush2::car2049::mod_car_marks_hidden(int type) {
     return rush2::car_types::is_mod(type) && mod_no_marks[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
 }
@@ -4130,11 +4143,9 @@ extern "C" void rush2_car49_flames_view_begin(uint8_t* rdram, recomp_context* ct
     sheen_tables_built = false;
 }
 
-// func_8007C624 at L_8007D980, after the world-space polygons: draws the queued flames. $s6 = display list cursor.
-extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
-    if (queued_flames.empty()) {
-        return;
-    }
+namespace {
+// Appends a G_DL to the queued flames at the display list cursor *cursor_ptr, and empties the queue.
+void emit_queued_flames(uint8_t* rdram, uint32_t cursor_ptr) {
     uint32_t count = 0, dl = flame_side_alloc(uint32_t(32 + queued_flames.size() * 16) * 8);
     auto cmd = [&](uint32_t w0, uint32_t w1) {
         MEM_W(0, (int32_t)(dl + count * 8)) = (int32_t)w0;
@@ -4190,11 +4201,55 @@ extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
     cmd(0xDF000000, 0);
     queued_flames.clear();
 
-    uint32_t cursor_ptr = (uint32_t)ctx->r22;
     uint32_t cursor = (uint32_t)MEM_W(0, (int32_t)cursor_ptr);
     MEM_W(0, (int32_t)cursor) = (int32_t)0xDE000000;
     MEM_W(4, (int32_t)cursor) = (int32_t)dl;
     MEM_W(0, (int32_t)cursor_ptr) = (int32_t)(cursor + 8);
+}
+}
+
+// func_8007C624 at L_8007D980, after the world-space polygons: draws the queued flames. $s6 = display list cursor.
+extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
+    if (!queued_flames.empty()) {
+        emit_queued_flames(rdram, (uint32_t)ctx->r22);
+    }
+}
+
+// func_8007C624 at 0x8007D024, as a world-space polygon ($fp) starts drawing. The race start countdown sign
+// (race_countdown_sign_8010C040, one per view, at 0x80240340) is a polygon placed in front of the camera, so the flames go before it
+// instead of after all the polygons, or they show through the digit. The polygon loop caches render state between
+// polygons, and the flames change it: its render mode (sp+0x168) and texture (0x80112470) caches are cleared so the
+// next polygon sets them again, and the flames' 2-cycle fog state is undone when the loop has 1-cycle without fog
+// (sp+0x164 = 0, set by flag 0x100 polygons).
+extern "C" void rush2_car49_flames_before_poly(uint8_t* rdram, recomp_context* ctx) {
+    if (queued_flames.empty()) {
+        return;
+    }
+    // race_countdown_sign_8010C040, moved here for four views (src/players4.cpp): a polygon pointer per view.
+    constexpr uint32_t countdown_signs = 0x80240340;
+    uint32_t poly = (uint32_t)ctx->r30;
+    bool sign = false;
+    for (int v = 0; v < 4; v++) {
+        sign |= poly != 0 && (uint32_t)MEM_W(0, (int32_t)(countdown_signs + v * 4)) == poly;
+    }
+    if (!sign) {
+        return;
+    }
+    uint32_t cursor_ptr = (uint32_t)ctx->r22;
+    emit_queued_flames(rdram, cursor_ptr);
+    uint32_t sp = (uint32_t)ctx->r29;
+    MEM_W(0x168, (int32_t)sp) = -1;
+    MEM_W(0, (int32_t)0x80112470) = 0;
+    if (MEM_W(0x164, (int32_t)sp) == 0) {
+        uint32_t cursor = (uint32_t)MEM_W(0, (int32_t)cursor_ptr);
+        MEM_W(0, (int32_t)cursor) = (int32_t)0xD9FEFFFF;      // clear G_FOG
+        MEM_W(4, (int32_t)cursor) = 0;
+        MEM_W(8, (int32_t)cursor) = (int32_t)0xE7000000;      // G_RDPPIPESYNC
+        MEM_W(12, (int32_t)cursor) = 0;
+        MEM_W(16, (int32_t)cursor) = (int32_t)0xE3000A01;     // CYCLETYPE = 1CYCLE
+        MEM_W(20, (int32_t)cursor) = 0;
+        MEM_W(0, (int32_t)cursor_ptr) = (int32_t)(cursor + 24);
+    }
 }
 
 void rush2::car2049::animate(uint8_t* rdram) {
