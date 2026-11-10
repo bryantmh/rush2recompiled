@@ -1719,6 +1719,82 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         g.textured_mesh("SKY", { p });
     }
 
+    // The sea (docs/sfrush_ps1.md#sea): the PS1 has none (grey haze under the horizon), so with Fill Scenery Gaps the
+    // extended ground carried the city out over the bay and rose to Golden Gate's deck. A SEA mesh (never drawn, read by
+    // the extended ground only) lays water where the N64 track select dioramas have it (TRK1O2, TRK_2O2): Golden Gate's
+    // strait under the bridge, Marin an island, the Pacific west of the south end and the bay along the Marina;
+    // Embarcadero's bay east of the waterfront road and north of the wharf. Each shore runs along the track's ground,
+    // 100-300 ft off it (the gap left to the extended ground's slope), the sea on one side of it out to `far`.
+    // Coordinates are track.glb's x and z in feet. Water: the PS1's own water texel (track 2's page 576,256, CLUT 28734:
+    // snow 16,49,99, night 0,0,16), flat; Golden Gate has no water of its own and takes it too.
+    {
+        struct Shore {
+            int axis;                                  // 0: the sea is toward x = far; 2: toward z = far
+            double far;
+            std::vector<std::array<double, 2>> pts;    // (x, z)
+        };
+        double level = 0;
+        std::vector<Shore> shores;
+        if (tr.n == 1) {
+            level = -150;   // under the lowest ground (the Marina, -144 ft)
+            shores = {
+                { 0, 3050, { { 3050, -1100 }, { 2650, -800 }, { 2650, 1200 }, { 1950, 2350 }, { 1950, 30000 } } },
+                { 2, -30000, { { -400, -2700 }, { 500, -2450 }, { 1500, -2300 }, { 2500, -2200 }, { 3050, -2100 } } },
+                { 0, 4800, { { 3050, -30000 }, { 3050, 30000 } } },
+                { 0, 30000, { { 4800, -30000 }, { 4800, -2700 } } },
+                { 0, 30000, { { 4800, -500 }, { 4800, 30000 } } },
+                { 0, 30000, { { 7500, -2700 }, { 7500, -500 } } },   // Marin: an island 1,100 ft past the road's end
+            };
+        }
+        else if (tr.n == 2) {
+            level = -8;     // the PS1's water by the wharf (-7.4 ft)
+            shores = {
+                { 2, -30000, { { -30000, -5500 }, { 2300, -5500 }, { 2500, -5600 }, { 2750, -6350 }, { 3300, -6500 }, { 4080, -6550 } } },
+                { 0, 30000, { { 4080, -30000 }, { 4080, -4700 }, { 4250, -4000 }, { 4450, -3250 }, { 4750, -2750 }, { 5150, -2250 },
+                              { 5500, -1750 }, { 5650, -1250 }, { 5850, -600 }, { 5850, 30000 } } },
+            };
+        }
+        std::array<uint8_t, 3> water{};
+        bool has_water = true;
+        if (cond.condition == Condition::snow) water = { 16, 49, 99 };
+        else if (cond.condition == Condition::night) water = { 0, 0, 16 };
+        else has_water = false;   // no day version of tracks 1 and 2 is built
+        if (!shores.empty() && has_water) {
+            constexpr int tile = 16;
+            std::vector<uint8_t> rgba(size_t(tile) * tile * 4);
+            for (size_t i = 0; i < rgba.size(); i += 4) rgba[i] = water[0], rgba[i + 1] = water[1], rgba[i + 2] = water[2], rgba[i + 3] = 255;
+            a49::Glb::Prim p;
+            p.material = g.material("SEA_WATER", g.image("SEA_WATER", a49::png(rgba, tile, tile)), "OPAQUE", false, { 10497, 10497 });
+            constexpr double m_per_ft = 0.3048;
+            auto add = [&](double x, double z, double u, double v) {
+                p.verts.push_back({ x * m_per_ft, level * m_per_ft, z * m_per_ft });
+                p.normals.push_back({ 0.0, 1.0, 0.0 });
+                p.uvs.push_back({ u, v });
+                p.colors.push_back({ 1.0, 1.0, 1.0, 1.0 });
+            };
+            for (const Shore& s : shores) {
+                for (size_t k = 0; k + 1 < s.pts.size(); k++) {
+                    const auto &a = s.pts[k], &b = s.pts[k + 1];
+                    // The segment and its two ends carried out to `far`.
+                    std::array<std::array<double, 2>, 4> q = { a, b, b, a };
+                    q[2][s.axis == 0 ? 0 : 1] = s.far;
+                    q[3][s.axis == 0 ? 0 : 1] = s.far;
+                    uint32_t base = uint32_t(p.verts.size());
+                    add(q[0][0], q[0][1], 0, 0), add(q[1][0], q[1][1], 1, 0), add(q[2][0], q[2][1], 1, 1), add(q[3][0], q[3][1], 0, 1);
+                    for (std::array<uint32_t, 3> tri : { std::array<uint32_t, 3>{ base, base + 1, base + 2 }, std::array<uint32_t, 3>{ base, base + 2, base + 3 } }) {
+                        // Facing up: counter-clockwise seen from above in glTF (x right, z toward the viewer).
+                        const V3 &A = p.verts[tri[0]], &B = p.verts[tri[1]], &C = p.verts[tri[2]];
+                        double ny = (B[2] - A[2]) * (C[0] - A[0]) - (B[0] - A[0]) * (C[2] - A[2]);
+                        if (ny < 0) std::swap(tri[1], tri[2]);
+                        p.tris.push_back(tri);
+                    }
+                }
+            }
+            g.textured_mesh("SEA", { p });
+            report.push_back("sea: " + std::to_string(p.tris.size()) + " triangles at " + std::to_string(int(level)) + " ft (Fill Scenery Gaps only)");
+        }
+    }
+
     // The PS1's timer (docs/sfrush_ps1.md#race-times): the race setup (0x80015D60) starts the clock at 45 on track 4
     // forward (addiu 0x2D at 0x80015D80); passing gate k (checkpoint_passed, 0x80054130) adds byte k of 0x800B2AE8
     // (the stretch after it: 26, 29, 11, 32), and 5 more (0x800542D8) while the player has passed fewer than 3 gates

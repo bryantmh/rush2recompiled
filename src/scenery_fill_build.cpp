@@ -51,6 +51,8 @@ namespace {
     constexpr int coarse_chunk = 4;          // Coarse cells per chunk side (1024 ft)
     constexpr int max_strip = 15;            // Quads per strip: 32 vertices, the RSP's vertex buffer
     constexpr float max_texels = 1000.0f;    // A vertex's s and t stay under this (s10.5 holds up to 1024)
+    constexpr const char* sea_model = "FILLSEA";   // A custom track's SEA mesh (src/track_mod/track_mod_convert.cpp)
+    constexpr float sea_clear = 30.0f;       // Feet: the track's ground higher over the sea is a deck on it
 
     constexpr uint8_t fmt_rgba = 0, fmt_ci = 2, fmt_ia = 3, fmt_i = 4;
     constexpr uint8_t siz_4b = 0, siz_8b = 1, siz_16b = 2;
@@ -262,6 +264,42 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
         }
         ground.push_back(g);
     });
+    // The sea: the track container's model sea_model, never placed (the game never draws it), its vertices in feet.
+    std::vector<Ground> sea;
+    if (!containers.empty() && containers[0]) {
+        const Container* c = containers[0];
+        for (const auto& model : c->models) {
+            if (model.name != sea_model || model.lods.empty()) continue;
+            for (const auto& m : model.lods[0].meshes) {
+                for (size_t i = 0; i + 2 < m.vertices.size(); i += 3) {
+                    Ground s;
+                    for (int v = 0; v < 3; v++) {
+                        for (int k = 0; k < 3; k++) {
+                            s.v[v][k] = m.vertices[i + v].position[k];
+                            s.rgb[k] = (v == 0 ? 0.0f : s.rgb[k]) + m.vertices[i + v].color[k] / 3.0f;
+                        }
+                    }
+                    s.texture = -1;
+                    if (m.texture >= 0 && m.texture < (int)c->textures.size()) {
+                        auto [it, added] = source_index.emplace(std::make_pair(c, m.texture), (int)sources.size());
+                        if (added) sources.push_back({ c, m.texture });
+                        s.texture = it->second;
+                        const auto* a = &m.vertices[i];
+                        float e1[3], e2[3];
+                        for (int k = 0; k < 3; k++) {
+                            e1[k] = a[1].position[k] - a[0].position[k];
+                            e2[k] = a[2].position[k] - a[0].position[k];
+                        }
+                        float nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
+                        sources[s.texture].world_area += std::sqrt(nx * nx + ny * ny + nz * nz) / 2;
+                        sources[s.texture].uv_area += std::fabs((a[1].uv[0] - a[0].uv[0]) * (a[2].uv[1] - a[0].uv[1]) -
+                                                                (a[2].uv[0] - a[0].uv[0]) * (a[1].uv[1] - a[0].uv[1])) / 2;
+                    }
+                    sea.push_back(s);
+                }
+            }
+        }
+    }
     BuildStats st;
     st.triangles = ground.size();
     if (ground.empty()) {
@@ -318,9 +356,50 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
             }
         }
     }
-    std::vector<uint8_t> covered(cells, 0);
+    // 1b. The sea (a custom track's SEA mesh, model sea_model): a cell over it is sea, at its height and with its
+    //     texture, unless the track's own ground there is within sea_clear of it (a quay, a ship's deck: the track's
+    //     ground is drawn). Ground higher over the sea is a deck on it (a bridge, an elevated road): the sea is drawn
+    //     under it. Sea cells feed the heights and textures, but only the track's own ground counts as covered for
+    //     what is drawn, so the sea far from the track is drawn coarse.
+    std::vector<float> sea_h(cells, 1e30f);
+    std::vector<int> sea_label(cells, -1);
+    std::vector<float> sea_rgb(cells * 3, 0.0f);
+    for (const Ground& t : sea) {
+        float minx = std::min({ t.v[0][0], t.v[1][0], t.v[2][0] }), maxx = std::max({ t.v[0][0], t.v[1][0], t.v[2][0] });
+        float minz = std::min({ t.v[0][2], t.v[1][2], t.v[2][2] }), maxz = std::max({ t.v[0][2], t.v[1][2], t.v[2][2] });
+        int x0 = std::max(0, int(std::ceil((minx - g.x0) / cell - 0.5f))), x1 = std::min(g.nx - 1, int(std::floor((maxx - g.x0) / cell - 0.5f)));
+        int z0 = std::max(0, int(std::ceil((minz - g.z0) / cell - 0.5f))), z1 = std::min(g.nz - 1, int(std::floor((maxz - g.z0) / cell - 0.5f)));
+        float ax = t.v[0][0], az = t.v[0][2];
+        float bx = t.v[1][0] - ax, bz = t.v[1][2] - az, cx = t.v[2][0] - ax, cz = t.v[2][2] - az;
+        float det = bx * cz - bz * cx;
+        if (std::fabs(det) < 1e-6f) continue;
+        for (int z = z0; z <= z1; z++) {
+            for (int x = x0; x <= x1; x++) {
+                float px = g.x0 + (x + 0.5f) * cell - ax, pz = g.z0 + (z + 0.5f) * cell - az;
+                float u = (px * cz - pz * cx) / det, v = (bx * pz - bz * px) / det;
+                if (u < 0 || v < 0 || u + v > 1) continue;
+                float y = t.v[0][1] + u * (t.v[1][1] - t.v[0][1]) + v * (t.v[2][1] - t.v[0][1]);
+                size_t i = g.at(x, z);
+                if (y < sea_h[i]) {
+                    sea_h[i] = y;
+                    sea_label[i] = t.texture >= 0 ? drawable[size_t(t.texture)] : -1;
+                    for (int k = 0; k < 3; k++) sea_rgb[i * 3 + k] = t.rgb[k];
+                }
+            }
+        }
+    }
+    std::vector<uint8_t> covered(cells, 0), is_sea(cells, 0);
     for (size_t i = 0; i < cells; i++) {
         covered[i] = weight[i] > 0;
+        if (sea_h[i] < 1e29f && (!covered[i] || low[i] > sea_h[i] + sea_clear)) {
+            covered[i] = 0;
+            low[i] = sea_h[i];
+            label[i] = sea_label[i];
+            for (int k = 0; k < 3; k++) rgb[i * 3 + k] = sea_rgb[i * 3 + k];
+            weight[i] = 1.0f;
+            is_sea[i] = 1;
+            st.sea++;
+        }
         st.covered += covered[i];
     }
 
@@ -381,12 +460,16 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
 
     // 2. Heights and colors everywhere.
     std::vector<float> height(cells);
-    for (size_t i = 0; i < cells; i++) height[i] = covered[i] ? low[i] : 0.0f;
+    for (size_t i = 0; i < cells; i++) height[i] = weight[i] > 0 ? low[i] : 0.0f;
     {
         std::vector<float> w = weight;
         pull_push(g.nx, g.nz, 1, height, w);
+        // Colors from the track's ground alone (the sea's shade would light up the land), the sea keeping its own.
+        std::vector<float> sea_shade(rgb);
         w = weight;
+        for (size_t i = 0; i < cells; i++) if (is_sea[i]) w[i] = 0.0f;
         pull_push(g.nx, g.nz, 3, rgb, w);
+        for (size_t i = 0; i < cells; i++) if (is_sea[i]) for (int k = 0; k < 3; k++) rgb[i * 3 + k] = sea_shade[i * 3 + k];
     }
 
     // 3. Textures: the ground textures covering the most cells (up to max_kinds, each at least min_share of the
@@ -397,7 +480,7 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
         std::vector<size_t> count(mesh.textures.size(), 0);
         size_t labeled = 0;
         for (size_t i = 0; i < cells; i++) {
-            if (covered[i] && label[i] >= 0) {
+            if (weight[i] > 0 && !is_sea[i] && label[i] >= 0) {
                 count[size_t(label[i])]++;
                 labeled++;
             }
@@ -412,7 +495,7 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
             for (int k = 0; k < n; k++) kind_of[size_t(kinds[size_t(k)])] = k;
             std::vector<float> share(cells * n, 0.0f), w(cells, 0.0f);
             for (size_t i = 0; i < cells; i++) {
-                if (!covered[i] || label[i] < 0 || kind_of[size_t(label[i])] < 0) continue;
+                if (weight[i] <= 0 || is_sea[i] || label[i] < 0 || kind_of[size_t(label[i])] < 0) continue;
                 share[i * n + kind_of[size_t(label[i])]] = 1.0f;
                 w[i] = 1.0f;
             }
@@ -421,6 +504,7 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
                 int best = 0;
                 for (int k = 1; k < n; k++) if (share[i * n + k] > share[i * n + best]) best = k;
                 vote[i] = kinds[size_t(best)];
+                if (is_sea[i] && label[i] >= 0) vote[i] = label[i];   // the sea is water wherever it is
             }
         }
     }

@@ -1607,7 +1607,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::map<int, const rush2::gltf::Node*> checkpoints, grid;
     std::vector<std::pair<float, const rush2::gltf::Node*>> aispeeds;
     std::vector<std::pair<int, const rush2::gltf::Node*>> pickup_nodes;   // PICKUP_<kind>: kind as PickupRecord::kind
-    std::vector<const rush2::gltf::Node*> visual, sky, billboard_nodes, finish_banner;
+    std::vector<const rush2::gltf::Node*> visual, sky, sea, billboard_nodes, finish_banner;
     std::vector<std::pair<int, const rush2::gltf::Node*>> prop_nodes;    // PROP_: PropRecord::type
     const bool arena = is_arena(settings);
     // A point-to-point race ([track] point_to_point): run once from START to FINISH along an open AIPATH_main, as
@@ -1740,6 +1740,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         if (int k = number_after(name, "START_"); k >= 0) { grid[k] = &n; continue; }
         if (int k = number_after(name, "AISPEED_"); k >= 0) { aispeeds.push_back({ float(k), &n }); continue; }
         if (name == "SKY") { if (mesh) sky.push_back(&n); else report.warning(n.name + " has no mesh; ignored."); continue; }
+        // SEA (docs/custom_tracks.md#sea): never drawn by the game; Fill Scenery Gaps' extended ground lays its water there.
+        if (name == "SEA") { if (mesh) sea.push_back(&n); else report.warning(n.name + " has no mesh; ignored."); continue; }
         // The finish banner (FINISH_BANNER*): Rush 2's own <prefix>FINISH model, whose CHKPNT faces turn to FINISH on the
         // last lap. FINISH_BANNER_LAST is never drawn: it only keeps the FINISH material in an export that drops unused
         // ones.
@@ -3575,8 +3577,25 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         report.info(b);
     }
 
+    // The sea (SEA meshes): one model, FILLSEA, that nothing places, so the game never draws it. Fill Scenery Gaps'
+    // extended ground (src/scenery_fill_build.cpp) reads it from the track's models: water at its height, with its
+    // material, where the track has no ground or only a deck high over it. Its vertices are in whole feet (not the
+    // models' 1/16 ft), so it can reach 32,000 ft from the origin.
+    std::vector<VisualTri> seatris;
+    for (const auto* n : sea) append_tris(*n, seatris);
+    if (!seatris.empty()) {
+        float reach = 0.0f;
+        for (const VisualTri& t : seatris) for (const Vec3& p : t.p) reach = std::max({ reach, std::fabs(p[0]), std::fabs(p[1]), std::fabs(p[2]) });
+        char b[192];
+        snprintf(b, sizeof(b), "SEA: %zu triangles, %s from the origin at most; the water of Fill Scenery Gaps' extended ground, never drawn otherwise.",
+                 seatris.size(), fmt_ft(reach).c_str());
+        report.info(b);
+        if (reach > 32000.0f) report.warning("SEA reaches past 32,000 ft from the origin; it is cut off there.");
+    }
+
     // Materials -> stand-in textures (one per material).
     std::vector<int> used_materials;
+    for (const VisualTri& t : seatris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     for (const VisualTri& t : stris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     for (const VisualTri& t : vtris) if (std::find(used_materials.begin(), used_materials.end(), t.material) == used_materials.end()) used_materials.push_back(t.material);
     for (const Mover& m : movers) {
@@ -3811,6 +3830,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     std::vector<std::string> names;
     for (const Section& s : sections) names.push_back(s.name);
     if (!stris.empty() || stock_sky_model) names.push_back("SKYO1");
+    if (!seatris.empty()) names.push_back("FILLSEA");
     for (const Mover& m : movers) if (!m.model.empty()) names.push_back(m.model);
     for (const BillboardModel& b : billboard_models) names.push_back(b.name);
     for (const ExtraCopy& ec : extra_copies) names.push_back(ec.section.name);
@@ -3855,6 +3875,25 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         g.insert(g.end(), m.vertices.begin(), m.vertices.end());
         align8(g);
         s.list = uint32_t(g.size());
+        for (size_t i : m.vtx_commands) m.list[i].second += base;
+        for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
+    }
+    Section sea_section;
+    if (!seatris.empty()) {
+        std::vector<int> all(seatris.size());
+        for (size_t i = 0; i < all.size(); i++) all[i] = int(i);
+        MeshList m;
+        m.cmd(0xE3001001, 0x00000000);          // no palette: the readers take the list's state from the list itself
+        emit_mesh(seatris, all, used_materials, draw_materials, Vec3{}, 1.0f,
+                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m);
+        m.cmd(0xDF000000, 0);
+        align8(g);
+        uint32_t base = uint32_t(g.size());
+        g.insert(g.end(), m.vertices.begin(), m.vertices.end());
+        align8(g);
+        sea_section.name = "FILLSEA";
+        sea_section.list = uint32_t(g.size());
+        sea_section.radius = m.radius;
         for (size_t i : m.vtx_commands) m.list[i].second += base;
         for (const auto& [w0, w1] : m.list) { add32(g, w0); add32(g, w1); }
     }
@@ -4035,6 +4074,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (const Mover& mv : movers) if (mv.model == names[i]) sec = &mv.section;
         for (const BillboardModel& bm : billboard_models) if (bm.name == names[i]) sec = &bm.section;
         if (finish_model.list && names[i] == prefix + "FINISH") sec = &finish_model;
+        if (!seatris.empty() && names[i] == "FILLSEA") sec = &sea_section;
         uint16_t behaviour = 0;                      // a plain model
         for (const ExtraCopy& ec : extra_copies) {
             if (ec.section.name == names[i]) { sec = &ec.section; behaviour = ec.behaviour; }

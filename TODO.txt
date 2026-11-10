@@ -12,13 +12,8 @@ General:
 3) Higher drone difficulty levels
 4) Separate drone difficulty from checkpoint difficulty as an option
 5) The ability to save/load vehicle tuning setups by name
-6) Mod-added music including Arcade
-7) Car Lights (src/car_lights.cpp, off and out of the Graphics menu): on night tracks a braking car's tail lights
-      light the road behind it (works), go out when that rear corner is damaged (works), and the lens itself should
-      glow. The glow overlay (lit texels redrawn in Rush 2's brake red after the part, model_draw) blacks out the car
-      parts drawn after it (left rear, roof) even with the parts' texture commands replayed; find what state it
-      breaks (next test: RUSH2_CAR_LIGHTS_DIAG_NOTEX, the overlay without its mask load), then put the option back
-      in config.cpp (Effects).
+7) Dynamic Car Lights on night courses
+8) Scenery fill from dioramas
 
 California Speed:
 1) Post-race records on point-to-point tracks: average lap and best lap are the same one-lap time (the whole run);

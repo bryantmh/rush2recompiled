@@ -20,6 +20,8 @@
 //
 // --fill builds Fill Scenery Gaps' ground underlay (src/scenery_fill_build.cpp) instead and prints its size, and writes
 // tmp/scenery_fill/<TRACK>.glb: the track as placed with the underlay (node SCENERYFILL) for tools/glb_view.py.
+// A track argument "dir:<folder>" reads a converted custom track (tools/track_mod_test.cpp's geometry.bin and
+// placement.bin) instead of a stock slot.
 //
 // Reads RUSH2_ROM (default rush2.us.recomp.z64 in the project root). Build from Git Bash:
 //   cmd //c "tools\car_probes_test.bat"   (writes tmp\probes_test\car_probes_test.exe)
@@ -29,6 +31,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -367,6 +370,17 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        else if (name.rfind("dir:", 0) == 0) {
+            // A converted custom track: tools/track_mod_test's output folder (geometry.bin, placement.bin).
+            std::string dir = name.substr(4);
+            geometry = read_all((dir + "/geometry.bin").c_str());
+            placement = read_all((dir + "/placement.bin").c_str());
+            if (geometry.empty() || placement.empty()) {
+                printf("%s: can't read geometry.bin / placement.bin\n", dir.c_str());
+                continue;
+            }
+            label = std::filesystem::path(dir).filename().string();
+        }
         else {
             int slot = atoi(name.c_str());
             if (slot < 0 || slot > 11 || !asset(0x33 + slot, geometry) || !asset(0x3F + slot, placement)) {
@@ -388,8 +402,8 @@ int main(int argc, char** argv) {
             rush2::scenery_fill::Mesh mesh = rush2::scenery_fill::build(containers, placements, &st);
             size_t bytes = mesh.serialize().size(), strips = 0;
             for (const auto& c : mesh.chunks) strips += c.strips.size();
-            printf("%s: %zu ground triangles, %zu cells covered; drawn %zu fine + %zu coarse cells = %zu quads, %zu vertices, "
-                   "%zu strips in %zu chunks, %zu textures, %zu KB, %.2f s\n", label.c_str(), st.triangles, st.covered, st.fine,
+            printf("%s: %zu ground triangles, %zu cells covered, %zu sea; drawn %zu fine + %zu coarse cells = %zu quads, %zu vertices, "
+                   "%zu strips in %zu chunks, %zu textures, %zu KB, %.2f s\n", label.c_str(), st.triangles, st.covered, st.sea, st.fine,
                    st.coarse, st.quads, st.vertices, strips, mesh.chunks.size(), mesh.textures.size(), bytes / 1024, st.seconds);
             rush2::scenery_fill::Mesh back;
             if (!back.deserialize(mesh.serialize())) printf("  serialize round trip failed\n");

@@ -65,7 +65,7 @@ namespace rush2::scenery_fill {
 
     struct BuildStats {
         size_t triangles = 0;              // Upward-facing ground triangles read
-        size_t covered = 0, fine = 0, coarse = 0;   // Grid cells: with ground, drawn fine, drawn coarse
+        size_t covered = 0, sea = 0, fine = 0, coarse = 0;   // Grid cells: with ground, sea, drawn fine, drawn coarse
         size_t quads = 0, vertices = 0;
         double seconds = 0;
     };
@@ -75,7 +75,7 @@ namespace rush2::scenery_fill {
     Mesh build(const std::vector<const rush2::catalog::Container*>& containers,
                const std::vector<rush2::catalog::Placement>& placements, BuildStats* stats = nullptr);
     // Bumped when the build changes, so cached underlays are built again.
-    constexpr uint32_t build_version = 2;
+    constexpr uint32_t build_version = 3;
     // A texture's image as RT64 decodes it once the underlay loads it.
     rush2::upscale::Image image_of(const Texture& t);
 
