@@ -104,9 +104,17 @@ namespace rush2::track2049 {
     // An RGBA picture as CI8 (median cut; index 255 clear, for texels with alpha below 128), as the previews' are.
     void quantize_ci8(const std::vector<std::array<uint8_t, 4>>& rgba, std::vector<uint8_t>& indices,
                       std::array<uint16_t, 256>& palette);
-    // The track select's 38-entry diorama tables and asset 3 with the added tracks' dioramas (src/rush2049/track2049_menu.cpp),
-    // for screens other than the track select that show them (the unlock system's shop): call before loading asset 3.
+    // The track select's diorama tables and, as asset 3, the unlock system's shop's art: Rush 2's with the Rush 2049 and
+    // SF Rush tracks' dioramas only (src/rush2049/track2049_menu.cpp shop_container; the full container doesn't fit the
+    // car select scene's heap, issue #59). Call before the shop loads asset 3; the track select and circuit screen put
+    // the full one back.
     void prepare_menu_art(uint8_t* rdram);
+    // The name of track select entry t's diorama in the shop's art (after prepare_menu_art).
+    std::string shop_diorama_name(uint8_t* rdram, int t);
+    // The display list to call for a model whose own list is `model_list`, `call` being what draws it now: a list above
+    // 16 MB (a custom track's diorama streamed in, src/rush2049/track2049_menu.cpp stream_diorama) is called with RT64's
+    // extended addresses on (gEXSetRDRAMExtended); any other is `call`. Game thread, from the model draw.
+    uint32_t extended_model_list(uint8_t* rdram, uint32_t model_list, uint32_t call);
     // Builds the track select's art container (asset 3 with the added tracks' dioramas and logos) ahead of its next
     // visit, off the game thread (the background builds, src/prewarm.cpp); that visit then only installs it.
     void prepare_menu_container();

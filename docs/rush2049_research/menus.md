@@ -494,6 +494,38 @@ The track select shows 2049's own preview instead (`build_preview` in `src/rush2
 - **Logos:** every 2049 entry's logo is a banner in the 2049 banner font (`tools/build_banners.py`,
   `tools/banner_font.py`, whose block letters copy METRO and PRESIDIO; the digits for STUNT n / BATTLE n are bitmaps, DIGITS_2049): banners 7–19 of `include/track2049_banners.h`.
 
+### 7.6 Streamed custom dioramas (port)
+
+The track select's art (asset 3) is loaded into the game heap (0x80420000-0x80AA0000, below 16 MB because RT64 reads
+display lists with 24-bit addresses). With the custom tracks' dioramas in it, an authored diorama of over a megabyte
+(the PlayStation SF Rush mod's Chinatown) or many route previews with their 128 KB pictures didn't fit, so the old
+3.3 MB budget left the later tracks without a diorama, and the unlock shop's car select scene ran the heap over its
+top (issue #59). Now (`src/rush2049/track2049_menu.cpp`, `stream_diorama`):
+
+- **Container:** each custom track has a stub model of its name: a 24-byte list (G_ENDDL, then zeros where a
+  preview's tag would be) with the model's radius. The logos stay (4.5 KB each). The full models (`MenuBuild::streamed`,
+  authored or route preview with its spare buffer room) stay in host memory with the build.
+- **Streaming:** the carousel pose hook (0x803ABCA0, every entry every frame) copies a custom entry's model above 16 MB
+  (`recomp::alloc`) when the entry is within 6 places of the shown one, relocates it (its pointer words are offsets from
+  its start, `MenuModel::pointers`, written as full addresses), and points the stub's record (+0xC, LOD 0's list) at the
+  copy. The circuit screen's pose hook (0x803B6AFC) does the same for the shown race. Both run before the frame draws,
+  so an entry is never drawn without its diorama, however fast the carousel turns. Copies are kept for later visits (a
+  reloaded container's records are pointed again) up to 64 MB; past it the least recently wanted ones out of the window
+  go, freed 6 frames later since the renderer reads a frame's lists late. A new build (mods changed) orphans the copies
+  until the next container load (`stream_container_loaded`, at the carousel build and the circuit screen's setup).
+- **Drawing:** the model draw hook (`rush2_model_draw`, src/widescreen.cpp) wraps a list above 16 MB in
+  `gEXSetRDRAMExtended(1)` / `(0)`: RT64 then takes an address with the top bit set as the RDRAM offset less
+  0x80000000, so the game's own 0x80xxxxxx addresses inside still work. The preview code's list walks take both
+  (`dl_address`, `in_rdram`).
+- **Mirror:** `mirror_state_update_800776DC` re-winds a slot's models when the mirror state (0x800D0190) differs from the
+  one the slot (table 0x8010C258, 12 bytes: +0 asset, +1 model table, +2 mirrored) was wound for, following lists with
+  24-bit addresses. While it walks asset 3's slot the streamed records are back on their stubs
+  (`rush2_track49_stream_mirror_begin` / `_end`, us.toml at 0x800776DC and 0x800777E8), and each copy is wound to match
+  the slot with the game's swap (`gfx_tri_winding_swap_cb_8006121C`: second and third vertex of G_TRI1 / G_TRI2 /
+  G_QUAD) over its list, branches, calls and a preview's spare lists (`stream_sync_mirror`).
+- **Test:** `tools/track_mod_stress.py` builds a mod of up to 195 copies of a track, half with a big authored diorama
+  and half with a full-size preview picture.
+
 ## 8. Car select option list [V]
 
 The car select (menu overlay; per frame `func_803B9478`, setup `func_803B81F0`) has two players' panels (car select

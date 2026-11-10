@@ -13,7 +13,8 @@ data folder has no saved players). Otherwise TRACK is a track select id (0-11 Ru
 30-37 battle arenas, 38-63 and 80-248 custom tracks, 64-79 California Speed, 249-254 the Rush 2049 race
 tracks' Dreamcast versions) or a custom track's folder name. --cars gives one
 car type per player (1-4 players; Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-72). --script is the
---input-script (default: gas held from 1 s), counted from launch: the race is up about 5 s in.
+--input-script (default: gas held from 1 s), counted from launch: the race is up about 5 s in. A time written
+T<seconds> counts from the title screen instead (menu scripts: the launch's length varies).
 
 The game runs as a sim run (RUSH2_SIM=1, src/sim_run.cpp): hidden, deaf to real controllers, no audio, from a data
 folder of its own (tmp/test_race/data), so the player's settings and saves are never read or written. Before each run
@@ -204,7 +205,8 @@ def main():
     ap.add_argument('--config', action='append', default=[],
                     help='option of another settings file for the run, NAME.K=V (e.g. cheats.unlock_all_parts=true)')
     ap.add_argument('--shots', help='screenshot the game window at these seconds after launch (comma separated) into '
-                    'DIR/shot_<seconds>.png; the window is shown for it (RUSH2_SIM_SHOW), without taking the focus')
+                    'DIR/shot_<seconds>.png, or T<seconds> after the title screen first came up (as the --script T times); the '
+                    'window is shown for it (RUSH2_SIM_SHOW), without taking the focus')
     ap.add_argument('--records', help="a custom track's placement.bin: report which of its records moved during the race "
                     "(race_watch.py --records; moving objects)")
     ap.add_argument('--peek', action='append', default=[], help='an RDRAM u32 (hex) to print the smallest and largest of '

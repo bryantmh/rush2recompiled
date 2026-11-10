@@ -56,12 +56,17 @@
 
 #include "json/json.hpp"
 #include "recomp.h"
+#include "librecomp/addresses.hpp"
 #include "util/file.h"
+
+#define F3DEX_GBI_2
+#include "rt64_extended_gbi.h"
 
 #include "arcade2049.h"
 #include "sfrush_ps1.h"
 #include "data_files.h"
 #include "game_filter.h"
+#include "rush2.h"
 #include "rush2_hooks.h"
 #include "assets.h"
 #include "battle.h"
@@ -602,6 +607,16 @@ namespace {
     bool race_battle_selection = false;    // The BATTLE row out of a circuit (a circuit keeps its own: rush2::circuit).
     bool selection_loaded = false;
     std::vector<uint8_t> menu_container;
+    // The unlock shop's asset 3 (rush2::track2049::prepare_menu_art): Rush 2's art with the Rush 2049 and SF Rush
+    // tracks' only, which is all the shop shows. The shop loads asset 3 into the car select's scene, where the heap has far less room than at
+    // the track select: the full container (custom, Dreamcast version and Cal Speed tracks' art too) ran the heap past
+    // its top (0x80AA0000) there once the PlayStation SF Rush mod's Chinatown diorama was added (issue #59).
+    std::vector<uint8_t> shop_container;
+    bool shop_served = false;      // Asset 3 is the shop's: the next serve_menu_container puts the full one back.
+    // The custom tracks' dioramas, by mod index, as the served build made them (MenuBuild::streamed), and their copies
+    // above 16 MB (stream_diorama).
+    std::vector<rush2::track2049::MenuModel> stream_models;
+    void stream_forget_all();
     std::shared_ptr<const rush2::rom2049::Source> menu_container_rom; // 2049 ROM the container was built with.
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom1;   // Rush 1 ROM it was built with.
     std::shared_ptr<const std::vector<uint8_t>> menu_container_rom_cs; // Cal Speed ROM it was built with.
@@ -648,36 +663,15 @@ namespace {
         return 0;
     }
 
-    // The game heap's room for the custom tracks' art in the track select's container (asset 3, src/assets.cpp): with
-    // Rush 2's, the 2049, SF Rush and Cal Speed tracks' art loaded the heap had about 3.8 MB left at the track select.
-    // Each custom track takes its logo (4.5 KB) and its diorama, about 10 KB for a route preview without its spare
-    // buffers (lent from the pool on screen instead), so 201 of them fit; authored dioramas can be much bigger. The
-    // dioramas past the room are left out, in mod order: those tracks show their logo and an empty diorama.
-    constexpr size_t mod_art_room = 3300 * 1024;
-    constexpr size_t mod_logo_bytes = 128 * 32 + 512;
-
-    // The size a custom track's diorama takes in the container (a route preview without its spare buffer room).
-    size_t mod_diorama_bytes(const rush2::track_mod::MenuArt& art) {
-        size_t room = art.route_preview ? preview_room(art.diorama, art.diorama_list) : 0;
-        return room != 0 ? room : art.diorama.size();
-    }
-
-    // Which custom tracks' dioramas the container holds (mod_art_room).
-    std::vector<bool> mod_dioramas_kept(const std::vector<bool>& ok, const std::vector<rush2::track_mod::MenuArt>& arts) {
-        size_t n = std::min(ok.size(), arts.size());
-        size_t used = 0;
-        for (size_t i = 0; i < n; i++) {
-            if (ok[i]) used += mod_logo_bytes;
-        }
-        std::vector<bool> kept(n);
-        for (size_t i = 0; i < n; i++) {
-            if (!ok[i]) continue;
-            size_t bytes = mod_diorama_bytes(arts[i]);
-            kept[i] = used + bytes <= mod_art_room;
-            if (kept[i]) used += bytes;
-        }
-        return kept;
-    }
+    // The custom tracks' dioramas aren't in the track select's container (asset 3, loaded into the game heap below
+    // 16 MB, which had about 3.8 MB left at the track select with the other games' art in it): an authored diorama can
+    // be over a megabyte and a route preview's picture 128 KB, so with many custom tracks they didn't fit and the later
+    // ones showed no diorama. The container holds a stub model per custom track (its name, an empty list, the model's
+    // radius) and the logos (4.5 KB each, under 1 MB for the most custom tracks the ids allow). Each diorama is copied
+    // above 16 MB while its track is near the carousel's shown entry (stream_diorama, after the tables) and the stub's
+    // record pointed at the copy; the model draw (rush2::track2049::extended_model_list) has RT64 read lists there with
+    // gEXSetRDRAMExtended.
+    constexpr size_t stub_bytes = 24;   // G_ENDDL, then 16 zero bytes where a preview's tag would be (find_model_vertices)
 
     // Asset 3 with the 2049, Rush 1, custom and Cal Speed tracks' dioramas and logos, and what it holds.
     struct MenuBuild {
@@ -686,6 +680,8 @@ namespace {
         std::string mods;     // mod_signature
         std::shared_ptr<const rush2::rom2049::Source> disc;     // disc_versions_source
         std::vector<uint8_t> container;
+        std::vector<uint8_t> shop;     // shop_container: the container before the custom, disc and Cal Speed art
+        std::vector<MenuModel> streamed;    // by custom track (mod index): its diorama, streamed in (empty blob: none)
         bool has_2049 = false, has_rush1 = false, has_mods = false, has_cs = false, has_disc = false;
     };
 
@@ -869,7 +865,6 @@ namespace {
         }
         if (menu_has_mods) {
             uint32_t m = mod_strings;
-            std::vector<bool> kept = mod_dioramas_kept(mod_ok, mod_arts);
             for (size_t i = 0; i < mod_ok.size(); i++, m += 32) {
                 if (!mod_ok[i]) continue;
                 int t = mod_id(int(i));
@@ -895,10 +890,10 @@ namespace {
                     continue;
                 }
                 // The author's diorama, or Rush 2049's preview of the route, posed and animated as the 2049 tracks'
-                // previews are (rush2_track49_select_pose).
+                // previews are (rush2_track49_select_pose); either is streamed in (stream_diorama).
                 write_string(rdram, m, rush2::track_mod::diorama_model_name(int(i)));
                 MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = m;
-                if (mod_arts[i].route_preview && kept[i]) preview_names[t] = m;
+                if (mod_arts[i].route_preview) preview_names[t] = m;
                 // The stock dioramas show about 800 model units on their longer side (VEGASTRACK 1000 x 0.8,
                 // HAWAIITRACK 1161 x 0.7, CRASHTRACK 1283 x 0.6); the converter makes an authored one 1200.
                 MEM_W(0, (int32_t)(new_diorama_scales + t * 4)) = 0x3F2AAAAB;    // 0.667
@@ -1113,10 +1108,10 @@ namespace {
             b.has_rush1 = true;
         }
         const std::vector<uint8_t>& base2 = b.has_rush1 ? with_rush1 : base;
+        b.shop = base2;
         std::vector<MenuModel> models;
         std::vector<MenuLogo> logos;
-        std::vector<bool> kept = mod_dioramas_kept(ok, arts);
-        size_t left_out = 0;
+        b.streamed.resize(std::min(ok.size(), arts.size()));
         for (size_t i = 0; i < ok.size() && i < arts.size(); i++) {
             if (!ok[i]) continue;
             const rush2::track_mod::MenuArt& art = arts[i];
@@ -1133,28 +1128,15 @@ namespace {
                     model = std::move(course);
                 }
             }
-            // A route preview's spare buffers are lent from the pool on screen (lend_buffers), not kept here.
-            if (size_t room = art.route_preview ? preview_room(model.blob, model.list) : 0; room != 0) {
-                model.blob.resize(room);
-                size_t tag = room - 16;
-                uint32_t pooled = preview_pooled_tag;
-                for (int b = 0; b < 4; b++) model.blob[tag + size_t(b)] = uint8_t(pooled >> (24 - 8 * b));
-            }
-            if (!kept[i]) {
-                model.blob.clear();
-                model.list = 0;
-                model.pointers.clear();
-                left_out++;
-            }
-            if (model.blob.empty()) model.blob = { 0xDF, 0, 0, 0, 0, 0, 0, 0 };   // draws nothing
-            models.push_back(std::move(model));
+            // The diorama is streamed in while the track is near the carousel's shown entry (stream_diorama): the
+            // container holds a stub of the same name, an empty list with the model's radius.
+            MenuModel stub{ model.name, std::vector<uint8_t>(stub_bytes, 0), 0, {}, model.radius };
+            stub.blob[0] = 0xDF;
+            if (!model.blob.empty()) b.streamed[i] = std::move(model);
+            models.push_back(std::move(stub));
             logos.push_back({ rush2::track_mod::logo_texture_name(int(i)), art.logo, art.logo_palette });
         }
         bool with_mods = !models.empty();
-        if (left_out != 0) {
-            printf("[trackmod] The track select has room for the art of fewer custom tracks; %zu show no diorama\n",
-                   left_out);
-        }
         // The Dreamcast versions' previews (the disc's picture and the Dreamcast ring), with their spare buffers lent
         // from the pool as the custom tracks' are, so they cost the heap no more than the screenshot and the tube.
         bool with_disc = false;
@@ -1216,6 +1198,16 @@ namespace {
 
     // Asset 3 with the 2049, Rush 1, custom and Cal Speed tracks' dioramas and logos, rebuilt when a ROM, option or mod
     // changes.
+    // Whether the container in hand was built from the ROMs, mods and disc in use now.
+    bool menu_container_matches() {
+        auto rom = available() ? rush2::wings::get_rom() : nullptr;
+        auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
+        auto rom_cs = rush2::calspeed::available() ? rush2::calspeed::get_rom() : nullptr;
+        auto disc = rom != nullptr ? disc_versions_source() : nullptr;
+        return menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 &&
+               menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature && menu_container_disc == disc;
+    }
+
     void serve_menu_container(uint8_t* rdram) {
         auto rom = available() ? rush2::wings::get_rom() : nullptr;
         auto rom1 = rush2::track1::available() ? rush2::track1::get_rom() : nullptr;
@@ -1225,14 +1217,15 @@ namespace {
         if (rom == nullptr && rom1 == nullptr && rom_cs == nullptr && !mods) {
             rush2::assets::restore(rdram, 3);
             menu_has_2049 = menu_has_rush1 = menu_has_mods = menu_has_cs = menu_has_disc = false;
+            shop_container.clear();
+            shop_served = false;
             return;
         }
-        bool same = menu_container_built && menu_container_rom == rom && menu_container_rom1 == rom1 &&
-                    menu_container_rom_cs == rom_cs && menu_container_mods == mod_signature &&
-                    menu_container_disc == disc;
-        if (same && !menu_container.empty() && rush2::assets::is_replaced(3)) {
+        bool same = menu_container_matches();
+        if (same && !menu_container.empty() && rush2::assets::is_replaced(3) && !shop_served) {
             return;
         }
+        shop_served = false;
         if (!same) {
             menu_container_rom = rom;
             menu_container_rom1 = rom1;
@@ -1254,6 +1247,9 @@ namespace {
             MenuBuild build = ready ? std::move(*ready) : build_menu(rom, rom1, rom_cs, mod_signature, mod_ok, mod_arts,
                                                                    disc, mod_courses());
             menu_container = std::move(build.container);
+            shop_container = std::move(build.shop);
+            stream_forget_all();
+            stream_models = std::move(build.streamed);
             menu_has_2049 = build.has_2049;
             menu_has_rush1 = build.has_rush1;
             menu_has_mods = build.has_mods;
@@ -1434,8 +1430,39 @@ void rush2::track2049::prepare_menu_container() {
 void rush2::track2049::prepare_menu_art(uint8_t* rdram) {
     std::lock_guard lock{ menu_mutex };
     refresh_mods();
+    // The shop calls this for each track it shows while its scene is built: once its art is in place (and was built
+    // from the ROMs and mods in use), the tables are written and there's nothing to install again.
+    if (shop_served && menu_container_matches()) return;
     serve_menu_container(rdram);
     write_tables(rdram);
+    // The shop's own container (shop_container), until the track select or circuit screen serves the full one again.
+    if (!shop_container.empty()) {
+        rush2::assets::replace(rdram, 3, shop_container);
+        shop_served = true;
+    }
+}
+
+std::string rush2::track2049::shop_diorama_name(uint8_t* rdram, int t) {
+    // An SF Rush course with an arcade version names its banded copy, which only the full container holds.
+    if (shop_served && t >= r1_first && t < r1_end) return "R1TRACK" + std::to_string(t - r1_first + 1);
+    std::string name;
+    uint32_t at = diorama_name(rdram, t);
+    for (int i = 0; i < 31 && rush2::in_game_ram(at + uint32_t(i)) && MEM_B(i, (int32_t)at) != 0; i++) {
+        name += (char)MEM_B(i, (int32_t)at);
+    }
+    return name;
+}
+
+extern "C" uint32_t rush2_interp_side_dl(uint8_t* rdram, const GfxCommand* cmds, uint32_t count);
+
+uint32_t rush2::track2049::extended_model_list(uint8_t* rdram, uint32_t model_list, uint32_t call) {
+    if (model_list < 0x81000000u || model_list - 0x80000000u >= recomp::mem_size) return call;
+    GfxCommand cmds[3];
+    gEXSetRDRAMExtended(&cmds[0], 1);
+    cmds[1].values.word0 = 0xDE000000;     // G_DL, pushed
+    cmds[1].values.word1 = call;
+    gEXSetRDRAMExtended(&cmds[2], 0);
+    return rush2_interp_side_dl(rdram, cmds, 3);
 }
 
 bool rush2::track2049::mod_from_2049(int t) {
@@ -1735,6 +1762,286 @@ namespace {
     bool find_circuit_ring(uint8_t* rdram, uint32_t list, uint32_t& start, uint32_t& after);
     void show_circuit_ring(uint8_t* rdram, uint32_t start, uint32_t after, bool show);
 
+    // Display list addresses. The game's are 24 bits (0x80000000 or 0 above them); a streamed diorama's
+    // (stream_diorama) are full RDRAM addresses above 16 MB, which RT64 takes as they are while gEXSetRDRAMExtended is
+    // on (lib/rt64 rt64_rsp.cpp maskPhysicalAddress: the address less 0x80000000).
+    constexpr uint32_t extended_start = 0x81000000u;
+    bool in_rdram(uint32_t address) {
+        return address >= 0x80000000u && address - 0x80000000u < recomp::mem_size;
+    }
+    uint32_t dl_address(uint32_t w1) {
+        return w1 >= extended_start && in_rdram(w1) ? w1 : 0x80000000u | (w1 & 0x00FFFFFF);
+    }
+
+    // The record of the loaded model named by the string at `name` (0: none).
+    uint32_t model_record(uint8_t* rdram, recomp_context* ctx, uint32_t name) {
+        recomp_context saved = *ctx;
+        ctx->r4 = (int32_t)name;
+        ctx->r5 = 0;
+        ctx->r6 = MEM_BU(0, (int32_t)model_slots) - 1;
+        ctx->r7 = 1;
+        model_find_by_name_8005BE3C(rdram, ctx);
+        int32_t handle = (int32_t)ctx->r2;
+        *ctx = saved;
+        if (handle < 0 || (handle & 0xFFFF) == 0xFFFF) return 0;
+        uint32_t table = (uint32_t)MEM_W(0, (int32_t)(model_tables + (uint32_t)(handle >> 10) * 8));
+        return table + (uint32_t)(handle & 0x3FF) * 0x34;
+    }
+
+    // The custom tracks' dioramas streamed in (stub_bytes): while a custom track's carousel entry is within
+    // stream_window places of the shown one, or it is the circuit screen's shown race, its model (stream_models) is
+    // copied above 16 MB (recomp::alloc, relocated there: its pointers are offsets from its start) and its record in
+    // the container, a stub, pointed at the copy's list. This runs in the frame's pose hooks, before the frame draws,
+    // so an entry never shows without its diorama however fast the carousel turns; the window loads the ones the next
+    // presses bring in ahead of time. Copies stay for the next visit (the container is loaded again with stubs; the
+    // records are pointed again) up to stream_budget, past which the least recently wanted ones out of the window go;
+    // a dropped copy is freed a few frames later, the renderer may still read lists of the frames before.
+    struct StreamCopy {
+        uint8_t* block = nullptr;   // recomp::alloc's
+        uint32_t base = 0;          // the copy (16-byte aligned in block)
+        uint32_t size = 0;
+        uint32_t stub = 0;          // the stub's list the record held before it was pointed at the copy
+        uint32_t record = 0;        // the record last pointed at it (checked before use: the container may be gone)
+        uint32_t parked = 0;        // while the game's mirror walk runs: the list the record is put back to after
+        bool mirrored = false;      // its triangles are wound for a mirrored view (stream_sync_mirror)
+        uint32_t used = 0;          // the stream_frame it was last wanted
+    };
+    std::vector<StreamCopy> stream_copies;     // by mod index
+    struct StreamFreed {
+        uint8_t* block;
+        uint32_t frame;
+    };
+    std::vector<StreamFreed> stream_freed;     // dropped copies, freed stream_keep_frames after
+    std::vector<uint8_t*> stream_orphans;      // copies of an older build, freed once a container is loaded again
+    size_t stream_bytes = 0;
+    uint32_t stream_frame = 0;
+    constexpr int stream_window = 6;
+    constexpr size_t stream_budget = size_t(64) << 20;
+    constexpr uint32_t stream_keep_frames = 6;
+    constexpr uint32_t stream_idle_frames = 120;
+
+    // The name entry t's model is looked up by (the carousel's: its preview's, else its diorama's).
+    uint32_t entry_model_name(uint8_t* rdram, int t) {
+        return preview_names[t] != 0 ? preview_names[t] : (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4));
+    }
+
+    bool rdram_string_is(uint8_t* rdram, uint32_t at, const std::string& s) {
+        if (!in_rdram(at)) return false;
+        for (size_t k = 0; k <= s.size(); k++) {
+            if ((uint8_t)MEM_B((int32_t)k, (int32_t)at) != (k < s.size() ? (uint8_t)s[k] : 0)) return false;
+        }
+        return true;
+    }
+
+    // Copy i's record back on the stub (when it is on the copy in the loaded container), and the copy dropped.
+    void stream_drop(uint8_t* rdram, recomp_context* ctx, size_t i) {
+        StreamCopy& c = stream_copies[i];
+        if (c.block == nullptr) return;
+        int t = mod_id(int(i));
+        if (t >= 0 && t < menu_tracks) {
+            uint32_t record = model_record(rdram, ctx, entry_model_name(rdram, t));
+            uint32_t list = record != 0 ? (uint32_t)MEM_W(0xC, (int32_t)record) : 0;
+            if (list >= c.base && list < c.base + c.size && c.stub != 0) MEM_W(0xC, (int32_t)record) = (int32_t)c.stub;
+            preview_models[t] = PreviewModel();
+        }
+        stream_freed.push_back({ c.block, stream_frame });
+        stream_bytes -= c.size;
+        c = StreamCopy();
+    }
+
+    // The build changed (mods turned on or off, a ROM): the copies are of the old one. The loaded container may still
+    // point at them until the next one is loaded (stream_container_loaded).
+    void stream_forget_all() {
+        for (size_t i = 0; i < stream_copies.size(); i++) {
+            if (stream_copies[i].block == nullptr) continue;
+            stream_orphans.push_back(stream_copies[i].block);
+            int t = mod_id(int(i));
+            if (t >= 0 && t < menu_tracks) preview_models[t] = PreviewModel();
+        }
+        stream_copies.clear();
+        stream_bytes = 0;
+    }
+
+    // A container was just loaded (the track select's carousel or the circuit screen is being built): no record
+    // points at an orphan any more.
+    void stream_container_loaded() {
+        for (uint8_t* block : stream_orphans) stream_freed.push_back({ block, stream_frame });
+        stream_orphans.clear();
+    }
+
+    // Once a frame on the screens that show the dioramas: frees what the renderer is done with.
+    void stream_tick(uint8_t* rdram) {
+        stream_frame++;
+        auto done = [&](const StreamFreed& f) {
+            if (stream_frame - f.frame <= stream_keep_frames) return false;
+            recomp::free(rdram, f.block);
+            return true;
+        };
+        stream_freed.erase(std::remove_if(stream_freed.begin(), stream_freed.end(), done), stream_freed.end());
+    }
+
+    // Mirror mode. The game draws a mirrored view through a mirrored camera and keeps front faces by winding every
+    // triangle the other way: when the mirror state (race setup byte 0x800D0190) differs from the one a model slot was
+    // wound for, mirror_state_update_800776DC walks every list of the slot's models (mirror_winding_walk_80077518,
+    // following G_DL) and swaps each G_TRI1 / G_TRI2 / G_QUAD's second and third vertex
+    // (gfx_tri_winding_swap_cb_8006121C), then keeps the state at slot table entry +2 (0x8010C258, 12 bytes a slot: +0
+    // the asset, +1 the model table). That walk reads 24-bit addresses, so the records pointed at copies are put back on
+    // their stubs while it runs on asset 3's slot (rush2_track49_stream_mirror_begin / _end), and each copy is wound
+    // here to match asset 3's slot instead.
+    constexpr uint32_t slot_table = 0x8010C258;
+    constexpr uint32_t slot_entry = 12;
+    constexpr int menu_art_asset = 3;
+
+    // Asset 3's slot's mirror state: 1 mirrored, 0 not, -1 not loaded.
+    int menu_art_mirrored(uint8_t* rdram) {
+        int slots = MEM_BU(0, (int32_t)model_slots);
+        for (int s = 0; s < slots; s++) {
+            uint32_t e = slot_table + uint32_t(s) * slot_entry;
+            if (MEM_BU(0, (int32_t)e) == menu_art_asset) return MEM_BU(2, (int32_t)e) != 0 ? 1 : 0;
+        }
+        return -1;
+    }
+
+    // gfx_tri_winding_swap_cb_8006121C on the copy's commands from `at` (in [lo, hi)), following its calls and branches;
+    // `seen` keeps a command reached twice (a preview's lists share their rest) from being swapped back.
+    void swap_winding(uint8_t* rdram, uint32_t at, uint32_t lo, uint32_t hi, std::set<uint32_t>& seen) {
+        auto swapped = [](uint32_t w) { return (w & 0xFFFF0000u) | ((w & 0xFF00u) >> 8) | ((w & 0xFFu) << 8); };
+        for (int i = 0; i < 0x10000 && at >= lo && at + 8 <= hi && seen.insert(at).second; i++, at += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+            uint32_t op = w0 >> 24;
+            if (op == 0xDF) return;
+            if (op == 0x05 || op == 0x06 || op == 0x07) {
+                MEM_W(0, (int32_t)at) = (int32_t)swapped(w0);
+                if (op != 0x05) MEM_W(4, (int32_t)at) = (int32_t)swapped(w1);
+            }
+            else if (op == 0xDE) {
+                uint32_t to = dl_address(w1);
+                if ((w0 >> 16) == 0xDE01) {
+                    at = to - 8;
+                    continue;
+                }
+                swap_winding(rdram, to, lo, hi, seen);
+            }
+        }
+    }
+
+    // Copy c of model m wound as `want` (asset 3's slot state, menu_art_mirrored; -1 leaves it): its list and, for a
+    // route preview whose spare buffers are made (find_model_vertices), their lists.
+    void stream_sync_mirror(uint8_t* rdram, StreamCopy& c, const rush2::track2049::MenuModel& m, int want) {
+        if (want < 0 || (want != 0) == c.mirrored) return;
+        std::set<uint32_t> seen;
+        const uint32_t lo = c.base, hi = c.base + c.size;
+        uint32_t own = c.base + m.list;
+        swap_winding(rdram, own, lo, hi, seen);
+        uint32_t tag = 0;
+        for (uint32_t at = own, i = 0; i < 0x10000 && at >= lo && at + 8 <= hi; i++, at += 8) {
+            uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at);
+            if ((w0 >> 16) == 0xDE01) at = dl_address((uint32_t)MEM_W(4, (int32_t)at)) - 8;
+            else if ((w0 >> 24) == 0xDF) { tag = at + 8; break; }
+        }
+        if (tag != 0 && tag + 16 <= hi && (uint32_t)MEM_W(0, (int32_t)tag) == preview_buffer_tag &&
+            MEM_W(12, (int32_t)tag) != 0) {
+            uint32_t commands = (uint32_t)MEM_W(4, (int32_t)tag), count = (uint32_t)MEM_W(8, (int32_t)tag);
+            uint32_t at = tag + 16;
+            for (int b = 1; b < preview_buffers && commands < 4096 && count < 4096; b++) {
+                uint32_t list = at + count * 16;
+                swap_winding(rdram, list, lo, hi, seen);
+                at = list + (commands + 2) * 8;
+            }
+        }
+        c.mirrored = want != 0;
+    }
+
+    // Entry t's diorama, when t is a custom track: copied above 16 MB if it isn't, and the record pointed at it.
+    void stream_diorama(uint8_t* rdram, recomp_context* ctx, int t) {
+        int i = mod_index(t);
+        if (i < 0 || size_t(i) >= stream_models.size() || stream_models[size_t(i)].blob.empty()) return;
+        const rush2::track2049::MenuModel& m = stream_models[size_t(i)];
+        uint32_t name = entry_model_name(rdram, t);
+        // Only the track's own model: an SF Rush arcade version shows its course's diorama (write_tables).
+        if (!rdram_string_is(rdram, name, m.name)) return;
+        if (stream_copies.size() < stream_models.size()) stream_copies.resize(stream_models.size());
+        StreamCopy& c = stream_copies[size_t(i)];
+        c.used = stream_frame;
+        if (c.block == nullptr) {
+            uint32_t size = (uint32_t(m.blob.size()) + 15) & ~15u;
+            // Over the budget, the copies longest unwanted (out of the window) go first.
+            while (stream_bytes + size > stream_budget) {
+                size_t pick = SIZE_MAX;
+                for (size_t k = 0; k < stream_copies.size(); k++) {
+                    const StreamCopy& o = stream_copies[k];
+                    if (o.block == nullptr || stream_frame - o.used <= stream_idle_frames) continue;
+                    if (pick == SIZE_MAX || o.used < stream_copies[pick].used) pick = k;
+                }
+                if (pick == SIZE_MAX) break;
+                stream_drop(rdram, ctx, pick);
+            }
+            uint8_t* block = (uint8_t*)recomp::alloc(rdram, size + 16);
+            if (block == nullptr) {
+                printf("[trackmod] No memory to show %s's diorama (%u bytes)\n", m.name.c_str(), size);
+                fflush(stdout);
+                c.used = 0;
+                return;
+            }
+            uint32_t base = (uint32_t(block - rdram) + 0x80000000u + 15) & ~15u;
+            auto be32 = [&](size_t o) {
+                uint32_t w = 0;
+                for (size_t b = 0; b < 4; b++) w = w << 8 | (o + b < m.blob.size() ? m.blob[o + b] : 0);
+                return w;
+            };
+            for (uint32_t o = 0; o < size; o += 4) MEM_W(0, (int32_t)(base + o)) = (int32_t)be32(o);
+            for (uint32_t p : m.pointers) {
+                if (p + 4 > m.blob.size()) continue;
+                MEM_W(0, (int32_t)(base + p)) = (int32_t)(base + (be32(p) & 0x00FFFFFF));
+            }
+            c.block = block;
+            c.base = base;
+            c.size = size;
+            c.stub = 0;
+            c.mirrored = false;     // as built
+            stream_bytes += size;
+        }
+        uint32_t record = model_record(rdram, ctx, name);
+        if (record == 0) return;
+        stream_sync_mirror(rdram, c, m, menu_art_mirrored(rdram));
+        c.record = record;
+        uint32_t list = (uint32_t)MEM_W(0xC, (int32_t)record);
+        if (list >= c.base && list < c.base + c.size) return;
+        c.stub = list;
+        MEM_W(0xC, (int32_t)record) = (int32_t)(c.base + m.list);
+        preview_models[t].looked_up = false;
+    }
+}
+
+// mirror_state_update_800776DC at its start ($a0 = the model slot) and at 0x800777E8, its exit: while it walks asset
+// 3's slot, the records pointed at streamed copies are back on their stubs (the walk reads 24-bit addresses); after it,
+// they are pointed again and the copies wound as the slot now is (stream_sync_mirror).
+extern "C" void rush2_track49_stream_mirror_begin(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t slot = (uint32_t)ctx->r4 & 0xFF;
+    if (MEM_BU(0, (int32_t)(slot_table + slot * slot_entry)) != menu_art_asset) return;
+    for (StreamCopy& c : stream_copies) {
+        if (c.block == nullptr || c.record == 0 || c.stub == 0) continue;
+        uint32_t list = (uint32_t)MEM_W(0xC, (int32_t)c.record);
+        if (list < c.base || list >= c.base + c.size) continue;
+        c.parked = list;
+        MEM_W(0xC, (int32_t)c.record) = (int32_t)c.stub;
+    }
+}
+
+extern "C" void rush2_track49_stream_mirror_end(uint8_t* rdram, recomp_context* ctx) {
+    int want = -2;
+    for (size_t i = 0; i < stream_copies.size() && i < stream_models.size(); i++) {
+        StreamCopy& c = stream_copies[i];
+        if (c.parked == 0) continue;
+        if ((uint32_t)MEM_W(0xC, (int32_t)c.record) == c.stub) MEM_W(0xC, (int32_t)c.record) = (int32_t)c.parked;
+        c.parked = 0;
+        if (want == -2) want = menu_art_mirrored(rdram);
+        stream_sync_mirror(rdram, c, stream_models[i], want);
+    }
+}
+
+namespace {
+
     // The custom tracks' previews' spare buffers: up to 201 previews with two each would take 4 MB of the game heap
     // the track select's container is loaded into (as the stock 2049 previews' are), so the container leaves them out
     // (strip_spare_buffers) and the few previews on screen borrow a slot of this pool, in RDRAM the game heap used
@@ -1840,17 +2147,8 @@ namespace {
         out = PreviewModel();
         out.looked_up = true;
         out.turn = last.turn;
-        recomp_context saved = *ctx;
-        ctx->r4 = (int32_t)preview_names[t];
-        ctx->r5 = 0;
-        ctx->r6 = MEM_BU(0, (int32_t)model_slots) - 1;
-        ctx->r7 = 1;
-        model_find_by_name_8005BE3C(rdram, ctx);
-        int32_t handle = (int32_t)ctx->r2;
-        *ctx = saved;
-        if (handle < 0 || (handle & 0xFFFF) == 0xFFFF) return;
-        uint32_t table = (uint32_t)MEM_W(0, (int32_t)(model_tables + (uint32_t)(handle >> 10) * 8));
-        uint32_t record = table + (uint32_t)(handle & 0x3FF) * 0x34;
+        uint32_t record = model_record(rdram, ctx, preview_names[t]);
+        if (record == 0) return;
         uint32_t own = (uint32_t)MEM_W(0xC, (int32_t)record);
 
         // The end of the model's list, where the buffers' tag is: {tag, the model's commands, its vertices, the
@@ -1858,9 +2156,9 @@ namespace {
         // record on a buffer's list, which ends with a branch into the model's own.
         using namespace rush2::track2049;
         uint32_t tag = 0;
-        for (uint32_t i = 0, at = own; i < 8192 && (at >> 24) == 0x80; i++, at += 8) {
+        for (uint32_t i = 0, at = own; i < 8192 && in_rdram(at); i++, at += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
-            if ((w0 >> 16) == 0xDE01) at = (0x80000000 | (w1 & 0x00FFFFFF)) - 8;
+            if ((w0 >> 16) == 0xDE01) at = dl_address(w1) - 8;
             else if ((w0 >> 24) == 0xDF) { tag = at + 8; break; }
         }
         uint32_t commands = 0, count = 0;
@@ -1877,12 +2175,12 @@ namespace {
 
         uint32_t first = 0xFFFFFFFF, end = 0;
         uint32_t list = own;
-        for (uint32_t i = 0; i < 4096 && (commands == 0 || i < commands) && (list >> 24) == 0x80; i++, list += 8) {
+        for (uint32_t i = 0; i < 4096 && (commands == 0 || i < commands) && in_rdram(list); i++, list += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)list), w1 = (uint32_t)MEM_W(4, (int32_t)list);
             uint32_t op = w0 >> 24;
             if (op == 0xFD || op == 0xDF) break;
             if (op != 0x01) continue;
-            uint32_t at = 0x80000000 | (w1 & 0x00FFFFFF);
+            uint32_t at = dl_address(w1);
             first = std::min(first, at);
             end = std::max(end, at + ((w0 >> 12) & 0xFF) * 16);
         }
@@ -1909,7 +2207,7 @@ namespace {
             MEM_W(12, (int32_t)tag) = (int32_t)own;
             // The rest ends with the state the stock dioramas leave (track2049_art.cpp preview_finish: a pipe sync,
             // the render mode and the combine) before its end.
-            for (uint32_t at = out.rest, i = 0; i < 4096 && (at >> 24) == 0x80; i++, at += 8) {
+            for (uint32_t at = out.rest, i = 0; i < 4096 && in_rdram(at); i++, at += 8) {
                 if ((uint32_t)MEM_W(0, (int32_t)at) != 0xDF000000u) continue;
                 uint32_t sync = at - 24;
                 if (sync >= out.rest && (uint32_t)MEM_W(0, (int32_t)sync) == 0xE7000000u &&
@@ -1918,12 +2216,12 @@ namespace {
                 }
                 break;
             }
-            for (uint32_t at = out.rest, i = 0; i < 4096 && (at >> 24) == 0x80; i++, at += 8) {
+            for (uint32_t at = out.rest, i = 0; i < 4096 && in_rdram(at); i++, at += 8) {
                 uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
                 if ((w0 >> 24) == 0xDF) break;
                 if (out.ring == 0 && (w0 >> 16) == 0xDE01) {
                     // The start, branched over on an earlier visit: its branch goes just past the end marker.
-                    uint32_t end = (0x80000000 | (w1 & 0x00FFFFFF)) - 8;
+                    uint32_t end = dl_address(w1) - 8;
                     if ((uint32_t)MEM_W(0, (int32_t)end) == 0 && (uint32_t)MEM_W(4, (int32_t)end) == version_ring_end) {
                         out.ring = at;
                         out.ring_after = end + 8;
@@ -1961,6 +2259,7 @@ namespace {
 // func_803AB294 at 0x803AB7DC, building the carousel: $a0 = the diorama name of entry $s0 about to be looked up.
 extern "C" void rush2_track49_select_model(uint8_t* rdram, recomp_context* ctx) {
     reset_pool();
+    stream_container_loaded();
     int t = MEM_BU(0, (int32_t)ctx->r16);
     if (t < menu_tracks && preview_names[t] != 0) {
         ctx->r4 = (int32_t)preview_names[t];
@@ -2108,16 +2407,20 @@ namespace {
 extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
     uint32_t entry = (uint32_t)ctx->r16;
     int t = MEM_BU(0, (int32_t)entry);
-    if (t >= menu_tracks || preview_names[t] == 0) return;
+    if (t >= menu_tracks) return;
+    int slot = MEM_BU(0, (int32_t)(entry + 0x14));   // 0 to count - 1 (us.toml reads it unsigned)
+    int count = MEM_H(0, (int32_t)carousel_count);
+    bool shown = slot == 0;
+    if (shown) stream_tick(rdram);
+    // A custom track's diorama, while its entry is near the shown one (stream_diorama).
+    if (is_mod_track(t) && (slot <= stream_window || slot >= count - stream_window)) stream_diorama(rdram, ctx, t);
+    if (preview_names[t] == 0) return;
 
     // The carousel's centre entry sits at (0, y, z) and the others slide along x; the centre one advances the
     // highlight and the turn.
     float place[3] = { rdram_float(rdram, entry + 4), rdram_float(rdram, entry + 8), rdram_float(rdram, entry + 12) };
     const float centre[3] = { 0.0f, place[1], place[2] };
     int16_t node = (int16_t)MEM_H(0, (int32_t)(entry + 0x1A));
-    int slot = MEM_BU(0, (int32_t)(entry + 0x14));   // 0 to count - 1 (us.toml reads it unsigned)
-    int count = MEM_H(0, (int32_t)carousel_count);
-    bool shown = slot == 0;
     if (shown) pool_frame++;
     // The centre entry and the two each side of it (sliding in or out) can be on screen.
     bool on_screen = slot <= 2 || slot >= count - 2;
@@ -2153,6 +2456,7 @@ namespace {
 // end of all 255; the entries past the ones in use are skipped (their instances stay -1, as the screen's teardown
 // leaves them).
 extern "C" void rush2_track49_circuit_entries(uint8_t* rdram, recomp_context* ctx) {
+    stream_container_loaded();
     ctx->r24 = (uint64_t)(int64_t)(int32_t)(new_diorama_names + uint32_t(table_entries.load()) * 4);
 }
 
@@ -2163,12 +2467,12 @@ namespace {
     // when the model has none.
     bool find_circuit_ring(uint8_t* rdram, uint32_t list, uint32_t& start, uint32_t& after) {
         using namespace rush2::track2049;
-        for (uint32_t at = list, i = 0; i < 8192 && (at >> 24) == 0x80; i++, at += 8) {
+        for (uint32_t at = list, i = 0; i < 8192 && in_rdram(at); i++, at += 8) {
             uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
             if ((w0 >> 24) == 0xDF) return false;
             if ((w0 >> 16) == 0xDE01) {
-                uint32_t end = (0x80000000 | (w1 & 0x00FFFFFF)) - 8;
-                if ((end >> 24) == 0x80 && (uint32_t)MEM_W(0, (int32_t)end) == 0 &&
+                uint32_t end = dl_address(w1) - 8;
+                if (in_rdram(end) && (uint32_t)MEM_W(0, (int32_t)end) == 0 &&
                     (uint32_t)MEM_W(4, (int32_t)end) == circuit_ring_end) {
                     start = at;
                     after = end + 8;
@@ -2176,7 +2480,7 @@ namespace {
                 }
             }
             if (w0 == 0 && w1 == circuit_ring_start) {
-                for (uint32_t e = at + 8, j = 0; j < 8192 && (e >> 24) == 0x80; j++, e += 8) {
+                for (uint32_t e = at + 8, j = 0; j < 8192 && in_rdram(e); j++, e += 8) {
                     uint32_t v0 = (uint32_t)MEM_W(0, (int32_t)e), v1 = (uint32_t)MEM_W(4, (int32_t)e);
                     if ((v0 >> 24) == 0xDF) return false;
                     if (v0 == 0 && v1 == circuit_ring_end) {
@@ -2211,17 +2515,8 @@ namespace {
     void circuit_diorama_ring(uint8_t* rdram, recomp_context* ctx, int t) {
         uint32_t name = (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4));
         if (name == 0) return;
-        recomp_context saved = *ctx;
-        ctx->r4 = (int32_t)name;
-        ctx->r5 = 0;
-        ctx->r6 = MEM_BU(0, (int32_t)model_slots) - 1;
-        ctx->r7 = 1;
-        model_find_by_name_8005BE3C(rdram, ctx);
-        int32_t handle = (int32_t)ctx->r2;
-        *ctx = saved;
-        if (handle < 0 || (handle & 0xFFFF) == 0xFFFF) return;
-        uint32_t table = (uint32_t)MEM_W(0, (int32_t)(model_tables + (uint32_t)(handle >> 10) * 8));
-        uint32_t record = table + (uint32_t)(handle & 0x3FF) * 0x34;
+        uint32_t record = model_record(rdram, ctx, name);
+        if (record == 0) return;
         uint32_t list = (uint32_t)MEM_W(0xC, (int32_t)record);
         uint32_t start = 0, after = 0;
         if (find_circuit_ring(rdram, list, start, after)) show_circuit_ring(rdram, start, after, has_other_version(t));
@@ -2230,6 +2525,8 @@ namespace {
 
 extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) {
     int t = (int32_t)MEM_W(0, (int32_t)circuit_shown);
+    stream_tick(rdram);
+    if (t >= 0 && t < menu_tracks && is_mod_track(t)) stream_diorama(rdram, ctx, t);
     if (t >= 0 && t < menu_tracks && !is_mod_track(t) && course_id(t) >= first_menu_id &&
         course_id(t) < first_menu_id + track_count) {
         circuit_diorama_ring(rdram, ctx, t);

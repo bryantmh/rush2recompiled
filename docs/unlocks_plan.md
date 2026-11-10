@@ -53,6 +53,15 @@ original rules the port follows with the unlock system off.
 - **Gotcha**: func_803AA800, which every screen calls each frame, is the Controller Pak check (func_80098D14), not a
   background: it sets 0x803CB41C when a player's pak changed, the game's screens go back to the menus on it, and only
   the select player screen (func_803B4D88) clears it.
+- **Gotcha** (issue #59): the shop loads the track select's art (asset 3) into the car select's scene, whose heap
+  (0x80420000-0x80AA0000, heap cursor 0x8010C438) has far less room than the track select's. The full container
+  (with the custom, Dreamcast version and Cal Speed tracks' art) left the shop only ~110 KB below the heap top with the
+  arcade mods, and the PlayStation SF Rush mod's Chinatown diorama took it 1.4 MB past the top: the next allocations
+  overwrote models and the game crashed in model_draw_8007AA48 on the shop's first frame. So `prepare_menu_art` serves
+  the shop its own asset 3 (`shop_container` in src/rush2049/track2049_menu.cpp: Rush 2's art with the Rush 2049 and
+  SF Rush tracks', all the shop shows; a byproduct of the track select's build) and names the SF Rush dioramas as it
+  holds them (`shop_diorama_name`: R1TRACKn, never an arcade version's banded copy). The heap then tops out at
+  0x80996DE0 in the shop, ~1 MB to spare. The track select and circuit screen serve the full container again.
 
 ---------------------------------------------------------------------------------------------------------------------
 

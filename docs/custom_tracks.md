@@ -914,7 +914,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | Checkpoints | 9 | The game has 10 gates including the finish line. |
 | Custom surfaces | 12 | The collision format's surface slots. |
 | Custom tracks | 195 across all enabled mods (in mod order; the rest are left out, the log says how many) | The game keeps the track select id in one byte: ids 0-254, and the stock and other games' tracks take 60 of them. |
-| Track select art | about 3.3 MB for all custom tracks' logos and dioramas | The art is loaded into the game's memory with the track select. A logo takes 4.5 KB and a route preview about 10 KB, so 195 tracks fit; authored dioramas can be much larger. Past the room, the later tracks (in mod order) show their logo with no diorama, and the log says how many. |
+| Track select art | none for the dioramas; logos take 4.5 KB each (under 1 MB for 195 tracks) | Dioramas and route previews are loaded only while their track is near the one shown, outside the game's own memory, so every track shows its diorama however many there are or however big they are. Keep a diorama around the stock size anyway (2,400 triangles, small textures): a big one costs memory and loading time. |
 
 Vertex counts per object, the number of objects or materials, and name lengths don't matter: the converter splits,
 merges and renames as needed.
@@ -949,9 +949,10 @@ merges and renames as needed.
   turns its lb into lbu, listed by `tools/byte_reads.py 8010C3F0`), so ids past 127 work in its menu code. The carousel's entries keep their place relative to the shown track
   in a byte too (entry +0x14, up to 254 with more than 128 tracks on one select): its loads at 0x803AB718, 0x803ABB30
   and 0x803ABB38 are lbu as well, and `rush2_track49_carousel_place` wraps the place the setup stores before reading it
-  (it relied on a signed read going negative). The route
-  previews' spare animation buffers aren't kept in the track select's art (asset 3): the previews on screen borrow them
-  from a pool at 0x80320000 (`lend_buffers`), so 195 previews fit the game heap (`mod_art_room`). Circuits choose custom
+  (it relied on a signed read going negative). The custom tracks' dioramas aren't in the track select's art (asset 3,
+  loaded into the game heap below 16 MB): it holds a stub model per custom track and their logos, and each diorama or
+  route preview is copied above 16 MB while its track is within 6 places of the shown one on the carousel or is the
+  circuit screen's race (docs/rush2049_research/menus.md#76-streamed-custom-dioramas-port). Circuits choose custom
   tracks by folder (`src/circuit.cpp`: the config keeps the folders turned off, each circuit the folders it started
   with, and the races it generated, custom tracks by folder, so they stay put while the enabled mods change:
   docs/rush2049_research/menus.md#circuit-races-kept-with-the-circuit). Without an authored diorama, the circuit

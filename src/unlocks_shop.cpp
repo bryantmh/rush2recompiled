@@ -359,7 +359,7 @@ namespace {
         if (item.kind == Kind::Track) {
             rush2::track2049::prepare_menu_art(rdram);
             call(rdram, ctx, asset_load_80086A60, menu_art_asset, 0);
-            name = rush2::track2049::diorama_name(rdram, item.value);
+            name = str(rdram, rush2::track2049::shop_diorama_name(rdram, item.value));
         }
         else {
             call(rdram, ctx, asset_load_80086A60, rush2::car2049::parts_asset, 0);
