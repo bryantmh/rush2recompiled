@@ -405,9 +405,15 @@ void rush2::calspeed::physics::ground_contact_begin(uint8_t* rdram, uint32_t car
                (int16_t)MEM_H(0, (int32_t)(car + 0x810)));
     }
     was[s] = crash;
-    // Test aid, RUSH2_CS_PLACE="x,y,z,dx,dz,speed,at": the player's car (physics car 0) put at (x, y, z) heading
-    // (dx, dz) level at speed ft/s once its clock passes `at`, then its position, attitude, velocity and wheels logged
-    // ([csplace]) each step for 8 s (docs/calspeed_research.md#wall-climbing-a-missed-wheel-reads-as-fully-compressed-fixed-2026-10-27).
+}
+
+// Test aid, RUSH2_CS_PLACE="x,y,z,dx,dz,speed,at": the player's car (physics car 0) put at (x, y, z) heading
+// (dx, dz) level at speed ft/s once its clock passes `at`, then its position, attitude, velocity and wheels logged
+// ([csplace]) each step for 8 s (docs/calspeed_research.md#wall-climbing-a-missed-wheel-reads-as-fully-compressed-fixed-2026-10-27).
+// Runs on any track (calspeed_walls.cpp calls it before its California Speed check); hold is 0 off them.
+void rush2::calspeed::physics::test_place(uint8_t* rdram, uint32_t car) {
+    int s = slot_of(car);
+    if (s < 0) return;
     static const char* place = getenv("RUSH2_CS_PLACE");
     static bool placed = false;
     static int logged = 0;

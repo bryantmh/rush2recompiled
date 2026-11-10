@@ -411,6 +411,7 @@ namespace {
 }
 
 extern "C" void rush2_calspeed_ground_contact_enter(uint8_t* rdram, recomp_context* ctx) {
+    rush2::calspeed::physics::test_place(rdram, uint32_t(ctx->r4));
     if (!rush2::calspeed::physics::active(rdram, uint32_t(ctx->r4))) return;
     rush2::calspeed::physics::ground_contact_begin(rdram, uint32_t(ctx->r4));
     int n = car_index(uint32_t(ctx->r4));

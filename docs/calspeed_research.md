@@ -1357,7 +1357,8 @@ travel 1000, offset 0, type and material 8, travel speed from the change clamped
 Rush 2 is unchanged (stock Rush 2 behavior).
 
 Test aids: `RUSH2_CS_PLACE="x,y,z,dx,dz,speed,at"` puts the player's car (physics car 0) at a spot, heading (dx, dz)
-at speed ft/s, once its clock passes `at`, and logs it each step for 8 s ([csplace]; src/calspeed/calspeed_physics.cpp).
+at speed ft/s, once its clock passes `at`, and logs it each step for 8 s ([csplace]; src/calspeed/calspeed_physics.cpp
+`test_place`; on any track since 2026-11-09, not only California Speed's).
 `RUSH2_CS_OLD_MISS=1` runs the port as it was before the fix. The report's spot:
 `tools/test_race.py 74 --games calspeed_physics_mode=Partial --env RUSH2_CS_PLACE=-1874,-904,470,0.502,-0.863,235,1`.
 Results there (highest y reached from the start at -904): before the fix +160 (Partial) and +248 (with

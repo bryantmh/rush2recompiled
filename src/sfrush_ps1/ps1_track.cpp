@@ -620,6 +620,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     // Walls: the PS1's have no height; each becomes a face from 10 ft under the ground beside it to 40 ft over it, cut
     // short under any other ground above (a street over a tunnel).
+    size_t steps = 0;
     {
         Mesh& m = by_surface["WALL"];
         for (const Wall& w : walls) {
@@ -675,7 +676,77 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             m.tris.push_back({ base, base + 1, base + 2 });
             m.tris.push_back({ base, base + 2, base + 3 });
         }
+        // Steps: a ground polygon too steep to drive between two flat levels (track 4's dead-end lane beside the street
+        // climbing to the big loop, glb x 744-762 z -120 m: one road polygon rising 65 ft in 40 ft, 59 degrees, from the
+        // lane to the street above, drawn as a rock wall with a chevron sign) stops a PS1
+        // car, but Rush 2 drives up any ground face, so the car went "through" the rock wall drawn there. Each gets a
+        // wall along its low edge facing downhill, from 3 ft under it to 3 ft over its top; the polygon stays ground so
+        // a car coming down from above (behind the one-sided wall) still rolls down it. Flat ground (normal y > 0.9)
+        // must lie just past both edges: steep bands of a banked curve (Golden Gate's, 54 degrees, next to other
+        // bands or nothing) stay drivable (docs/sfrush_ps1.md#collision).
+        auto flat_at = [&](double x, double z, double y) {
+            for (const Ground& o : grounds) {
+                for (int k = 0; k < o.tri_count; k++) {
+                    const V3& p0 = o.p[o.tris[k][0]];
+                    const V3& p1 = o.p[o.tris[k][1]];
+                    const V3& p2 = o.p[o.tris[k][2]];
+                    auto side = [&](const V3& a, const V3& b) { return (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]); };
+                    double s0 = side(p0, p1), s1 = side(p1, p2), s2 = side(p2, p0);
+                    if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+                    V3 on = a49::cross(p1 - p0, p2 - p0);
+                    if (a49::norm(on) < 1e-9) continue;
+                    on = a49::unit(on);
+                    if (std::fabs(on[1]) < 0.9) continue;
+                    double h = p0[1] - (on[0] * (x - p0[0]) + on[2] * (z - p0[2])) / on[1];
+                    if (std::fabs(h - y) < 2.0) return true;
+                }
+            }
+            return false;
+        };
+        for (const Ground& gr : grounds) {
+            V3 n = a49::cross(gr.p[1] - gr.p[0], gr.p[2] - gr.p[0]);
+            if (a49::norm(n) < 1e-9) continue;
+            n = a49::unit(n);
+            if (n[1] < 0) n = n * -1.0;
+            if (n[1] >= 0.6 || n[1] < 0.2) continue;
+            double lo = 1e9, hi = -1e9;
+            for (int c = 0; c < gr.n; c++) {
+                lo = std::min(lo, gr.p[c][1]);
+                hi = std::max(hi, gr.p[c][1]);
+            }
+            if (hi - lo < 4.0) continue;
+            int low[2], nl = 0;
+            V3 top{ 0, 0, 0 };
+            int nt = 0;
+            for (int c = 0; c < gr.n; c++) {
+                if (gr.p[c][1] < lo + 1.0 && nl < 2) low[nl++] = c;
+                if (gr.p[c][1] > hi - 1.0) {
+                    top = top + gr.p[c];
+                    nt++;
+                }
+            }
+            if (nl < 2 || nt == 0) continue;
+            top = top * (1.0 / nt);
+            V3 a = gr.p[low[0]], b = gr.p[low[1]];
+            V3 wn{ n[0], 0.0, n[2] };
+            wn = a49::unit(wn);
+            V3 foot = (a + b) * 0.5;
+            if (!flat_at(foot[0] + 2.0 * wn[0], foot[2] + 2.0 * wn[2], lo) || !flat_at(top[0] - 2.0 * wn[0], top[2] - 2.0 * wn[2], hi))
+                continue;
+            std::array<V3, 4> q{ V3{ a[0], lo - 3.0, a[2] }, V3{ b[0], lo - 3.0, b[2] }, V3{ b[0], hi + 3.0, b[2] },
+                                 V3{ a[0], hi + 3.0, a[2] } };
+            if (a49::dot(a49::cross(q[1] - q[0], q[2] - q[0]), wn) < 0) std::swap(q[1], q[3]);
+            uint32_t base = uint32_t(m.verts.size());
+            for (int c : { 0, 1, 2, 3 }) {
+                m.verts.push_back(gl(q[c]));
+                m.normals.push_back(wn);
+            }
+            m.tris.push_back({ base, base + 1, base + 2 });
+            m.tris.push_back({ base, base + 2, base + 3 });
+            steps++;
+        }
     }
+    if (steps) report.push_back(std::to_string(steps) + " steep ground polygons walled at their foot");
     size_t collision_tris = 0;
     for (auto& [surface, m] : by_surface) {
         if (m.tris.empty()) continue;

@@ -209,6 +209,8 @@ namespace rush2::calspeed {
         void convert_descriptor(uint8_t* rdram, uint32_t desc);
         // Called from the ground contact (calspeed_walls.cpp): its start, a wall hit on a body point, its end.
         void ground_contact_begin(uint8_t* rdram, uint32_t car);
+        // Test aid RUSH2_CS_PLACE, run for every car on every track (not only under California Speed's physics).
+        void test_place(uint8_t* rdram, uint32_t car);
         void wall_hit(uint32_t car, int point, int type);
         void ground_contact_end(uint8_t* rdram, uint32_t car);
         // Called from the hooks of calspeed_rom.cpp at the same spots; true when they ran (the callers' own rules

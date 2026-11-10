@@ -192,6 +192,15 @@ vertices are (x, -height, y) of the track frame. **[V]**
   channel beside the shortcut). 0x40 = the next record is skipped by the ground query; 0x80 (ordinary road and grass
   on track 4) sets a per-car flag (0x801015C4 + car x 0x408) read at 0x8005E134 and 0x80062F04. `& 7 != 0` marks the
   0x28-byte records. **[V]** surfaces, **[I]** 0x80.
+- **Steps:** a dead end can be a ground polygon instead of a wall. Track 4's lane beside the street that climbs to the
+  big loop (glb x 744-762 m, ending at z -120 m) ends in one road polygon rising 65 ft in 40 ft (59 degrees) to the
+  street above, drawn as a rock wall with a chevron sign. A PS1 car doesn't climb it **[I]** (how the PS1 refuses it
+  isn't traced); Rush 2 drives up any ground face, so players went straight through the "wall" (user report
+  2026-11-09). The converter (`build_condition`, ps1_track.cpp) walls the foot of every ground polygon steeper than
+  53 degrees (normal y 0.2-0.6), rising 4 ft or more, with flat ground (normal y > 0.9) just past both its low and
+  high edges: one face along the low edge facing downhill, 3 ft under it to 3 ft over the top, the polygon kept as
+  ground so a car coming down from above (behind the one-sided wall) still rolls down. Only that polygon qualifies
+  on the PS1 disc; Golden Gate's 54-degree banked-curve bands (next to other bands or nothing) stay drivable.
 
 ## AI paths
 
