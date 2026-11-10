@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 79dfc38..8f33330 100644
+index 79dfc38..88b207c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -504,6 +504,8 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
@@ -19,7 +19,7 @@ index 79dfc38..8f33330 100644
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl" "src/shaders/RSPVertexTestZCSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/RtCopyColorToDepthPS.hlsl")
-@@ -550,7 +553,16 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+@@ -550,7 +553,18 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
  build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/VideoInterfacePSPixel.hlsl" "-D PIXEL_ANTIALIASING")
  build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
  build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
@@ -33,14 +33,16 @@ index 79dfc38..8f33330 100644
 +# Rush 2 recomp: sky fog.
 +build_pixel_shader(  rt64 "src/shaders/SkyFogPS.hlsl")
 +build_pixel_shader(  rt64 "src/shaders/SkyFogPS.hlsl" "src/shaders/SkyFogPSMS.hlsl" "-D MULTISAMPLING")
++build_pixel_shader(  rt64 "src/shaders/CarLightPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/CarLightPS.hlsl" "src/shaders/CarLightPSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/DebugPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/PostProcessPS.hlsl")
 diff --git a/include/rt64_extended_gbi.h b/include/rt64_extended_gbi.h
-index d387090..030f145 100644
+index d387090..d59a12f 100644
 --- a/include/rt64_extended_gbi.h
 +++ b/include/rt64_extended_gbi.h
-@@ -80,7 +80,12 @@
+@@ -80,7 +80,13 @@
  #define G_EX_SETVERTEXSEGMENT_V1        0x000031
  #define G_EX_SETTEXCOORDWRAPPOINT_V1    0x000032
  #define G_EX_SETRECTASPECT_V1           0x000033
@@ -50,11 +52,12 @@ index d387090..030f145 100644
 +#define G_EX_SETSKYFOG_V1               0x000036
 +#define G_EX_SETSKYDRAW_V1              0x000037
 +#define G_EX_SETTWOSIDEDWALLS_V1        0x000038
-+#define G_EX_MAX                        0x000039
++#define G_EX_SETCARLIGHT_V1             0x000039
++#define G_EX_MAX                        0x00003A
  
  #define G_EX_ORIGIN_NONE            0x800
  #define G_EX_ORIGIN_LEFT            0x0
-@@ -579,4 +584,51 @@ typedef union {
+@@ -579,4 +585,61 @@ typedef union {
          PARAM(aspect, 2, 0) \
      )
  
@@ -103,6 +106,16 @@ index d387090..030f145 100644
 +    G_EX_COMMAND1(cmd, \
 +        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETTWOSIDEDWALLS_V1, 24, 0), \
 +        PARAM(on, 2, 0) \
++    )
++
++// Rush 2 recomp: the triangles that follow aren't drawn but mark a light (FramebufferRenderer, submitCarLights): a point
++// light at their matrix's origin (the interpolated frame's, so it moves with what it rides on) that lights the view's
++// 3D within radius world units of it, falling off to nothing there, in color (r, g, b) at strength / 16 of the
++// surface's own color added. radius 0 ends. Lasts until the next car light command.
++#define gEXSetCarLight(cmd, r, g, b, strength, radius) \
++    G_EX_COMMAND1(cmd, \
++        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETCARLIGHT_V1, 24, 0), \
++        PARAM(r, 5, 27) | PARAM(g, 5, 22) | PARAM(b, 5, 17) | PARAM(strength, 6, 11) | PARAM(radius, 11, 0) \
 +    )
 +
  #endif // RT64_EXTENDED_GBI
@@ -299,7 +312,7 @@ index 4857f22..5646b55 100644
  
      NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::InternalColorFormat, {
 diff --git a/src/gbi/rt64_gbi_extended.cpp b/src/gbi/rt64_gbi_extended.cpp
-index 20c0d4d..50a4dc9 100644
+index 20c0d4d..a85ebb2 100644
 --- a/src/gbi/rt64_gbi_extended.cpp
 +++ b/src/gbi/rt64_gbi_extended.cpp
 @@ -4,6 +4,8 @@
@@ -311,7 +324,7 @@ index 20c0d4d..50a4dc9 100644
  #include "../include/rt64_extended_gbi.h"
  
  namespace RT64 {
-@@ -331,6 +333,34 @@ namespace RT64 {
+@@ -331,6 +333,38 @@ namespace RT64 {
              state->rdp->setRectAspect(aspect);
          }
  
@@ -335,6 +348,10 @@ index 20c0d4d..50a4dc9 100644
 +            state->rdp->setSkyFog(haze);
 +        }
 +
++        void setCarLightV1(State *state, DisplayList **dl) {
++            state->rdp->setCarLight((*dl)->w1);
++        }
++
 +        void setSkyDrawV1(State *state, DisplayList **dl) {
 +            state->rdp->setSkyDraw((*dl)->p1(0, 1) != 0);
 +        }
@@ -346,7 +363,7 @@ index 20c0d4d..50a4dc9 100644
          void noOpHook(State *state, DisplayList **dl) {
              uint32_t magicNumber = (*dl)->p0(0, 24);
              if (magicNumber == RT64_HOOK_MAGIC_NUMBER) {
-@@ -439,6 +469,11 @@ namespace RT64 {
+@@ -439,6 +473,12 @@ namespace RT64 {
              Map[G_EX_SETVERTEXSEGMENT_V1] = &setVertexSegmentV1;
              Map[G_EX_SETTEXCOORDWRAPPOINT_V1] = &setTexcoordWrapPointV1;
              Map[G_EX_SETRECTASPECT_V1] = &setRectAspectV1;
@@ -355,6 +372,7 @@ index 20c0d4d..50a4dc9 100644
 +            Map[G_EX_SETSKYFOG_V1] = &setSkyFogV1;
 +            Map[G_EX_SETSKYDRAW_V1] = &setSkyDrawV1;
 +            Map[G_EX_SETTWOSIDEDWALLS_V1] = &setTwoSidedWallsV1;
++            Map[G_EX_SETCARLIGHT_V1] = &setCarLightV1;
              MapInitialized = true;
          }
      }
@@ -438,10 +456,10 @@ index 785de27..3c40137 100644
          rasterShaderCache = std::make_unique<RasterShaderCache>(rasterShaderThreads, ubershaderThreads);
          rasterShaderCache->setup(device.get(), renderInterface->getCapabilities().shaderFormat, shaderLibrary.get(), multisampling);
 diff --git a/src/hle/rt64_draw_call.h b/src/hle/rt64_draw_call.h
-index 0e62be1..d237c4e 100644
+index 0e62be1..327966e 100644
 --- a/src/hle/rt64_draw_call.h
 +++ b/src/hle/rt64_draw_call.h
-@@ -65,6 +65,13 @@ namespace RT64 {
+@@ -65,6 +65,16 @@ namespace RT64 {
          uint32_t forceUpscale2D : 1;
          uint32_t forceTrueBilerp : 2;
          uint32_t forceScaleLOD : 1;
@@ -452,6 +470,9 @@ index 0e62be1..d237c4e 100644
 +        uint32_t skyFog : 16;
 +        // Rush 2 recomp: drawn as the sky (gEXSetSkyDraw).
 +        uint32_t skyDraw : 1;
++        // Rush 2 recomp: a car light marker's color, strength and radius as gEXSetCarLight packs them, or 0 for a
++        // draw that isn't one.
++        uint32_t carLight;
      };
  
      struct DrawCall {
@@ -653,7 +674,7 @@ index 3227ab1..883cf36 100644
  
          ext.sharedResources->interpolatedCondition.notify_all();
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
-index a10c11a..e05eb8d 100644
+index a10c11a..bf0e4ab 100644
 --- a/src/hle/rt64_rdp.cpp
 +++ b/src/hle/rt64_rdp.cpp
 @@ -785,6 +785,13 @@ namespace RT64 {
@@ -670,7 +691,7 @@ index a10c11a..e05eb8d 100644
  #   ifdef ASSERT_LOAD_METHODS
          assert((texture.siz == G_IM_SIZ_16b) && "Non-16 bit textures are not currently supported.");
          assert((t.siz == G_IM_SIZ_4b) && "Non-4 bit tiles are not currently supported.");
-@@ -1076,6 +1083,23 @@ namespace RT64 {
+@@ -1076,6 +1083,29 @@ namespace RT64 {
          state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
      }
  
@@ -691,19 +712,26 @@ index a10c11a..e05eb8d 100644
 +        state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
 +    }
 +
++    // Rush 2 recomp: a car light marker (gEXSetCarLight).
++    void RDP::setCarLight(uint32_t light) {
++        extended.drawExtendedFlags.carLight = ((light & 0x7FF) != 0) ? light : 0;
++        state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
++    }
++
      void RDP::clearExtended() {
          extended.scissorLeftOriginStack[0] = G_EX_ORIGIN_NONE;
          extended.scissorRightOriginStack[0] = G_EX_ORIGIN_NONE;
 diff --git a/src/hle/rt64_rdp.h b/src/hle/rt64_rdp.h
-index 84f4e7c..df5ff15 100644
+index 84f4e7c..e00423d 100644
 --- a/src/hle/rt64_rdp.h
 +++ b/src/hle/rt64_rdp.h
-@@ -199,6 +199,9 @@ namespace RT64 {
+@@ -199,6 +199,10 @@ namespace RT64 {
          void forceUpscale2D(bool force);
          void forceTrueBilerp(uint8_t mode);
          void forceScaleLOD(bool force);
 +        void setCarReflection(uint8_t group);
 +        void setSkyFog(uint16_t haze);
++        void setCarLight(uint32_t light);
 +        void setSkyDraw(bool on);
          void clearExtended();
  
@@ -1397,7 +1425,7 @@ index 69a82ac..df03596 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..546f8f3 100644
+index 9fae0d4..b1a29f0 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,14 +4,20 @@
@@ -1437,17 +1465,18 @@ index 9fae0d4..546f8f3 100644
      RenderRect convertFixedRect(FixedRect rect, hlslpp::float2 resScale, int32_t fbWidth, float aspectRatioScale, float extOriginPercentage, int32_t horizontalMisalignment, uint16_t leftOrigin, uint16_t rightOrigin) {
          if (!rect.isNull()) {
              auto computeOrigin = [=](uint16_t origin) {
-@@ -169,6 +181,9 @@ namespace RT64 {
+@@ -169,6 +181,10 @@ namespace RT64 {
      
      void FramebufferRenderer::resetFramebuffers(RenderWorker *worker, bool ubershadersVisible, float ditherNoiseStrength, const RenderMultisampling &multisampling) {
          instanceDrawCallVector.clear();
 +        occlusionParamsVector.clear();
 +        carReflectionScenes.clear();
 +        skyFogPasses.clear();
++        carLightPasses.clear();
          hitGroupVector.clear();
          renderIndicesVector.clear();
          rspSmoothNormalVector.clear();
-@@ -250,6 +265,9 @@ namespace RT64 {
+@@ -250,6 +266,9 @@ namespace RT64 {
                      gpuTile.flags.fromCopy = true;
                      gpuTile.flags.rawTMEM = false;
                      gpuTile.flags.hasMipmaps = false;
@@ -1457,7 +1486,7 @@ index 9fae0d4..546f8f3 100644
                  }
              }
              else {
-@@ -258,20 +276,31 @@ namespace RT64 {
+@@ -258,20 +277,31 @@ namespace RT64 {
                  bool textureReplaced = false;
                  bool hasMipmaps = false;
                  bool shiftedByHalf = false;
@@ -1494,7 +1523,7 @@ index 9fae0d4..546f8f3 100644
              }
          }
      }
-@@ -508,14 +537,180 @@ namespace RT64 {
+@@ -508,14 +538,244 @@ namespace RT64 {
              }
          };
  
@@ -1629,6 +1658,59 @@ index 9fae0d4..546f8f3 100644
 +            switchToGraphicsPipeline();
 +        };
 +
++        // Rush 2 recomp: car lights. The light markers met so far shine once the 3D draws they are among end (at a 2D
++        // draw or the end of the scene), after ambient occlusion: each over the screen box it can reach, lighting what
++        // the depth buffer holds there (CarLightPS.hlsl).
++        std::vector<int32_t> pendingCarLights;
++        auto submitCarLights = [&]() {
++            RenderTarget *colorTarget = fbStorage->colorTarget;
++            RenderTarget *depthTarget = fbStorage->depthTarget;
++            if (pendingCarLights.empty() || (colorTarget == nullptr) || (depthTarget == nullptr)) {
++                pendingCarLights.clear();
++                return;
++            }
++
++            RenderDevice *device = worker->device;
++            if (fbStorage->colorOnly == nullptr) {
++                const RenderTexture *colorTexture = colorTarget->texture.get();
++                fbStorage->colorOnly = device->createFramebuffer(RenderFramebufferDesc(&colorTexture, 1));
++            }
++
++            if (fbStorage->occlusionDepthSet == nullptr) {
++                fbStorage->occlusionDepthSet = std::make_unique<TextureCopyDescriptorSet>(device);
++                fbStorage->occlusionDepthSet->setTexture(fbStorage->occlusionDepthSet->gInput, depthTarget->texture.get(), RenderTextureLayout::DEPTH_READ, depthTarget->textureView.get());
++            }
++
++            const RenderViewport targetViewport(0.0f, 0.0f, float(colorTarget->width), float(colorTarget->height));
++            const bool depthMS = (depthTarget->multisampling.sampleCount > 1);
++            const ShaderRecord &lightShader = depthMS ? shaderLibrary->carLightMS : shaderLibrary->carLight;
++            submitDepthAccess(worker, fbStorage, true, depthState);
++            worker->commandList->setFramebuffer(fbStorage->colorOnly.get());
++            worker->commandList->setViewports(targetViewport);
++            worker->commandList->setPipeline(lightShader.pipeline.get());
++            worker->commandList->setGraphicsPipelineLayout(lightShader.pipelineLayout.get());
++            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionDepthSet->get(), 0);
++            worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
++            for (int32_t index : pendingCarLights) {
++                const CarLightPass &pass = carLightPasses[index];
++                const RenderRect rect(std::max(pass.rect.left, 0), std::max(pass.rect.top, 0),
++                    std::min(pass.rect.right, int32_t(colorTarget->width)), std::min(pass.rect.bottom, int32_t(colorTarget->height)));
++                if (rect.isEmpty()) {
++                    continue;
++                }
++
++                worker->commandList->setScissors(rect);
++                worker->commandList->setGraphicsPushConstants(0, &pass.cb);
++                worker->commandList->drawInstanced(3, 1, 0, 0);
++            }
++
++            pendingCarLights.clear();
++
++            // Back to the scene's framebuffer, with the depth buffer still read only.
++            worker->commandList->setFramebuffer(fbStorage->colorWriteDepthRead.get());
++            switchToGraphicsPipeline();
++        };
++
          if (fbStorage->colorTarget != nullptr) {
              switchToGraphicsPipeline();
          }
@@ -1638,6 +1720,15 @@ index 9fae0d4..546f8f3 100644
              const InstanceDrawCall &drawCall = instanceDrawCallVector[i];
 +            if (dueSkyFog >= 0) {
 +                submitSkyFog();
++            }
++
++            // Rush 2 recomp: a car light marker draws nothing; its light waits for the end of the 3D draws.
++            if ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && (drawCall.triangles.carLightIndex != -1)) {
++                if (drawCall.triangles.carLightIndex >= 0) {
++                    pendingCarLights.push_back(drawCall.triangles.carLightIndex);
++                }
++
++                continue;
 +            }
 +
 +            if ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && (drawCall.triangles.skyFogIndex >= 0) && !drawCall.triangles.scissor.isEmpty()) {
@@ -1660,15 +1751,17 @@ index 9fae0d4..546f8f3 100644
 +                dueSkyFog = drawCall.triangles.skyFogIndex;
 +            }
 +
-+            if (pendingOcclusion >= 0) {
-+                const bool endsOcclusion =
-+                    ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && !drawCall.triangles.perspective) ||
-+                    (drawCall.type == InstanceDrawCall::Type::RawTriangles) ||
-+                    (drawCall.type == InstanceDrawCall::Type::RegularRect) ||
-+                    (drawCall.type == InstanceDrawCall::Type::FillRect);
-+                if (endsOcclusion) {
-+                    submitOcclusion();
-+                }
++            const bool ends3D =
++                ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && !drawCall.triangles.perspective) ||
++                (drawCall.type == InstanceDrawCall::Type::RawTriangles) ||
++                (drawCall.type == InstanceDrawCall::Type::RegularRect) ||
++                (drawCall.type == InstanceDrawCall::Type::FillRect);
++            if ((pendingOcclusion >= 0) && ends3D) {
++                submitOcclusion();
++            }
++
++            if (!pendingCarLights.empty() && ends3D) {
++                submitCarLights();
 +            }
 +
              switch (drawCall.type) {
@@ -1677,7 +1770,7 @@ index 9fae0d4..546f8f3 100644
              case InstanceDrawCall::Type::RawTriangles:
              case InstanceDrawCall::Type::RegularRect: {
                  assert(fbStorage->colorTarget != nullptr);
-@@ -550,6 +745,23 @@ namespace RT64 {
+@@ -550,6 +810,23 @@ namespace RT64 {
                      continue;
                  }
  
@@ -1701,7 +1794,7 @@ index 9fae0d4..546f8f3 100644
                  // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
                  const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
                  bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
-@@ -578,6 +790,20 @@ namespace RT64 {
+@@ -578,6 +855,20 @@ namespace RT64 {
  
                  drawCallTriangles(drawCall);
  
@@ -1722,17 +1815,18 @@ index 9fae0d4..546f8f3 100644
                  // Simulate dither noise.
                  if (triangles.postBlendDitherNoise) {
                      if (triangles.postBlendDitherNoiseNegative) {
-@@ -638,6 +864,9 @@ namespace RT64 {
+@@ -638,6 +929,10 @@ namespace RT64 {
              }
          }
  
 +        submitSkyFog();
 +        submitOcclusion();
++        submitCarLights();
 +
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -1316,6 +1545,533 @@ namespace RT64 {
+@@ -1316,6 +1611,533 @@ namespace RT64 {
      }
  #endif
  
@@ -2266,7 +2360,7 @@ index 9fae0d4..546f8f3 100644
      void FramebufferRenderer::addFramebuffer(const DrawParams &p) {
          assert(p.fbStorage != nullptr);
          
-@@ -1450,8 +2206,18 @@ namespace RT64 {
+@@ -1450,8 +2272,18 @@ namespace RT64 {
          uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
@@ -2285,7 +2379,7 @@ index 9fae0d4..546f8f3 100644
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2272,135 @@ namespace RT64 {
+@@ -1506,6 +2338,257 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -2335,39 +2429,42 @@ index 9fae0d4..546f8f3 100644
 +                }
 +            }
 +
-+            // Rush 2 recomp: the sky fog pass of this projection's view, made on its first draw marked with
-+            // gEXSetSkyFog. Projections with the same viewport in this framebuffer pair are one view and share it.
-+            // A pixel's direction is (ndc.x, ndc.y, 1) times the inverse of the view projection's x, y and w columns
-+            // (what the GPU used, interpolated frames included), and ndc comes from the pixel through the viewport.
-+            int32_t projSkyFogIndex = -2;
-+            auto skyFogPassOf = [&](uint16_t haze) -> int32_t {
-+                if (projSkyFogIndex != -2) {
-+                    return projSkyFogIndex;
++            // Rush 2 recomp: how this projection's view maps a pixel back to a position, for sky fog and car lights.
++            // A position p (in the space its world transforms put vertices in) has clip (x, y, w) = p * g + t, g the
++            // view projection's x, y and w columns (what the GPU used, interpolated frames included) and t their
++            // translation row; so from the camera (where clip x, y and w are 0: -t * gi) a pixel's position is
++            // w * (ndc.x, ndc.y, 1) * gi, and ndc comes from the pixel through the viewport: the direction
++            // pixel.x * dirX + pixel.y * dirY + dirW, times w.
++            struct ViewRecon {
++                bool ok = false;
++                RenderViewport rect;
++                float g[3][3] = {};
++                interop::float4 dirX, dirY, dirW;
++                float ax = 0.0f, ay = 0.0f, bx = 0.0f, by = 0.0f;
++                float camera[3] = {};
++            };
++            ViewRecon projRecon;
++            bool projReconMade = false;
++            auto viewReconOf = [&]() -> const ViewRecon & {
++                if (projReconMade) {
++                    return projRecon;
 +                }
 +
-+                projSkyFogIndex = -1;
++                projReconMade = true;
 +                if (!perspectiveProj || (projDepthB == 0.0f)) {
-+                    return -1;
++                    return projRecon;
 +                }
 +
 +                const interop::RSPViewport &viewport = drawData.rspViewports[proj.transformsIndex];
 +                const int16_t viewportEdges[4] = { 1, 1, -1, -1 };
 +                const RenderViewport viewportRect = convertViewportRect(viewport.rect(viewportEdges), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
 +                if ((viewportRect.width <= 0.0f) || (viewportRect.height <= 0.0f) || (viewport.scale.x == 0.0f) || (viewport.scale.y == 0.0f)) {
-+                    return -1;
-+                }
-+
-+                for (uint32_t s = skyFogPassStart; s < skyFogPasses.size(); s++) {
-+                    const RenderViewport &other = skyFogPasses[s].viewport;
-+                    if ((other.x == viewportRect.x) && (other.y == viewportRect.y) && (other.width == viewportRect.width) && (other.height == viewportRect.height)) {
-+                        projSkyFogIndex = int32_t(s);
-+                        return projSkyFogIndex;
-+                    }
++                    return projRecon;
 +                }
 +
 +                const interop::float4x4 &viewProj = (proj.transformsIndex < drawData.modViewProjTransforms.size()) ? drawData.modViewProjTransforms[proj.transformsIndex] : drawData.viewProjTransforms[proj.transformsIndex];
 +                const uint32_t clipColumns[3] = { 0, 1, 3 };
-+                float g[3][3];
++                float (&g)[3][3] = projRecon.g;
 +                for (uint32_t j = 0; j < 3; j++) {
 +                    for (uint32_t i = 0; i < 3; i++) {
 +                        g[i][j] = viewProj[i][clipColumns[j]];
@@ -2379,7 +2476,7 @@ index 9fae0d4..546f8f3 100644
 +                    g[0][1] * (g[1][0] * g[2][2] - g[1][2] * g[2][0]) +
 +                    g[0][2] * (g[1][0] * g[2][1] - g[1][1] * g[2][0]);
 +                if (std::abs(det) < 1e-20f) {
-+                    return -1;
++                    return projRecon;
 +                }
 +
 +                const float invDet = 1.0f / det;
@@ -2400,14 +2497,133 @@ index 9fae0d4..546f8f3 100644
 +                const float ay = ((viewport.scale.y < 0.0f) ? 1.0f : -1.0f) / (viewportRect.height / 2.0f);
 +                const float bx = -ax * (viewportRect.x + viewportRect.width / 2.0f);
 +                const float by = -ay * (viewportRect.y + viewportRect.height / 2.0f);
-+                SkyFogPass pass;
-+                pass.viewport = viewportRect;
-+                pass.cb.dirX = interop::float4(ax * gi[0][0], ax * gi[0][1], ax * gi[0][2], 0.0f);
-+                pass.cb.dirY = interop::float4(ay * gi[1][0], ay * gi[1][1], ay * gi[1][2], 0.0f);
-+                pass.cb.dirW = interop::float4(
++                projRecon.rect = viewportRect;
++                projRecon.ax = ax;
++                projRecon.ay = ay;
++                projRecon.bx = bx;
++                projRecon.by = by;
++                projRecon.dirX = interop::float4(ax * gi[0][0], ax * gi[0][1], ax * gi[0][2], 0.0f);
++                projRecon.dirY = interop::float4(ay * gi[1][0], ay * gi[1][1], ay * gi[1][2], 0.0f);
++                projRecon.dirW = interop::float4(
 +                    bx * gi[0][0] + by * gi[1][0] + gi[2][0],
 +                    bx * gi[0][1] + by * gi[1][1] + gi[2][1],
 +                    bx * gi[0][2] + by * gi[1][2] + gi[2][2], 0.0f);
++                const float t[3] = { viewProj[3][0], viewProj[3][1], viewProj[3][3] };
++                for (uint32_t j = 0; j < 3; j++) {
++                    projRecon.camera[j] = -(t[0] * gi[0][j] + t[1] * gi[1][j] + t[2] * gi[2][j]);
++                }
++
++                projRecon.ok = true;
++                return projRecon;
++            };
++
++            // Rush 2 recomp: a car light marker's pass (gEXSetCarLight): its light at the origin of its draw's world
++            // transform (the interpolated frame's), over the screen box of the cube round its reach. -2 when it
++            // lights nothing on screen.
++            auto carLightOf = [&](const GameCall &call) -> int32_t {
++                const ViewRecon &view = viewReconOf();
++                const uint32_t packed = call.callDesc.extendedFlags.carLight;
++                const float radius = float(packed & 0x7FF);
++                const uint16_t t = call.callDesc.maxWorldMatrix;
++                if (!view.ok || (radius <= 0.0f) || (t >= drawData.worldTransforms.size())) {
++                    return -2;
++                }
++
++                const interop::float4x4 &world = (t < drawData.lerpWorldTransforms.size()) ? drawData.lerpWorldTransforms[t] : drawData.worldTransforms[t];
++                const float ow = (world[3][3] != 0.0f) ? world[3][3] : 1.0f;
++                float rel[3];
++                for (uint32_t j = 0; j < 3; j++) {
++                    rel[j] = world[3][j] / ow - view.camera[j];
++                }
++
++                float left = view.rect.x, top = view.rect.y, right = view.rect.x + view.rect.width, bottom = view.rect.y + view.rect.height;
++                float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
++                bool behind = false;
++                for (uint32_t k = 0; (k < 8) && !behind; k++) {
++                    const float c[3] = { rel[0] + ((k & 1) ? radius : -radius), rel[1] + ((k & 2) ? radius : -radius), rel[2] + ((k & 4) ? radius : -radius) };
++                    float clip[3];
++                    for (uint32_t j = 0; j < 3; j++) {
++                        clip[j] = c[0] * view.g[0][j] + c[1] * view.g[1][j] + c[2] * view.g[2][j];
++                    }
++
++                    if (clip[2] <= 1.0f) {
++                        behind = true;
++                        break;
++                    }
++
++                    const float px = (clip[0] / clip[2] - view.bx) / view.ax;
++                    const float py = (clip[1] / clip[2] - view.by) / view.ay;
++                    minX = std::min(minX, px);
++                    maxX = std::max(maxX, px);
++                    minY = std::min(minY, py);
++                    maxY = std::max(maxY, py);
++                }
++
++                if (!behind) {
++                    left = std::max(left, std::floor(minX));
++                    top = std::max(top, std::floor(minY));
++                    right = std::min(right, std::ceil(maxX) + 1.0f);
++                    bottom = std::min(bottom, std::ceil(maxY) + 1.0f);
++                }
++
++                if ((right <= left) || (bottom <= top)) {
++                    return -2;
++                }
++
++                const float strength = float((packed >> 11) & 0x3F) / 16.0f;
++                CarLightPass pass;
++                pass.rect = RenderRect(int32_t(left), int32_t(top), int32_t(right), int32_t(bottom));
++                pass.cb.dirX = view.dirX;
++                pass.cb.dirY = view.dirY;
++                pass.cb.dirW = view.dirW;
++                pass.cb.light = interop::float4(rel[0], rel[1], rel[2], radius);
++                pass.cb.color = interop::float4(
++                    float((packed >> 27) & 31) / 31.0f * strength,
++                    float((packed >> 22) & 31) / 31.0f * strength,
++                    float((packed >> 17) & 31) / 31.0f * strength, 0.0f);
++                // It shines back along the marker's own axes: its third row is the way the car faces.
++                float back[3] = { -world[2][0], -world[2][1], -world[2][2] };
++                const float backLength = std::sqrt(back[0] * back[0] + back[1] * back[1] + back[2] * back[2]);
++                if (backLength <= 0.0f) {
++                    return -2;
++                }
++
++                pass.cb.direction = interop::float4(back[0] / backLength, back[1] / backLength, back[2] / backLength, 0.0f);
++                pass.cb.depthA = projDepthA;
++                pass.cb.depthB = projDepthB;
++                pass.cb.padding[0] = pass.cb.padding[1] = 0.0f;
++                carLightPasses.push_back(pass);
++                return int32_t(carLightPasses.size() - 1);
++            };
++
++            // Rush 2 recomp: the sky fog pass of this projection's view, made on its first draw marked with
++            // gEXSetSkyFog. Projections with the same viewport in this framebuffer pair are one view and share it.
++            int32_t projSkyFogIndex = -2;
++            auto skyFogPassOf = [&](uint16_t haze) -> int32_t {
++                if (projSkyFogIndex != -2) {
++                    return projSkyFogIndex;
++                }
++
++                projSkyFogIndex = -1;
++                const ViewRecon &view = viewReconOf();
++                if (!view.ok) {
++                    return -1;
++                }
++
++                const RenderViewport &viewportRect = view.rect;
++                for (uint32_t s = skyFogPassStart; s < skyFogPasses.size(); s++) {
++                    const RenderViewport &other = skyFogPasses[s].viewport;
++                    if ((other.x == viewportRect.x) && (other.y == viewportRect.y) && (other.width == viewportRect.width) && (other.height == viewportRect.height)) {
++                        projSkyFogIndex = int32_t(s);
++                        return projSkyFogIndex;
++                    }
++                }
++
++                SkyFogPass pass;
++                pass.viewport = viewportRect;
++                pass.cb.dirX = view.dirX;
++                pass.cb.dirY = view.dirY;
++                pass.cb.dirW = view.dirW;
 +                pass.cb.fogColor = interop::float4(0.0f, 0.0f, 0.0f, 1.0f);
 +                pass.cb.depthA = projDepthA;
 +                pass.cb.depthB = projDepthB;
@@ -2421,7 +2637,7 @@ index 9fae0d4..546f8f3 100644
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +2518,19 @@ namespace RT64 {
+@@ -1623,6 +2706,20 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -2433,6 +2649,7 @@ index 9fae0d4..546f8f3 100644
 +                        triangles.reflectionIndex = -1;
 +                        triangles.reflectionCar = -1;
 +                        triangles.skyFogIndex = -1;
++                        triangles.carLightIndex = -1;
 +                        if (perspectiveProj && !callCopyMode && (callOtherMode.zMode() != ZMODE_DEC) && callOtherMode.zUpd() &&
 +                            !interop::Blender::usesAlphaBlend(callOtherMode)) {
 +                            triangles.occlusionIndex = projOcclusionIndex;
@@ -2441,7 +2658,7 @@ index 9fae0d4..546f8f3 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +2655,41 @@ namespace RT64 {
+@@ -1747,6 +2844,45 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -2449,7 +2666,11 @@ index 9fae0d4..546f8f3 100644
 +                    if ((instanceDrawCall.type == InstanceDrawCall::Type::FillRect) && (p.fbStorage->colorTarget != nullptr)) {
 +                        lastFillColor = instanceDrawCall.clearRect.color;
 +                    }
-+                    if ((instanceDrawCall.type == InstanceDrawCall::Type::IndexedTriangles) && instanceDrawCall.triangles.perspective && !instanceDrawCall.triangles.vertexTestZ) {
++                    // Rush 2 recomp: a car light marker isn't drawn; its light is (submitCarLights).
++                    if ((instanceDrawCall.type == InstanceDrawCall::Type::IndexedTriangles) && (call.callDesc.extendedFlags.carLight != 0)) {
++                        instanceDrawCall.triangles.carLightIndex = instanceDrawCall.triangles.perspective ? carLightOf(call) : -2;
++                    }
++                    else if ((instanceDrawCall.type == InstanceDrawCall::Type::IndexedTriangles) && instanceDrawCall.triangles.perspective && !instanceDrawCall.triangles.vertexTestZ) {
 +                        if (call.callDesc.extendedFlags.carReflection != 0) {
 +                            reflectionMarkedInstances[pr].push_back(instanceIndex);
 +                            reflectionMarkedCalls[pr].push_back(&call);
@@ -2483,7 +2704,7 @@ index 9fae0d4..546f8f3 100644
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +2697,8 @@ namespace RT64 {
+@@ -1754,6 +2890,8 @@ namespace RT64 {
              }
          }
  
@@ -2493,10 +2714,10 @@ index 9fae0d4..546f8f3 100644
          checkRtScene(rtScene);
  #   endif
 diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
-index 3add9c3..8bc9543 100644
+index 3add9c3..1007f8d 100644
 --- a/src/render/rt64_framebuffer_renderer.h
 +++ b/src/render/rt64_framebuffer_renderer.h
-@@ -5,12 +5,16 @@
+@@ -5,12 +5,17 @@
  #pragma once
  
  #include <stdint.h>
@@ -2510,10 +2731,11 @@ index 3add9c3..8bc9543 100644
 +#include "shared/rt64_ambient_occlusion.h"
 +#include "shared/rt64_car_reflection.h"
 +#include "shared/rt64_sky_fog.h"
++#include "shared/rt64_car_light.h"
  #include "shared/rt64_frame_params.h"
  #include "shared/rt64_gpu_tile.h"
  #include "shared/rt64_render_indices.h"
-@@ -58,6 +62,59 @@ namespace RT64 {
+@@ -58,6 +63,66 @@ namespace RT64 {
          uint32_t indexCount;
      };
  
@@ -2570,10 +2792,17 @@ index 3add9c3..8bc9543 100644
 +        bool done = false;
 +    };
 +
++    // Rush 2 recomp: car lights (CarLightPS.hlsl). One per light marked with gEXSetCarLight: run once the view's 3D
++    // draws end (its next 2D draw, or the end of the scene), over the screen area the light can reach.
++    struct CarLightPass {
++        interop::CarLightCB cb;
++        RenderRect rect;
++    };
++
      struct FramebufferRenderer {
          std::vector<uint32_t> textureCacheVersions;
          std::vector<Texture *> textureCacheTextures;
-@@ -67,6 +124,10 @@ namespace RT64 {
+@@ -67,6 +132,11 @@ namespace RT64 {
          uint32_t textureCacheGlobalVersion = 0;
          bool textureCacheReplacementMapEnabled = false;
          std::vector<InstanceDrawCall> instanceDrawCallVector;
@@ -2581,10 +2810,11 @@ index 3add9c3..8bc9543 100644
 +        std::vector<CarReflectionScene> carReflectionScenes; // Rush 2 recomp.
 +        std::vector<CarReflectionSlot> carReflectionSlots; // Rush 2 recomp.
 +        std::vector<SkyFogPass> skyFogPasses; // Rush 2 recomp.
++        std::vector<CarLightPass> carLightPasses; // Rush 2 recomp.
          std::vector<RenderPipelineProgram> hitGroupVector;
          std::vector<interop::RenderIndices> renderIndicesVector;
          std::vector<DynamicTextureView> dynamicTextureViewVector;
-@@ -165,6 +226,9 @@ namespace RT64 {
+@@ -165,6 +235,9 @@ namespace RT64 {
          void submitRSPSmoothNormalCompute(RenderWorker *worker, const OutputBuffers *outputBuffers);
          bool submitDepthAccess(RenderWorker *worker, RenderFramebufferStorage *fbStorage, bool readOnly, bool &depthState);
          void submitRasterScene(RenderWorker *worker, const Framebuffer &framebuffer, RenderFramebufferStorage *fbStorage, const RasterScene &rasterScene, bool &depthState);
@@ -2595,10 +2825,10 @@ index 3add9c3..8bc9543 100644
          void endFramebuffers(RenderWorker *worker, const DrawBuffers *drawBuffers, const OutputBuffers *outputBuffers, bool rtEnabled);
          void recordSetup(RenderWorker *worker, std::vector<BufferUploader *> bufferUploaders, RSPProcessor *rspProcessor, VertexProcessor *vertexProcessor, const OutputBuffers *outputBuffers, bool rtEnabled);
 diff --git a/src/render/rt64_framebuffer_renderer_call.h b/src/render/rt64_framebuffer_renderer_call.h
-index f2eee70..ac443eb 100644
+index f2eee70..807430c 100644
 --- a/src/render/rt64_framebuffer_renderer_call.h
 +++ b/src/render/rt64_framebuffer_renderer_call.h
-@@ -41,6 +41,18 @@ namespace RT64 {
+@@ -41,6 +41,21 @@ namespace RT64 {
                  bool vertexTestZ : 1;
                  bool postBlendDitherNoise : 1;
                  bool postBlendDitherNoiseNegative : 1;
@@ -2614,6 +2844,9 @@ index f2eee70..ac443eb 100644
 +                // Rush 2 recomp: the sky fog pass of the view this draw is part of (FramebufferRenderer::skyFogPasses),
 +                // or -1.
 +                int32_t skyFogIndex;
++                // Rush 2 recomp: a car light marker (gEXSetCarLight), not drawn: its light
++                // (FramebufferRenderer::carLightPasses), -2 for one with nothing to light, or -1 for an ordinary draw.
++                int32_t carLightIndex;
              } triangles;
  
              struct {
@@ -3403,19 +3636,20 @@ index 7368711..6949601 100644
      };
  
 diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
-index d1c5273..e2acd4d 100644
+index d1c5273..6c6056b 100644
 --- a/src/render/rt64_shader_library.cpp
 +++ b/src/render/rt64_shader_library.cpp
-@@ -5,6 +5,8 @@
+@@ -5,6 +5,9 @@
  #include "rt64_shader_library.h"
  
  #include "common/rt64_common.h"
 +#include "shared/rt64_ambient_occlusion.h"
 +#include "shared/rt64_sky_fog.h"
++#include "shared/rt64_car_light.h"
  #include "shared/rt64_render_target_copy.h"
  #include "shared/rt64_rsp_vertex_test_z.h"
  
-@@ -49,6 +51,14 @@
+@@ -49,6 +52,16 @@
  #include "shaders/FullScreenVS.hlsl.spirv.h"
  #include "shaders/Im3DVS.hlsl.spirv.h"
  #include "shaders/ComposePS.hlsl.spirv.h"
@@ -3427,10 +3661,12 @@ index d1c5273..e2acd4d 100644
 +#include "shaders/CarReflectionPS.hlsl.spirv.h"
 +#include "shaders/SkyFogPS.hlsl.spirv.h"
 +#include "shaders/SkyFogPSMS.hlsl.spirv.h"
++#include "shaders/CarLightPS.hlsl.spirv.h"
++#include "shaders/CarLightPSMS.hlsl.spirv.h"
  #include "shaders/DebugPS.hlsl.spirv.h"
  #include "shaders/Im3DPS.hlsl.spirv.h"
  #include "shaders/PostProcessPS.hlsl.spirv.h"
-@@ -95,6 +105,14 @@
+@@ -95,6 +108,16 @@
  #   include "shaders/FullScreenVS.hlsl.dxil.h"
  #   include "shaders/Im3DVS.hlsl.dxil.h"
  #   include "shaders/ComposePS.hlsl.dxil.h"
@@ -3442,10 +3678,12 @@ index d1c5273..e2acd4d 100644
 +#   include "shaders/CarReflectionPS.hlsl.dxil.h"
 +#   include "shaders/SkyFogPS.hlsl.dxil.h"
 +#   include "shaders/SkyFogPSMS.hlsl.dxil.h"
++#   include "shaders/CarLightPS.hlsl.dxil.h"
++#   include "shaders/CarLightPSMS.hlsl.dxil.h"
  #   include "shaders/DebugPS.hlsl.dxil.h"
  #   include "shaders/Im3DPS.hlsl.dxil.h"
  #   include "shaders/PostProcessPS.hlsl.dxil.h"
-@@ -140,6 +158,14 @@
+@@ -140,6 +163,16 @@
  #   include "shaders/FullScreenVS.hlsl.metal.h"
  #   include "shaders/Im3DVS.hlsl.metal.h"
  #   include "shaders/ComposePS.hlsl.metal.h"
@@ -3457,10 +3695,12 @@ index d1c5273..e2acd4d 100644
 +#   include "shaders/CarReflectionPS.hlsl.metal.h"
 +#   include "shaders/SkyFogPS.hlsl.metal.h"
 +#   include "shaders/SkyFogPSMS.hlsl.metal.h"
++#   include "shaders/CarLightPS.hlsl.metal.h"
++#   include "shaders/CarLightPSMS.hlsl.metal.h"
  #   include "shaders/DebugPS.hlsl.metal.h"
  #   include "shaders/Im3DPS.hlsl.metal.h"
  #   include "shaders/PostProcessPS.hlsl.metal.h"
-@@ -148,6 +174,7 @@
+@@ -148,6 +181,7 @@
  #include "shared/rt64_fb_common.h"
  #include "shared/rt64_fb_reinterpret.h"
  #include "shared/rt64_texture_copy.h"
@@ -3468,7 +3708,7 @@ index d1c5273..e2acd4d 100644
  #include "shared/rt64_video_interface.h"
  
  #include "rt64_descriptor_sets.h"
-@@ -535,6 +562,20 @@ namespace RT64 {
+@@ -535,6 +569,20 @@ namespace RT64 {
              rspSmoothNormal.pipeline = device->createComputePipeline(pipelineDesc);
          }
  
@@ -3489,7 +3729,7 @@ index d1c5273..e2acd4d 100644
          // RSP World.
          {
              RSPWorldDescriptorSet descriptorSet;
-@@ -573,7 +614,7 @@ namespace RT64 {
+@@ -573,7 +621,7 @@ namespace RT64 {
          {
              TextureDecodeDescriptorSet descriptorSet;
              layoutBuilder.begin();
@@ -3498,7 +3738,7 @@ index d1c5273..e2acd4d 100644
              layoutBuilder.addDescriptorSet(descriptorSet);
              layoutBuilder.end();
              textureDecode.pipelineLayout = layoutBuilder.create(device);
-@@ -851,7 +892,143 @@ namespace RT64 {
+@@ -851,7 +899,180 @@ namespace RT64 {
              pipelineDesc.multisampling = multisampling;
              postProcess.pipeline = device->createGraphicsPipeline(pipelineDesc);
          }
@@ -3586,6 +3826,43 @@ index d1c5273..e2acd4d 100644
 +            skyFogMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
 +        }
 +
++        // Rush 2 recomp: car lights. Reads the depth target and lights the color target's RGB by the light the shader
++        // returns: dst * (1 + light).
++        {
++            TextureCopyDescriptorSet descriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::CarLightCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(descriptorSet);
++            layoutBuilder.end();
++            carLight.pipelineLayout = layoutBuilder.create(device);
++            carLightMS.pipelineLayout = layoutBuilder.create(device);
++
++            std::unique_ptr<RenderShader> carLightShader = device->createShader(CREATE_SHADER_INPUTS(CarLightPSBlobDXIL, CarLightPSBlobSPIRV, CarLightPSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> carLightMSShader = device->createShader(CREATE_SHADER_INPUTS(CarLightPSMSBlobDXIL, CarLightPSMSBlobSPIRV, CarLightPSMSBlobMSL, "PSMain", shaderFormat));
++            RenderBlendDesc lightBlend;
++            lightBlend.blendEnabled = true;
++            lightBlend.srcBlend = RenderBlend::DEST_COLOR;
++            lightBlend.dstBlend = RenderBlend::ONE;
++            lightBlend.blendOp = RenderBlendOperation::ADD;
++            lightBlend.srcBlendAlpha = RenderBlend::ZERO;
++            lightBlend.dstBlendAlpha = RenderBlend::ONE;
++            lightBlend.blendOpAlpha = RenderBlendOperation::ADD;
++            lightBlend.renderTargetWriteMask = uint8_t(RenderColorWriteEnable::RED) | uint8_t(RenderColorWriteEnable::GREEN) | uint8_t(RenderColorWriteEnable::BLUE);
++            RenderGraphicsPipelineDesc pipelineDesc;
++            pipelineDesc.renderTargetBlend[0] = lightBlend;
++            pipelineDesc.renderTargetFormat[0] = RenderTarget::colorBufferFormat(usesHDR);
++            pipelineDesc.renderTargetCount = 1;
++            pipelineDesc.vertexShader = fullScreenVertexShader.get();
++            pipelineDesc.multisampling = multisampling;
++            pipelineDesc.pipelineLayout = carLight.pipelineLayout.get();
++            pipelineDesc.pixelShader = carLightShader.get();
++            carLight.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            pipelineDesc.pipelineLayout = carLightMS.pipelineLayout.get();
++            pipelineDesc.pixelShader = carLightMSShader.get();
++            carLightMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
++        }
++
 +        // Rush 2 recomp: car reflections. Draws a marked draw's triangles over the paint they are a layer of, blended by
 +        // the reflection's alpha, depth tested against the scene but not written.
 +        {
@@ -3644,10 +3921,10 @@ index d1c5273..e2acd4d 100644
          {
              FramebufferRendererDescriptorCommonSet descriptorCommonSet(samplerLibrary, deviceCapabilities.raytracing);
 diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
-index 641f3ec..5068fdd 100644
+index 641f3ec..6265160 100644
 --- a/src/render/rt64_shader_library.h
 +++ b/src/render/rt64_shader_library.h
-@@ -18,7 +18,14 @@ namespace RT64 {
+@@ -18,7 +18,16 @@ namespace RT64 {
          bool usesHardwareResolve = false;
  
          // All shaders.
@@ -3659,6 +3936,8 @@ index 641f3ec..5068fdd 100644
 +        ShaderRecord carReflectionDraw;
 +        ShaderRecord skyFog;
 +        ShaderRecord skyFogMS;
++        ShaderRecord carLight;
++        ShaderRecord carLightMS;
          ShaderRecord boxFilter;
          ShaderRecord compose;
          ShaderRecord debug;
@@ -5358,6 +5637,69 @@ index 0000000..74862a7
 +    ambient = lerp(1.0f, ambient, fade);
 +    return float2(ambient, w);
 +}
+diff --git a/src/shaders/CarLightPS.hlsl b/src/shaders/CarLightPS.hlsl
+new file mode 100644
+index 0000000..3f076b1
+--- /dev/null
++++ b/src/shaders/CarLightPS.hlsl
+@@ -0,0 +1,57 @@
++//
++// RT64
++//
++
++// Rush 2 recomp: car lights. One point light's share on the surfaces a view's 3D drew near it: each pixel's position
++// comes back from the depth buffer (as SkyFogPS's ray, times w), and a surface within the light's radius takes the
++// light's color by how near it is and how squarely it faces the light. The pipeline multiplies it into the color
++// target and adds it (dst * (1 + light)), so a surface brightens by its own color, as a lit surface does: the dark
++// road under a braking car's tail lights turns red, a black tire stays dark.
++
++#include "shared/rt64_car_light.h"
++
++[[vk::push_constant]] ConstantBuffer<CarLightCB> gConstants : register(b0);
++
++#ifdef MULTISAMPLING
++Texture2DMS<float> gDepth : register(t1);
++#else
++Texture2D<float> gDepth : register(t1);
++#endif
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    const int2 pixel = int2(pos.xy);
++#ifdef MULTISAMPLING
++    const float depth = gDepth.Load(pixel, 0);
++#else
++    const float depth = gDepth.Load(int3(pixel, 0));
++#endif
++    const float w = gConstants.depthB / (depth - gConstants.depthA);
++    const bool sky = !((depth < 0.99999f) && (w > 0.0f));
++    const float3 p = (pos.x * gConstants.dirX.xyz + pos.y * gConstants.dirY.xyz + gConstants.dirW.xyz) * max(w, 0.0f);
++
++    // The surface's normal from its neighbors (taken before any pixel leaves, so the derivatives are whole), turned
++    // toward the camera.
++    float3 n = cross(ddx(p), ddy(p));
++    const float nLength = length(n);
++    n = (nLength > 1e-12f) ? n / nLength : float3(0.0f, 1.0f, 0.0f);
++    if (dot(n, p) > 0.0f) {
++        n = -n;
++    }
++
++    const float3 toLight = gConstants.light.xyz - p;
++    const float distance = length(toLight);
++    const float radius = gConstants.light.w;
++    if (sky || (distance >= radius)) {
++        discard;
++    }
++
++    const float fall = 1.0f - distance / radius;
++    // The cone: full straight along the light's direction, fading to nothing 70 degrees off it, so the light lands
++    // behind the car (the road, a car following) and not on the car it is on, which is ahead of it.
++    const float3 fromLight = -toLight / max(distance, 1e-6f);
++    const float cone = saturate((dot(fromLight, gConstants.direction.xyz) - 0.34f) / 0.66f);
++    // Facing: a surface square to the light takes all of it, one edge on 35%, one facing away 35% too (the normal from
++    // depth is rough at edges, and a hard cut showed them).
++    const float facing = 0.35f + 0.65f * saturate(dot(n, toLight / max(distance, 1e-6f)));
++    return float4(gConstants.color.rgb * (fall * fall * facing * cone), 1.0f);
++}
 diff --git a/src/shaders/CarReflection.hlsli b/src/shaders/CarReflection.hlsli
 new file mode 100644
 index 0000000..c9cdb19
@@ -6122,6 +6464,45 @@ index 0000000..72efb10
 +        float fadeEnd;
 +        float strength;
 +        uint2 padding;
++    };
++#ifdef HLSL_CPU
++};
++#endif
+diff --git a/src/shared/rt64_car_light.h b/src/shared/rt64_car_light.h
+new file mode 100644
+index 0000000..18173c4
+--- /dev/null
++++ b/src/shared/rt64_car_light.h
+@@ -0,0 +1,33 @@
++//
++// RT64
++//
++
++#pragma once
++
++#include "shared/rt64_hlsl.h"
++
++#ifdef HLSL_CPU
++namespace interop {
++#endif
++    // Rush 2 recomp: car lights (CarLightPS.hlsl). One point light (gEXSetCarLight) shining on a view's 3D.
++    struct CarLightCB {
++        // A pixel's position from the camera, in the space the view's world transforms put vertices in (y up), per unit
++        // of w: (pixel.x * dirX + pixel.y * dirY + dirW) * w, as SkyFogCB's direction.
++        float4 dirX;
++        float4 dirY;
++        float4 dirW;
++        // The light's position from the camera in the same space (xyz) and its radius (w): it reaches nothing past it.
++        float4 light;
++        // The light's color times its strength: a surface right at the light gets its own color times (1 + this).
++        float4 color;
++        // The way the light shines (xyz, unit length): a tail light's straight back from its car. Only what is in the
++        // cone round it is lit, so the car the light is on stays dark.
++        float4 direction;
++        // Depth buffer value d to w: w = depthB / (d - depthA).
++        float depthA;
++        float depthB;
++        float padding[2];
 +    };
 +#ifdef HLSL_CPU
 +};

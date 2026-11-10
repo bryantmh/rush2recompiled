@@ -443,6 +443,9 @@ static void add_sky_fog_option(recomp::config::Config& config) {
         });
 }
 
+// Car Lights (src/car_lights.cpp, docs/graphics_effects.md#car-lights) is off and out of the menu until its tail light
+// lens glow works (TODO.txt); a saved "car_lights" value is ignored on load.
+
 namespace scenery_fill_option {
     const std::string id = "scenery_fill";
     enum class SceneryFill : uint32_t { Off, On };

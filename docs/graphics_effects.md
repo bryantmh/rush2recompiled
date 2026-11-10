@@ -13,6 +13,7 @@ runs. It is a change to RT64, kept in `lib/patches/rt64.patch` (edit under `lib/
 | Car Reflections (`car_reflections`) | 5% to 100%, steps of 5 | 70% | `RT64::CarReflectionStrength` (0 to 1) |
 | Car Lighting (`car_lighting`) | Original, Light Probes | Original | none: game side only (`rush2::probes::set_mode`, [Car light probes](#car-light-probes)) |
 | Sky Fog (`sky_fog`) | Off, On | Off | none: the game marks each race view with `gEXSetSkyFog` ([Sky fog](#sky-fog)) |
+| Car Lights (`car_lights`, not in the menu: TODO.txt) | Off, On | Off | none: the game places light markers with `gEXSetCarLight` ([Car lights](#car-lights)) |
 | Fill Scenery Gaps (`scenery_fill`) | Off, On | Off (Enhanced setup: On) | none: `gEXSetTwoSidedWalls` around the track's models, and the game draws the ground underlay ([Fill scenery gaps](#fill-scenery-gaps)) |
 
 The option lives in `src/config.cpp` (`add_ambient_occlusion_option`). The global is
@@ -273,6 +274,64 @@ path, `--trace 99` where cars find no probe in reach; TRACK `k49:K` is Rush 2049
 a fixed cube (above white, +x green, the rest dark gray): the roof lit, the tail and underside dark, the +x side (the
 left, the game's x points left) green. Checked 2026-10-14: the cube on a Rush 2 car (Seattle) and a Rush 2049 car
 (NY Two), Presidio's tunnel start against Original, and the bake times above in game.
+
+## Car lights
+
+**Not in the menu and never on** (src/config.cpp registers no option; TODO.txt, General) until the lens glow below
+works. Car Lights = **On** was: on a night track, a braking car's brake lights cast red light on the road and
+whatever else is close behind it (src/car_lights.cpp, lib/rt64 `CarLightPS.hlsl`). It replaces a first try that drew
+the PlayStation SF Rush's flare sprites at guessed points, which didn't sit on the cars' real lights.
+
+- **Night tracks:** `rush2::track2049::night_race`, a converted course (Rush 2049, custom, arcade) whose fog color is
+  near black (luminance under 0.1). Rush 2049's fog table (main 0x80114658, 3 bytes per track) is gray-blue for the
+  day tracks (0.55-0.61) and black for race tracks 4 and 6 (Presidio) and the stunt and battle arenas; the SF Rush
+  PlayStation night versions set #080808. Stock Rush 2 courses never take it.
+- **When:** while Rush 2 lights the car's tail lights itself (braking, the car's flags 0x1000 set and 0x10 clear:
+  func_800599A0, read in its hook `rush2_calspeed_brake_lights`), so the light and the lenses come on together. A
+  side goes out once its rear corner's panel (panel 2 rear right, 3 rear left: car state +0xE4, masks 0x800CE188,
+  shifts 0x800CE180) is damaged at all: level 1, the most collisions give (func_8006B730, func_8009A264 and
+  func_800715E8 stop at `slti 2`), the level that swaps in its damaged model. A wrecked car, a car out of the race
+  and a ghost show none.
+- **Where:** the middle of what the game lights on that side, found from the car's own drawing
+  (`Finder`, one car a frame, again when its type, parts or damage stage change): its body lists (frame, corners,
+  top: `rush2::car_types::part_record`) walked with their texture state (G_SETTIMG, G_SETTILE, G_LOADBLOCK /
+  G_LOADTILE, G_SETTILESIZE, G_TEXTURE), and each lit texel put back on its triangle by the triangle's texture
+  coordinates (barycentric), averaged per side of the body (x sign). Lit texels: Rush 2's palette lighting's CI8
+  entries 161-175 (Rush 2's cars, Rush 2049's on the N64 ROM); for a California Speed or Dreamcast car the texels its
+  lit copies change (`rush2::car2049::brake_light_sources`). A mod car's or livery's brake light lists
+  (docs/car_mods.md#brake-lights) are its lights instead, each triangle by its area. The light sits 0.3 ft behind that
+  point. Cars with no brake lights in the game (the SF Rush PlayStation cars) cast none.
+- **Only backward:** it is a tail light, not a glow round the car. The light shines in a cone straight back along the
+  car (the marker's world transform's third row, negated: `CarLightCB::direction`), full on that axis and fading to
+  nothing 70 degrees off it, so the road and a car close behind take it and the car it is on (its body, roof and
+  bumper, all ahead of or beside the lens) doesn't. A light shining every way lit its own car's whole body.
+- **Drawing:** each lit side is a marker placed through `rush2::battle_render` (slots 186-201, model `CAR_LIGHT` at
+  0x80E1F200: a sliver of a triangle between `gEXSetCarLight(31, 2, 1, 48, 192)`, red at 3x strength over 12 ft, and
+  its end), so it rides with the car through frame interpolation. The pass multiplies what is drawn, so the strength is
+  high for the dark night roads: 1.5x over 10 ft left them unchanged. RT64 doesn't draw a marker (`InstanceDrawCall::triangles.carLightIndex`); it takes
+  the origin of the marker's interpolated world transform (`lerpWorldTransforms`) as a light, relative to the camera
+  through the same reconstruction Sky Fog uses (`viewReconOf`), and once the view's 3D draws end (its next 2D draw or
+  the end of the scene, after ambient occlusion) runs `CarLightPS` over the screen box of the cube round the light's
+  reach: each pixel's position from the depth buffer, light falling off as (1 - d / 12 ft)^2, times the cone, times
+  0.35-1 by how squarely the surface faces the light, and the pipeline multiplies it in and adds it (dst * (1 + light), blend
+  DEST_COLOR / ONE), so a surface brightens by its own color: the road turns red, black stays black. The pipelines are
+  made with the shader library at startup, so the first light doesn't hitch.
+- **Glowing lenses (broken, the reason the option is out):** in game the parts drawn after the overlay (the left
+  rear corner, the roof) came out black, with the parts' texture commands replayed after it or not.
+  `RUSH2_CAR_LIGHTS_DIAG_SKIP=1` leaves the overlay out (the car is right then); `RUSH2_CAR_LIGHTS_DIAG_NOTEX=1`
+  draws it without its mask load, the next thing to try. The design: on a converted track every car part is multiplied by the track's car light color
+  (`rush2::car2049::light_model`, dark on a night track), so Rush 2's lit tail light texels (0xF801) came out a dull
+  dark red. While a side's light shines, each body part holding lit texels (the finder keeps their triangles: part,
+  side, vertices, texture coordinates state) is followed in the model draw hook (`rush2::car_lights::model_draw`, after
+  light_model in src/widescreen.cpp, so it has the part's own matrix) by those triangles again: an IA8 mask of the lit
+  texels laid over the part's own tile (size, wrap and G_TEXTURE scale copied), PRIM = Rush 2's lit red, no shade or
+  fog, blended as a decal (G_RM_ZB_XLU_DECAL2) inside a push and pop of the other mode, combiner and PRIM. Masks and
+  lists sit above 16 MB (`recomp::alloc`, read through `gEXSetRDRAMExtended`), two 32 KB buffers a car written in turn.
+  A mod car's or livery's brake light lists need none: they already draw unshaded (`brake_render_mode`).
+- **Testing:** `RUSH2_CAR_LIGHTS_LOG=1` prints each car's light points as they are found and each light turning on or
+  off; `RUSH2_CAR_LIGHTS_TEST=1` lights every car as if braking. For example `tools/test_race.py chinatown_night
+  --cars 3 --mod-dir <PS1 mod> --config graphics.car_lights=On --env RUSH2_CAR_LIGHTS_TEST=1 --shots 24,28,31,34,38`
+  (shot times from launch).
 
 ## Sky fog
 

@@ -27,6 +27,10 @@ instead prints a line, timed from launch, each time one of them changes (menu an
 --pos (with --trace) adds the car's positions, rounded to a foot: physics +0x224, car state +0 (where a computer car's
 body node is put, cam_update_all_players_8009D9F4) and the body node's own (node +0xF0 of the table at 0x80400000, 0x38 each, its
 matrix +4, position +0x24; nhid = its hidden flag 0x400), logging a line whenever one moves.
+--motion CAR instead logs that car's physics position (+0x224) and world velocity (+0x218) at every new game time
+(polled every ~1 ms) to DIR/motion.jsonl during the race, then prints the vertical kicks: each step's change in
+vertical velocity over the step, in g, the largest and how many pass 3 and 10 g (bumps from the road's collision:
+docs/custom_tracks.md#smooth-collision).
 RDRAM is found by matching the boot code at 0x80000450 from the Rush 2 ROM (tools/rush2049/roms.py; RUSH2_ROM).
 Fields: car state 0x801124A0 + car x 0x354 (position +0, place +0xE9, finished +0xEA, wreck state +0x342, out of
 deaths +0x343), physics car 0x800F5470 + car x 0x81C (laps +0x7FD, next checkpoint +0x7FE, brake +0x730, throttle
@@ -207,6 +211,45 @@ def trace(rd, car, seconds, out, proc, wreck_at=None, pos=False):
         f.write('\n'.join(lines) + '\n')
 
 
+def motion(rd, car, seconds, out, proc):
+    """Logs car's position, world velocity and angular velocity (+0x40 pitch, +0x44 yaw, +0x48 roll, rad/s in the car's
+    frame) at each new game time during the race; prints the vertical kicks and the pitch and roll rates."""
+    rows, last_t, t0 = [], None, time.time()
+    base = CARS + car * CAR_SIZE
+    while time.time() - t0 < seconds and not (proc and proc.poll() is not None):
+        g, t, c, w = rd.block(0x8010C0D0, 4), rd.block(0x80117488, 4), rd.block(base + 0x218, 24), rd.block(base + 0x40, 12)
+        if not (g and t and c and w) or struct.unpack('<I', g)[0] != 3:
+            time.sleep(0.005)
+            continue
+        now = struct.unpack('<f', t)[0]
+        if now != last_t:
+            v = struct.unpack('<6f', c)
+            rows.append({'t': now, 'pos': [round(x, 2) for x in v[3:]], 'vel': [round(x, 3) for x in v[:3]],
+                         'ang': [round(x, 4) for x in struct.unpack('<3f', w)]})
+            last_t = now
+        time.sleep(0.001)
+    with open(os.path.join(out, 'motion.jsonl'), 'w') as f:
+        f.writelines(json.dumps(r) + '\n' for r in rows)
+    kicks, dist = [], 0.0
+    for a, b in zip(rows, rows[1:]):
+        dt = b['t'] - a['t']
+        dist += math.dist(a['pos'], b['pos'])
+        if 0 < dt < 0.1:
+            kicks.append((abs(b['vel'][1] - a['vel'][1]) / dt / 32.2, round(dist), b['t']))
+    if kicks:
+        big = sorted(kicks, reverse=True)
+        print('%d steps over %.0f ft: vertical kicks over 3 g %d, over 10 g %d, largest %s' % (
+            len(kicks), dist, sum(k[0] > 3 for k in kicks), sum(k[0] > 10 for k in kicks),
+            ', '.join('%.1f g at %d ft (t %.2f)' % k for k in big[:8])))
+        for name, i in (('pitch', 0), ('roll', 2)):
+            rates = [abs(r['ang'][i]) for r in rows]
+            rates.sort()
+            print('%s rate (rad/s): mean %.3f, 95%% %.3f, max %.3f' % (name, sum(rates) / len(rates),
+                                                                     rates[int(0.95 * (len(rates) - 1))], rates[-1]))
+    else:
+        print('no race samples')
+
+
 def records(rd, placement_bin, seconds, proc):
     """Samples the placement records' matrices and positions every 0.37 s during the race; prints each record's
     largest matrix and position change, moving ones first."""
@@ -280,6 +323,7 @@ def main():
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'race_watch'))
     ap.add_argument('--trace', type=int, help="log changes of this car's wreck and drawing fields instead")
     ap.add_argument('--records', help='placement.bin of the raced custom track: report which records move')
+    ap.add_argument('--motion', type=int, help="log this car's position and velocity every step and print its vertical kicks")
     ap.add_argument('--pos', action='store_true', help="with --trace: also log the car's positions")
     ap.add_argument('--peek', action='append', type=lambda v: int(v, 16), help='print this u32 during the race')
     ap.add_argument('--peek-always', action='store_true', help='with --peek: sample in every game state, not just racing')
@@ -299,6 +343,8 @@ def main():
     if shots:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rush1'))
         import shots as shot_tool
+    reader = [None]         # the RDRAM reader once found
+    title_at = [None]       # seconds from launch to the title screen (front-end screen 0x10 at 0x800E7BC4)
 
     def take_shots():
         # The shots that are due, also before the game has started (the launcher's build progress screen).
@@ -341,9 +387,8 @@ def main():
     if not rd or not rd.base:
         print('RDRAM not found')
         return 1
+    reader[0] = rd
     if a.peek and a.peek_changes:
-    reader = [None]         # the RDRAM reader once found
-    title_at = [None]       # seconds from launch to the title screen (front-end screen 0x10 at 0x800E7BC4)
         peek_changes(rd, a.peek, a.seconds, proc, launched, take_shots)
         if proc and proc.poll() is None:
             proc.terminate()
@@ -355,6 +400,11 @@ def main():
         return 0
     if a.records:
         records(rd, a.records, a.seconds, proc)
+        if proc and proc.poll() is None:
+            proc.terminate()
+        return 0
+    if a.motion is not None:
+        motion(rd, a.motion, a.seconds, a.out, proc)
         if proc and proc.poll() is None:
             proc.terminate()
         return 0
@@ -380,7 +430,6 @@ def main():
         cur = sample(rd)
         if cur is None:
             time.sleep(0.1)
-    reader[0] = rd
             continue
         cur['wall'] = round(time.time() - launched, 2)   # seconds since launch (or since attaching)
         samples.write(json.dumps(cur) + '\n')

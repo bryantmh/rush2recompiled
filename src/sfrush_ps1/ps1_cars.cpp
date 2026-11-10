@@ -426,26 +426,6 @@ bool ps1::build_cars(const Disc& disc, const std::filesystem::path& assets_dir, 
             spec["no_skid_marks"] = true;
             spec["no_wheel_dust"] = true;
         }
-        // The night light glows (docs/sfrush_ps1.md#snow-and-night): track_draw_chunks (0x80042FF0) draws the player's
-        // car's at row 7 + its special car number of 0x800A8EE8 (headlights) and 0x800A8FA8 (tail lights), 3 s32 in
-        // 0.1 ft of the car frame (x across, y down, z ahead), each side at +x and -x. The UFO's headlight row is all
-        // 0: it has none.
-        {
-            constexpr uint32_t head_rows = 0x800A8EE8, tail_rows = 0x800A8FA8;
-            nlohmann::json lamps = nlohmann::json::object();
-            const double to16 = 1.6 * size;   // 0.1 ft to 1/16 ft, at the car's size
-            for (auto [key, rows] : { std::pair<const char*, uint32_t>{ "head", head_rows }, std::pair<const char*, uint32_t>{ "tail", tail_rows } }) {
-                uint32_t row = rows + 12 * uint32_t(7 + car.special);
-                int32_t x = int32_t(exe.w(row)), y = int32_t(exe.w(row + 4)), z = int32_t(exe.w(row + 8));
-                if (x == 0 && y == 0 && z == 0) {
-                    lamps[key] = nullptr;
-                    continue;
-                }
-                auto r2 = [](double v) { return std::round(v * 100) / 100; };
-                lamps[key] = { r2(std::abs(x) * to16), r2(-y * to16 + lift), r2(z * to16) };
-            }
-            spec["lamps"] = lamps;
-        }
         if (car.paintable) spec["main_color"] = default_main_color;
         // Its name in SF Rush's lettering (tools/build_banners.py --ps1: assets/sfrush_ps1/<id>_name.png, 128 x 32).
         {

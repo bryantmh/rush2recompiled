@@ -2073,31 +2073,6 @@ namespace {
             }
             spec.has_wheels = true;
         }
-        // The light glows' places (rush2::car2049::ModCar::has_lamps), in the glb's space as the wheels: each [x, y, z]
-        // or null for none.
-        if (j.contains("lamps")) {
-            const nlohmann::json& l = j["lamps"];
-            bool ok = l.is_object();
-            for (int which = 0; which < 2 && ok; which++) {
-                const nlohmann::json v = l.value(which == 0 ? "head" : "tail", nlohmann::json());
-                float* at = which == 0 ? spec.head : spec.tail;
-                if (v.is_null()) {
-                    (which == 0 ? spec.head_lamp : spec.tail_lamp) = false;
-                    continue;
-                }
-                float p[3];
-                ok = vec(v, p, 3);
-                if (!ok) break;
-                at[0] = std::fabs(p[0]) / 16.0f;
-                at[1] = p[1] / 16.0f;
-                at[2] = p[2] / 16.0f;
-            }
-            if (!ok) {
-                error = "\"lamps\" needs \"head\" and \"tail\", each [x, y, z] or null";
-                return false;
-            }
-            spec.has_lamps = true;
-        }
         if (j.contains("wheel_scale") && !vec(j["wheel_scale"], spec.wheel_scale, 2)) {
             error = "\"wheel_scale\" needs [front, rear]";
             return false;

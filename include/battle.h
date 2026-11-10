@@ -1,7 +1,6 @@
 #ifndef __BATTLE_H__
 #define __BATTLE_H__
 
-#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -86,11 +85,8 @@ namespace rush2::battle {
     bool checkpoint_lane_middle(uint8_t* rdram, int c, float out[3]);
     bool ground_under(uint8_t* rdram, recomp_context* ctx, const float p[3], float& ground_y, float up[3]);
     // The pose car `car`'s body is drawn with this frame: its scene node's transform (the physics pose until it has
-    // one), position in feet and rows right, up, forward.
+    // one), position in feet and rows right, up, forward. Used by src/car_lights.cpp.
     void car_body_pose(uint8_t* rdram, int car, float pos[3], float m[9]);
-    // The triangles car `car`'s body parts draw (frame, corners, top: 9 floats each, feet, the body's frame) when `out`
-    // is given, and a key of the car type and parts drawn, which changes when they do.
-    uint64_t car_body_triangles(uint8_t* rdram, int car, std::vector<std::array<float, 9>>* out);
 }
 
 #endif

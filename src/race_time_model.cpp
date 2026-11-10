@@ -13,7 +13,10 @@
 // 0.0135 v^2 + 105), 2.6 g of cornering on the lane's curve (the circle through the points 60 ft before and after,
 // seen from above), 40 ft/s^2 of braking, flat out between. A lane that doesn't come back to its start (a run-in or
 // point-to-point path) starts from a standstill. Built with each track's conversion (fill), so it is in the disk
-// cache and a race only reads it.
+// cache and a race only reads it. A slippery track ([handling] traction, the PS1 SF Rush's snow) scales the car's
+// acceleration, cornering grip and braking by the factor at its speed, as src/track_traction.cpp scales every car's
+// forces, so its clock grants the time the snow costs (the PS1's own snow times, 8 s more a gate, were for its two
+// halvings; the recomp keeps one).
 
 #include "race_time_model.h"
 
@@ -90,7 +93,14 @@ namespace {
     }
 }
 
-std::vector<float> rush2::race_time::lane_profile(const std::vector<uint8_t>& path_file) {
+std::vector<float> rush2::race_time::lane_profile(const std::vector<uint8_t>& path_file,
+                                                  const std::vector<std::array<float, 2>>& traction) {
+    // The factor at speed v (ft/s): the last step reached.
+    auto grip = [&](double v) {
+        double f = 1.0;
+        for (const auto& st : traction) if (v / 1.4667 >= st[0]) f = st[1];
+        return f;
+    };
     std::vector<Point> pts;
     if (!lane0(path_file, pts)) return {};
     const int n = int(pts.size());
@@ -124,14 +134,24 @@ std::vector<float> rush2::race_time::lane_profile(const std::vector<uint8_t>& pa
         double ab = std::hypot(B.x - A.x, B.z - A.z), bc = std::hypot(C.x - B.x, C.z - B.z), ca = std::hypot(A.x - C.x, A.z - C.z);
         double area = std::fabs((B.x - A.x) * (C.z - A.z) - (B.z - A.z) * (C.x - A.x));
         if (area < 1e-6) continue;
-        v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(grip_g * g * ab * bc * ca / (2.0 * area)));
+        const double r = ab * bc * ca / (2.0 * area);
+        double vc = std::sqrt(grip_g * g * r);
+        // Solved over the steps (the grip falls as the speed rises): the fastest speed whose own factor holds it.
+        if (!traction.empty()) {
+            vc = std::sqrt(grip_g * g * r * grip(vc));
+            vc = std::min(vc, std::sqrt(grip_g * g * r * grip(vc)));
+        }
+        v[size_t(i)] = std::min(v[size_t(i)], vc);
     }
     if (!loop) v[0] = 0.0;   // a run-in or point-to-point lane: from the grid
     const int steps = loop ? n : n - 1;
     for (int rep = 0; rep < (loop ? 2 : 1); rep++) {
         for (int i = steps - 1; i >= 0; i--) {
             int j = (i + 1) % n;
-            if (d[size_t(i)] < gap) v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(v[size_t(j)] * v[size_t(j)] + 2.0 * brake_ft_s2 * d[size_t(i)]));
+            if (d[size_t(i)] < gap) {
+                const double vj = v[size_t(j)];
+                v[size_t(i)] = std::min(v[size_t(i)], std::sqrt(vj * vj + 2.0 * brake_ft_s2 * grip(vj) * d[size_t(i)]));
+            }
         }
     }
     for (int rep = 0; rep < (loop ? 2 : 1); rep++) {
@@ -139,7 +159,7 @@ std::vector<float> rush2::race_time::lane_profile(const std::vector<uint8_t>& pa
             int j = (i + 1) % n;
             if (d[size_t(i)] < gap) {
                 double vi = v[size_t(i)];
-                v[size_t(j)] = std::min(v[size_t(j)], std::sqrt(std::max(vi * vi + 2.0 * std::max(accel(vi), 0.0) * d[size_t(i)], 0.0)));
+                v[size_t(j)] = std::min(v[size_t(j)], std::sqrt(std::max(vi * vi + 2.0 * std::max(accel(vi), 0.0) * grip(vi) * d[size_t(i)], 0.0)));
             }
         }
     }
@@ -152,9 +172,9 @@ std::vector<float> rush2::race_time::lane_profile(const std::vector<uint8_t>& pa
     return cum;
 }
 
-void rush2::race_time::fill(rush2::track2049::ConvertedTrack& track) {
-    track.lane_time[0] = lane_profile(track.path);
-    track.lane_time[1] = lane_profile(track.path_backward);
+void rush2::race_time::fill(rush2::track2049::ConvertedTrack& track, const std::vector<std::array<float, 2>>& traction) {
+    track.lane_time[0] = lane_profile(track.path, traction);
+    track.lane_time[1] = lane_profile(track.path_backward, traction);
 }
 
 bool rush2::race_time::apply(uint8_t* rdram, const std::vector<float>& cum) {

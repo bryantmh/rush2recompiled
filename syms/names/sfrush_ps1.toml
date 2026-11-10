@@ -137,7 +137,8 @@ ref = "docs/sfrush_ps1.md#textures"
 [[func]]
 vram = 0x8003AF18
 name = "track2_load_cluts"
-desc = "Track 2's CLUT chunks (T2CLUT, S, N) placed with clut_upload_shaded at hard-coded (x, y): uploads only 50 of the 52 chunks. Replayed by src/sfrush_ps1/ps1_track.cpp."
+desc = "Track 2's CLUT chunks (T2CLUT, S, N) placed with clut_upload_shaded at hard-coded (x, y). Steps its chunk pointer by the .SIZ sizes and steps over chunks 10 and 26 without uploading them: 50 calls get chunks 0-9, 11-25 and 27-51 (the other tracks' loaders upload all 52 in order). Replayed by src/sfrush_ps1/ps1_track.cpp (scan's Calls::clut_chunks)."
+consts = "0xC8($s1) = the last .SIZ entry read, into $a2 (the others into $v0)"
 status = "verified"
 ported = true
 area = "track"
@@ -218,8 +219,8 @@ ref = "docs/sfrush_ps1.md#snow-and-night"
 [[func]]
 vram = 0x80042FF0
 name = "track_draw_chunks"
-desc = "Draws the visible track chunks (ids from the list it is given, pointers from the table 0x800B5C88, ids from 1) through func_8006F33C / func_8006F95C; per track swaps a chunk for another while gp+0x20 (the viewing player's last lap) is set: track 4 id 2 (start gantry reading CHECKPOINT) -> id 90 (the same gantry reading FINISH), and sets gp+0x310 (semi-transparent) for some ids. List entries carry flags: 0x4000 skipped at night, 0x2000 drawn only at night, 0x1000 semi-transparent (only track 3 uses the night pair). After each car it draws its light sprites (func_80041C58): tail lights at 0x800A8FA8 sized by car +0x90 (brake glow, +63 at night), headlights at 0x800A8EE8 at night (size 0xC0), each skipped once its corner's damage (car +0x352, 3 bits a corner) reaches 3."
-consts = "0x800B34F8 = track index (3 = track 4); 0x80044628 addiu 2 = start gantry (CHECKPOINT) id; 0x800B5DF0 = FINISH banner chunk pointer (id 90); 0x59 = semi-transparent chunk on track 4; 0x800A8EE8 / 0x800A8FA8 = headlight / tail light points (12 bytes per car index, 0.1 ft); 0x800B2768 = night flag"
+desc = "Draws the visible track chunks (ids from the list it is given, pointers from the table 0x800B5C88, ids from 1) through func_8006F33C / func_8006F95C; only listed ids are drawn, so chunks no section list names never show (docs/sfrush_ps1.md#unlisted-chunks). Per track swaps a chunk for another while gp+0x20 (the viewing player's last lap) is set: track 4 id 2 (start gantry reading CHECKPOINT) -> id 90 (the same gantry reading FINISH); track 2 also draws id 131 in place of 130 once gp+0x88 is set (a one-time trigger a car trips at 0x800171EC, with a sound); sets gp+0x310 (semi-transparent) for some ids. List entries carry flags: 0x4000 skipped at night, 0x2000 drawn only at night, 0x1000 semi-transparent. After each car it draws its light sprites (func_80041C58): tail lights at 0x800A8FA8 sized by car +0x90 (brake glow, +63 at night), headlights at 0x800A8EE8 at night (size 0xC0), each skipped once its corner's damage (car +0x352, 3 bits a corner) reaches 3."
+consts = "0x800B34F8 = track index (3 = track 4); 0x80044628 addiu 2 = start gantry (CHECKPOINT) id; 0x800B5DF0 = FINISH banner chunk pointer (id 90); 0x59 = semi-transparent chunk on track 4; 0x82 / 0x800B5E94 = track 2 chunk 130 / its gp+0x88 replacement (id 131); 0x800A8EE8 / 0x800A8FA8 = headlight / tail light points (12 bytes per car index, 0.1 ft); 0x800B2768 = night flag"
 status = "verified"
 ported = true
 area = "render"
@@ -277,6 +278,13 @@ desc = "One game frame of a race: the cars' physics (func_8005F234) and each car
 status = "inferred"
 area = "race"
 ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x80051590
+name = "race_cars_place"
+desc = "Race setup's car placement by track index (s3): track 1 forward puts the cars single file in two columns (x -1622 / -1639 ft) from PS1 y 0xE9AC (ori 0x80051770) 20 ft apart (0xC8 a car), 277 ft up (0xFFF52B00, 1/2560 ft y down), headings 0x801 / 0x942; loads the AI paths (func_80055678). Read by src/sfrush_ps1/ps1_track.cpp (run_in_grid) for Golden Gate's run-in."
+status = "inferred"
+ref = "docs/sfrush_ps1.md#run-in"
 
 [[func]]
 vram = 0x80054130

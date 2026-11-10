@@ -61,18 +61,40 @@ namespace {
         uint32_t sections;          // track_draw_chunks' section table (32 bytes each: +0x18, +0x1C visible lists)
         std::array<int, 2> semi;    // chunk ids the draw loop draws semi-transparent (gp+0x310), 0: none
         uint32_t prop_table;        // props_place's records (func_800155F8), 0: none
+        // A run-in circuit's grid (docs/sfrush_ps1.md#run-in): the race setup's forward grid instruction (ori, the back
+        // car's PS1 y in 0.1 ft) for a track whose AI path is open, its race starting on a run-in to the loop; 0: a loop.
+        uint32_t run_in_grid;
     };
     constexpr TrackInfo tracks[] = {
         { 1, "golden_gate", "Golden Gate", "sfrush:golden_gate", false, 0x80037C2C, 0x8003A4A0, 0x800A77C0, 0x80044524,
-          0x80044534, 0x800B2AF8, 0x800AA388, 0x800B2B00, 0x800B2AD8, 0x80015DF0, 0, 0x8009DEF4, { 0x70, 0x72 }, 0 },
+          0x80044534, 0x800B2AF8, 0x800AA388, 0x800B2B00, 0x800B2AD8, 0x80015DF0, 0, 0x8009DEF4, { 0x70, 0x72 }, 0,
+          0x80051770 },
         { 2, "embarcadero", "Embarcadero", "sfrush:embarcadero", false, 0x80038644, 0x8003AF18, 0x800A7478, 0x8004459C,
-          0x800445AC, 0x800B2B08, 0x800AA394, 0x800B2B10, 0x800B2AE0, 0x80015DCC, 0, 0x800A0180, { 0x82, 0x83 }, 0x800A55B4 },
+          0x800445AC, 0x800B2B08, 0x800AA394, 0x800B2B10, 0x800B2AE0, 0x80015DCC, 0, 0x800A0180, { 0x82, 0x83 }, 0x800A55B4,
+          0 },
         // Track 3's gate sectors forward (0x800AA3AC backward, gp+0x4C set).
         { 3, "market", "Market", "sfrush:market", false, 0x80039048, 0x8003B990, 0x800A77C0, 0x800445DC, 0x800445EC,
-          0x800AA3A0, 0x800AA3BC, 0x800AA3CC, 0x800AA37C, 0x80015DA8, 0, 0x800A2798, { 0, 0 }, 0 },
+          0x800AA3A0, 0x800AA3BC, 0x800AA3CC, 0x800AA37C, 0x80015DA8, 0, 0x800A2798, { 0, 0 }, 0, 0 },
         { 4, "chinatown", "Chinatown", nullptr, true, 0x80039A88, 0x8003C408, 0x800A77C0, 0x80044628, 0x80044638,
-          0x800B2B18, 0x800B2B1C, 0x800AA3D8, 0x800B2AE8, 0x80015D80, 0x800542D8, 0x800A4188, { 0x59, 0 }, 0x800A58B4 },
+          0x800B2B18, 0x800B2B1C, 0x800AA3D8, 0x800B2AE8, 0x80015D80, 0x800542D8, 0x800A4188, { 0x59, 0 }, 0x800A58B4, 0 },
     };
+
+    // The computer cars' speeds ([ai] speed_quantiles, docs/custom_tracks.md#ai-speeds): the PS1 has no AI speed data
+    // the converter reads, and the stock radius table had them 10-30 mph slow in Golden Gate's corners (7 drones over
+    // 90 s: N64 118 mph, PS1 night 107, PS1 snow 91; user report 2026-11-09). Tracks 1-3 take their N64 versions'
+    // lane speeds (N64 tracks 1-3, assets 58-60), track 4, a course the N64 lacks, all seven N64 tracks':
+    // tools/rush1/lane_speed_table.py --tracks 0 / 1 / 2 / 0,1,2,3,4,5,6. Snow slows the tight corners on top
+    // ([handling] traction).
+    std::string ai_speed_toml(int track) {
+        static const char* const quantiles[] = {
+            "69, 127, 134, 134, 139, 140, 141, 144, 147, 149, 151, 151, 153, 154, 155, 157, 158, 158, 159, 161, 174",
+            "103, 117, 122, 128, 132, 134, 136, 138, 140, 142, 144, 145, 145, 147, 147, 148, 151, 151, 153, 154, 158",
+            "70, 87, 95, 100, 106, 110, 114, 117, 119, 121, 123, 125, 128, 131, 134, 136, 141, 146, 173, 174, 174",
+            "70, 91, 99, 105, 109, 114, 119, 123, 128, 133, 136, 138, 141, 145, 147, 150, 153, 155, 158, 161, 174",
+        };
+        if (track < 1 || track > 4) return "";
+        return std::string("[ai]\nspeed_quantiles = [") + quantiles[track - 1] + "]\n\n";
+    }
     // In snow the race setup sets the clock to 60 whatever the track (0x80015E04, gp+0x40 == 1).
     constexpr uint32_t snow_start_insn = 0x80015E04;
 
@@ -89,15 +111,20 @@ namespace {
 
     using Exe = ps1::Exe;
 
-    // The page loader's LoadImage RECTs and the CLUT loader's (x, y), in chunk order: the loaders are straight-line
-    // code, so a scan that follows constant registers and the RECT on the stack finds them (vram.py scan).
+    // The page loader's LoadImage RECTs and the CLUT loader's (x, y), in call order: the loaders are straight-line
+    // code, so a scan that follows constant registers and the RECT on the stack finds them (vram.py scan). Each call
+    // gets the .DAT chunk the loader's chunk pointer is at: it steps by the .SIZ sizes (lw rt, 4k($s1) adds chunk k's),
+    // so after chunk k's size the next call gets chunk k + 1. Track 2's CLUT loader (func_8003AF18) steps over chunks
+    // 10 and 26 without uploading them, so its 50 calls aren't the file's first 50 chunks (docs/sfrush_ps1.md#textures).
     struct Calls {
         std::vector<std::array<int, 4>> images;
         std::vector<std::array<int, 2>> cluts;
+        std::vector<int> image_chunks, clut_chunks;
     };
     void scan(const Exe& e, uint32_t start, Calls& out) {
         std::map<int, uint32_t> regs{ { 0, 0 } };
         std::map<int, uint32_t> stack;
+        int chunk = 0;
         uint32_t end = e.func_end(start);
         auto apply = [&](uint32_t w) {
             int op = int(w >> 26), rs = int((w >> 21) & 31), rt = int((w >> 16) & 31);
@@ -107,6 +134,10 @@ namespace {
             else if (op == 0xD && regs.count(rs)) regs[rt] = regs[rs] | imm;
             else if (op == 0xF) regs[rt] = imm << 16;
             else if (op == 0x29 && rs == 29 && regs.count(rt)) stack[simm] = regs[rt] & 0xFFFF;
+            else if (op == 0x23 && rs == 17) {   // lw rt, 4k($s1): chunk k's size, added to the chunk pointer
+                chunk = simm / 4 + 1;
+                regs.erase(rt);
+            }
             else if (op == 0) {
                 int rd = int((w >> 11) & 31), fn = int(w & 0x3F);
                 if ((fn == 0x21 || fn == 0x25) && rt == 0 && regs.count(rs)) regs[rd] = regs[rs];
@@ -120,8 +151,14 @@ namespace {
                 uint32_t t = (a & 0xF0000000) | ((w & 0x3FFFFFF) << 2);
                 apply(e.w(a + 4));   // the delay slot runs first
                 auto st = [&](int o) { auto it = stack.find(o); return it == stack.end() ? -1 : int(it->second); };
-                if (t == load_image) out.images.push_back({ st(0x10), st(0x12), st(0x14), st(0x16) });
-                else if (t == load_clut) out.cluts.push_back({ regs.count(4) ? int(regs[4]) : -1, regs.count(5) ? int(regs[5]) : -1 });
+                if (t == load_image) {
+                    out.images.push_back({ st(0x10), st(0x12), st(0x14), st(0x16) });
+                    out.image_chunks.push_back(chunk);
+                }
+                else if (t == load_clut) {
+                    out.cluts.push_back({ regs.count(4) ? int(regs[4]) : -1, regs.count(5) ? int(regs[5]) : -1 });
+                    out.clut_chunks.push_back(chunk);
+                }
                 for (int r : { 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 24, 25 }) regs.erase(r);
                 a += 8;
                 continue;
@@ -216,6 +253,357 @@ namespace {
         int chunk;
         double low = 0, high = 0;   // a raised wall's (B record's) height band, game y ft; 0, 0 for an A wall
     };
+
+    // ------------------------------------------------------------------------------------------- spline road
+    // The PS1's ground is flat planes (docs/sfrush_ps1.md#collision), and on tracks 1-3 most are bent quads: Golden
+    // Gate's are 583 of 859, folded a median 2 degrees along a diagonal, so the road's bank wobbles from quad to quad
+    // every 40-100 ft and every edge is a crease (Chinatown's are 37 of 922). The PS1 hides it by damping its cars'
+    // pitch and roll hard every frame on the ground (car_damp_x, car_damp_z); Rush 2 rides it, and Golden Gate rocked
+    // and bumped all round (user report 2026-11-09; measured with tools/test_race.py --motion: roll jerk 9x the N64
+    // Golden Gate's). Rush 2's own tracks smooth their road with the spline road (docs/custom_tracks.md#spline-road),
+    // so the converter fits one to the PS1 road: stations every spline_spacing ft along the drones' line, at each a
+    // profile across the road (heights every strip_width ft, least squares through the PS1 ground under it), smoothed
+    // along the lap. A segment's cross-section is a straight line, and the PS1's turns are dished (flat in the middle,
+    // rising 6-8 ft toward the edges: one straight line left most of a turn 1-8 ft off and flat), so the road is
+    // strip_count parallel chains, one per strip between two knots, meeting at the knots. a49::cut_spline_road (the
+    // arcade converter's) cuts the floor under each strip's segments into footprints that take their height from
+    // them, keeping a piece only where its facet is within 1 ft of the fitted surface; kerbs, walls' feet and the rest
+    // stay flat.
+    // ft between stations (at 50, the foot of Golden Gate's run-in ramp fell outside the stations' profiles and
+    // stayed flat: pitch jerk 0.28 -> 0.41, the worst 4.1 -> 25.7)
+    constexpr double spline_spacing = 40.0;
+    constexpr int strip_count = 10;           // strips across the road
+    constexpr double strip_width = 12.0;      // ft
+    constexpr double strip_reach = 0.5 * strip_count * strip_width;   // ft each side of the drones' line
+    // The tracks it is fitted to, measured in game (tools/test_race.py --motion 1, a computer car's lap: pitch and roll
+    // jerk, 95th percentile, rad/s^2) against the faces with the averaged height ([track] smooth_height) and the N64
+    // course: Golden Gate 1.71 / 1.01 -> 0.28 / 0.29 (N64 0.74 / 0.11). Market rode smoothly already (1.90 / 0.86,
+    // N64 2.59 / 4.16), and its jumps' crests and its size (at 40 ft its collision passed the game's 64 KB of vertex
+    // lists) went worse with it (5.08 / 4.37 at 50 ft): it keeps the faces. Embarcadero (4.82 / 4.42, N64 1.45 /
+    // 0.37) shudders side to side every 5 ft along its waterfront straight (2,900-4,300 ft into the lap) with or
+    // without it (6.08 / 6.17 with), and the strips left that straight flat: not this, not fitted yet. Chinatown's floor
+    // is flat quads.
+    bool spline_road_track(int n) { return n == 1; }
+    struct GroundTri {
+        std::array<V3, 3> p;     // game ft (this file's frame: the PS1's mirror image, see game())
+        V3 n;                    // unit, up
+        int cls;                 // 0 road, 1 dirt, 2 verge
+    };
+    // The segments' SEG records (game space: for_a49), chain by chain (strip i's station j at i x per_chain + j), each
+    // one's band (u range), and per ground triangle the segment it lies on (-1: none).
+    struct RoadSplines {
+        std::vector<std::array<double, 33>> records;
+        std::vector<std::array<double, 2>> u_band;
+        std::vector<int> hint;
+        int per_chain = 0, stations = 0;
+        bool open = false;
+        int weak = 0;            // stations whose fit fell back on the ones before (too little ground under them)
+    };
+    RoadSplines road_splines(const std::vector<GroundTri>& tris, const std::vector<V3>& mid, const std::vector<V3>& lp,
+                             const std::vector<V3>& rp, bool open) {
+        RoadSplines out;
+        out.hint.assign(tris.size(), -1);
+        size_t m = mid.size();
+        if (m < 4) return out;
+        // The ground triangles by 32 ft cell, and the height of the one under (x, z) nearest y_ref, within tol.
+        constexpr double cell = 32.0;
+        std::map<std::pair<int, int>, std::vector<int>> cells;
+        for (size_t i = 0; i < tris.size(); i++) {
+            const auto& p = tris[i].p;
+            double x0 = std::min({ p[0][0], p[1][0], p[2][0] }), x1 = std::max({ p[0][0], p[1][0], p[2][0] });
+            double z0 = std::min({ p[0][2], p[1][2], p[2][2] }), z1 = std::max({ p[0][2], p[1][2], p[2][2] });
+            for (int gx = int(std::floor(x0 / cell)); gx <= int(std::floor(x1 / cell)); gx++)
+                for (int gz = int(std::floor(z0 / cell)); gz <= int(std::floor(z1 / cell)); gz++) cells[{ gx, gz }].push_back(int(i));
+        }
+        auto height_at = [&](double x, double z, double y_ref, double tol, double& y) {
+            auto it = cells.find({ int(std::floor(x / cell)), int(std::floor(z / cell)) });
+            if (it == cells.end()) return false;
+            double best = tol;
+            bool found = false;
+            for (int i : it->second) {
+                const auto& p = tris[i].p;
+                auto side = [&](const V3& a, const V3& b) { return (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]); };
+                double s0 = side(p[0], p[1]), s1 = side(p[1], p[2]), s2 = side(p[2], p[0]);
+                if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+                const V3& n = tris[i].n;
+                double h = p[0][1] - (n[0] * (x - p[0][0]) + n[2] * (z - p[0][2])) / n[1];
+                if (std::fabs(h - y_ref) < best) {
+                    best = std::fabs(h - y_ref);
+                    y = h;
+                    found = true;
+                }
+            }
+            return found;
+        };
+
+        // Cross-section stations: evenly along the line (horizontal arc length; a loop wraps), the drones' corridor
+        // half-width there, then the line smoothed (three [1 2 1] passes) so the stations turn gradually.
+        std::vector<double> at(m + 1, 0.0);
+        size_t links = open ? m - 1 : m;
+        for (size_t i = 0; i < links; i++) {
+            const V3 &a = mid[i], &b = mid[(i + 1) % m];
+            at[i + 1] = at[i] + std::hypot(b[0] - a[0], b[2] - a[2]);
+        }
+        double total = at[links];
+        int ns = std::max(4, int(std::lround(total / spline_spacing))) + (open ? 1 : 0);
+        double step = total / (open ? ns - 1 : ns);
+        std::vector<V3> P(ns);
+        std::vector<double> half(ns);
+        for (int j = 0; j < ns; j++) {
+            double s = std::min(step * j, total);
+            size_t i = size_t(std::upper_bound(at.begin(), at.begin() + links + 1, s) - at.begin());
+            i = std::clamp<size_t>(i, 1, links) - 1;
+            double f = at[i + 1] > at[i] ? (s - at[i]) / (at[i + 1] - at[i]) : 0.0;
+            size_t k = (i + 1) % m;
+            P[j] = mid[i] + (mid[k] - mid[i]) * f;
+            half[j] = 0.5 * std::hypot(lp[i][0] - rp[i][0] + (lp[k][0] - rp[k][0] - lp[i][0] + rp[i][0]) * f,
+                                       lp[i][2] - rp[i][2] + (lp[k][2] - rp[k][2] - lp[i][2] + rp[i][2]) * f);
+        }
+        auto idx = [&](int j) { return open ? std::clamp(j, 0, ns - 1) : (j % ns + ns) % ns; };
+        for (int pass = 0; pass < 3; pass++) {
+            std::vector<V3> q = P;
+            for (int j = 0; j < ns; j++) {
+                if (open && (j == 0 || j == ns - 1)) continue;
+                for (int c : { 0, 2 }) q[j][c] = 0.25 * P[idx(j - 1)][c] + 0.5 * P[j][c] + 0.25 * P[idx(j + 1)][c];
+            }
+            P = q;
+        }
+        std::vector<V3> T(ns), R(ns);
+        for (int j = 0; j < ns; j++) {
+            V3 d = P[idx(j + 1)] - P[idx(j - 1)];
+            double l = std::hypot(d[0], d[2]);
+            T[j] = l > 0 ? V3{ d[0] / l, 0.0, d[2] / l } : V3{ 0.0, 0.0, 1.0 };
+            R[j] = { T[j][2], 0.0, -T[j][0] };
+        }
+
+        // Each station's profile across the road: heights at knots every strip_width ft from -strip_reach to
+        // +strip_reach, least squares through the ground under it (every 2 ft), lightly held to a straight line where
+        // the ground gives out (a gap, the road's edge), points over 1 ft off dropped and fitted again. The ground is
+        // taken nearest the profile expected from the stations before (so a deck over a road keeps to its own level);
+        // failing that, the drones' line's own height there, nearer then wider.
+        const int nk = strip_count + 1;
+        auto knot = [&](int i) { return -strip_reach + strip_width * i; };
+        std::vector<std::vector<double>> Y(ns, std::vector<double>(nk, 0.0));
+        auto fit = [&](int j, const std::vector<double>& expect, double tol, std::vector<double>& y) {
+            std::vector<std::array<double, 2>> pts;
+            for (double s = -strip_reach; s <= strip_reach + 1e-9; s += 2.0) {
+                int i = std::clamp(int((s + strip_reach) / strip_width), 0, strip_count - 1);
+                double f = (s - knot(i)) / strip_width, e = expect[i] * (1 - f) + expect[i + 1] * f, h;
+                if (height_at(P[j][0] + R[j][0] * s, P[j][2] + R[j][2] * s, e, tol, h)) pts.push_back({ s, h });
+            }
+            for (int iter = 0; iter < 3; iter++) {
+                if (pts.size() < 5) return false;
+                // Normal equations: hat functions at the knots, plus lambda x second differences.
+                std::vector<std::vector<double>> M(nk, std::vector<double>(nk + 1, 0.0));
+                for (const auto& q : pts) {
+                    int i = std::clamp(int((q[0] + strip_reach) / strip_width), 0, strip_count - 1);
+                    double f = (q[0] - knot(i)) / strip_width, w[2] = { 1 - f, f };
+                    for (int a = 0; a < 2; a++) {
+                        for (int b = 0; b < 2; b++) M[i + a][i + b] += w[a] * w[b];
+                        M[i + a][nk] += w[a] * q[1];
+                    }
+                }
+                constexpr double lambda = 0.5;
+                for (int i = 1; i + 1 < nk; i++) {
+                    const int c[3] = { i - 1, i, i + 1 };
+                    const double d[3] = { 1, -2, 1 };
+                    for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) M[c[a]][c[b]] += lambda * d[a] * d[b];
+                }
+                for (int col = 0; col < nk; col++) {     // Gaussian elimination (symmetric positive definite)
+                    if (std::fabs(M[col][col]) < 1e-12) return false;
+                    for (int r = col + 1; r < nk; r++) {
+                        double f = M[r][col] / M[col][col];
+                        for (int c = col; c <= nk; c++) M[r][c] -= f * M[col][c];
+                    }
+                }
+                for (int r = nk - 1; r >= 0; r--) {
+                    double v = M[r][nk];
+                    for (int c = r + 1; c < nk; c++) v -= M[r][c] * y[c];
+                    y[r] = v / M[r][r];
+                }
+                std::vector<std::array<double, 2>> kept;
+                for (const auto& q : pts) {
+                    int i = std::clamp(int((q[0] + strip_reach) / strip_width), 0, strip_count - 1);
+                    double f = (q[0] - knot(i)) / strip_width;
+                    if (std::fabs(y[i] * (1 - f) + y[i + 1] * f - q[1]) < 1.0) kept.push_back(q);
+                }
+                if (kept.size() == pts.size()) break;
+                pts = std::move(kept);
+            }
+            return std::fabs(y[strip_count / 2] - expect[strip_count / 2]) < tol + 2.0;
+        };
+        for (int j = 0; j < ns; j++) {
+            std::vector<double> expect(nk), y(nk);
+            if (j == 0) {
+                double h;
+                double a = height_at(P[0][0], P[0][2], P[0][1], 80.0, h) ? h : P[0][1];
+                std::fill(expect.begin(), expect.end(), a);
+            } else {
+                double trend = j > 1 ? Y[j - 1][strip_count / 2] - Y[j - 2][strip_count / 2] : 0.0;
+                for (int i = 0; i < nk; i++) expect[i] = Y[j - 1][i] + trend;
+            }
+            std::vector<double> level(nk, P[j][1]);
+            if (fit(j, expect, 4.0, y) || fit(j, level, 4.0, y) || fit(j, level, 15.0, y)) {
+                Y[j] = y;
+            } else {
+                Y[j] = expect;
+                out.weak++;
+            }
+        }
+        // Smoothed along the lap ([1 4 6 4 1]): the center height once, each knot's height off the center twice (the
+        // quads' twist is in the bank).
+        {
+            std::vector<double> c(ns);
+            std::vector<std::vector<double>> d(nk, std::vector<double>(ns));
+            for (int j = 0; j < ns; j++) {
+                c[j] = Y[j][strip_count / 2];
+                for (int i = 0; i < nk; i++) d[i][j] = Y[j][i] - c[j];
+            }
+            auto smooth = [&](std::vector<double>& v) {
+                std::vector<double> w = v;
+                for (int j = 0; j < ns; j++) {
+                    if (open && (j < 2 || j > ns - 3)) continue;
+                    w[j] = (v[idx(j - 2)] + 4 * v[idx(j - 1)] + 6 * v[j] + 4 * v[idx(j + 1)] + v[idx(j + 2)]) / 16.0;
+                }
+                v = w;
+            };
+            // (Stiffer: twice for the center, three times for the knots, or lambda 2-6 below, left more of the road
+            // over 1 ft off its fit and flat, and Golden Gate's roll and pitch jerk went up 20-130%.)
+            smooth(c);
+            for (int i = 0; i < nk; i++) {
+                smooth(d[i]);
+                smooth(d[i]);
+            }
+            for (int j = 0; j < ns; j++) for (int i = 0; i < nk; i++) Y[j][i] = c[j] + d[i][j];
+        }
+
+        // The SEG records, in game space (for_a49 mirrors this file's frame), a chain per strip (fields:
+        // docs/custom_tracks.md#spline-road). A strip's cross-section at a station is the straight line between its two
+        // knots. A loop's chain ends with a copy of its first station (the last segment's end line), which, like an
+        // open chain's last station, has no stretch of its own (length 1e6: the cut takes it for a chain's end).
+        const int per = ns + (open ? 0 : 1);
+        out.records.assign(size_t(strip_count) * per, {});
+        out.u_band.assign(out.records.size(), { -0.02, 1.02 });
+        out.per_chain = per;
+        out.stations = ns;
+        out.open = open;
+        for (int i = 0; i < strip_count; i++) {
+            std::vector<V3> O(ns), across(ns), along(ns), up(ns);
+            std::vector<double> width(ns);
+            for (int j = 0; j < ns; j++) {
+                V3 l = P[j] + R[j] * knot(i), r = P[j] + R[j] * knot(i + 1);
+                l[1] = Y[j][i];
+                r[1] = Y[j][i + 1];
+                V3 lg = for_a49(l), rg = for_a49(r);
+                O[j] = (lg + rg) * 0.5;
+                width[j] = a49::norm(rg - lg);
+                across[j] = a49::unit(rg - lg);
+            }
+            for (int j = 0; j < ns; j++) {
+                V3 d = O[idx(j + 1)] - O[idx(j - 1)];
+                V3 al = a49::unit(d - across[j] * a49::dot(d, across[j]));
+                V3 u = a49::cross(al, across[j]);
+                if (u[1] < 0) {
+                    across[j] = across[j] * -1.0;
+                    u = u * -1.0;
+                }
+                along[j] = al;
+                up[j] = a49::unit(u);
+            }
+            // A segment's frame (the matrix: t and u are measured in it) lies along its chord, from its station's
+            // center to the next's, so the next center is at u 0.5, t 1 exactly (the cut takes a segment whose next
+            // center isn't for a chain's end: a 12 ft strip's chord in a turn strays 0.8 ft, u 0.57, off a frame
+            // along the station's tangent). The surface keeps the station's own cross-section (across, the start
+            // line's slant 5C in the frame) and tangent (along, which sets the normal and the cubic's end slopes).
+            auto chord_frame = [&](const V3& d, int j, V3& acp, V3& upp, V3& alp) {
+                alp = a49::unit(d);
+                acp = a49::unit(across[j] - alp * a49::dot(across[j], alp));
+                upp = a49::unit(a49::cross(alp, acp));
+            };
+            auto record = [&](int j, bool last) {
+                std::array<double, 33> r{};
+                for (int c = 0; c < 3; c++) {
+                    r[c] = O[j][c];
+                    r[12 + c] = across[j][c];
+                    r[15 + c] = along[j][c];
+                    r[18 + c] = along[j][c];
+                }
+                r[21] = width[j];
+                V3 acp, upp, alp;
+                if (last) {
+                    // A chain's end: no stretch after it (length 1e6), the station's own frame; its cubic slope is
+                    // the end slope of the segment before (its tangent off the chord coming in).
+                    for (int c = 0; c < 3; c++) r[3 + c] = across[j][c], r[6 + c] = up[j][c], r[9 + c] = along[j][c];
+                    r[22] = 1e6;
+                    r[25] = r[27] = 0.5 * width[j];
+                    int p = idx(j - 1);
+                    if (p != j) {
+                        chord_frame(O[j] - O[p], p, acp, upp, alp);
+                        double fa = a49::dot(alp, along[j]);
+                        r[29] = r[30] = std::fabs(fa) > 1e-6 ? a49::dot(upp, along[j]) / fa : 0.0;
+                    }
+                    return r;
+                }
+                int k = idx(j + 1);
+                V3 d = O[k] - O[j];
+                chord_frame(d, j, acp, upp, alp);
+                for (int c = 0; c < 3; c++) r[3 + c] = acp[c], r[6 + c] = upp[c], r[9 + c] = alp[c];
+                double g = a49::dot(acp, across[j]);
+                double c0 = a49::dot(acp, across[k]), c2 = a49::dot(alp, across[k]);
+                double s58 = a49::norm(d);
+                r[22] = s58;                                                     // length at the center line
+                r[23] = std::fabs(g) > 1e-6 ? a49::dot(alp, across[j]) / g : 0.0; // the start line's slant
+                r[24] = std::fabs(c0) > 1e-6 ? c2 / c0 : 0.0;                     // the end line's slant
+                double hw = 0.5 * width[j] * g;
+                r[25] = r[27] = hw;                                              // half-widths across the frame
+                r[26] = r[28] = s58 > 1e-6 ? (c0 * 0.5 * width[k] - hw) / s58 : 0.0;   // their taper along
+                // The cubic's end slopes: minus the tangent's slope off the chord (so the surface leaves the station
+                // along its tangent); the next segment's, at its start, ends this one the same way.
+                double fa = a49::dot(alp, along[j]);
+                r[29] = r[30] = std::fabs(fa) > 1e-6 ? -a49::dot(upp, along[j]) / fa : 0.0;
+                return r;
+            };
+            for (int j = 0; j < ns; j++) out.records[size_t(i) * per + j] = record(j, open && j == ns - 1);
+            if (!open) out.records[size_t(i) * per + ns] = record(0, true);
+        }
+
+        // Each ground triangle near the line is put by the nearest station whose profile it lies on (within 3 ft,
+        // across within the knots) and the strip it is over; the cut tries the stations around it, every strip.
+        std::map<std::pair<int, int>, std::vector<int>> by_cell;
+        constexpr double scell = 64.0;
+        for (int j = 0; j < ns; j++) by_cell[{ int(std::floor(P[j][0] / scell)), int(std::floor(P[j][2] / scell)) }].push_back(j);
+        for (size_t t = 0; t < tris.size(); t++) {
+            V3 c = (tris[t].p[0] + tris[t].p[1] + tris[t].p[2]) * (1.0 / 3.0);
+            int gx = int(std::floor(c[0] / scell)), gz = int(std::floor(c[2] / scell));
+            double best = 1e18;
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    auto it = by_cell.find({ gx + dx, gz + dz });
+                    if (it == by_cell.end()) continue;
+                    for (int j : it->second) {
+                        V3 d = c - P[j];
+                        double lat = d[0] * R[j][0] + d[2] * R[j][2], lon = d[0] * T[j][0] + d[2] * T[j][2];
+                        if (std::fabs(lat) > strip_reach) continue;
+                        int i = std::clamp(int((lat + strip_reach) / strip_width), 0, strip_count - 1);
+                        double f = (lat - knot(i)) / strip_width;
+                        auto prof = [&](int jj) { return Y[jj][i] * (1 - f) + Y[jj][i + 1] * f; };
+                        // The profile carried along the road's slope to the triangle (the run-in's ramp off the
+                        // bridge falls 25%: 10 ft in 40).
+                        int ja = idx(j - 1), jb = idx(j + 1);
+                        double run = std::hypot(P[jb][0] - P[ja][0], P[jb][2] - P[ja][2]);
+                        double slope = run > 1e-6 ? (prof(jb) - prof(ja)) / run : 0.0;
+                        if (std::fabs(c[1] - (prof(j) + slope * lon)) > 3.0) continue;
+                        double dist = lat * lat + lon * lon;
+                        if (dist < best) {
+                            best = dist;
+                            out.hint[t] = i * per + j;
+                        }
+                    }
+                }
+            }
+        }
+        return out;
+    }
 }
 
 static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& assets_dir, ps1::ModFiles& out,
@@ -242,8 +630,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     std::vector<std::vector<uint8_t>> page_chunks, clut_chunks;
     const std::string t = std::to_string(tr.n);
     const std::string sfx = cond.suffix;
+    auto last = [](const std::vector<int>& v) { return v.empty() ? size_t(SIZE_MAX) : size_t(*std::max_element(v.begin(), v.end())); };
     if (!disc.chunks("T" + t + "PAGE/T" + t + "PAGE" + sfx, page_chunks) || !disc.chunks("T" + t + "CLUT/T" + t + "CLUT" + sfx, clut_chunks) ||
-        pages.images.size() != page_chunks.size() || cluts.cluts.size() > clut_chunks.size()) {
+        last(pages.image_chunks) >= page_chunks.size() || last(cluts.clut_chunks) >= clut_chunks.size()) {
         snprintf(line, sizeof(line), "texture pages: %zu loads for %zu chunks, CLUTs: %zu for %zu\n", pages.images.size(),
                  page_chunks.size(), cluts.cluts.size(), clut_chunks.size());
         log += line;
@@ -259,22 +648,26 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         page_data.insert(page_data.end(), c.begin(), c.end());
     }
     Vram vram;
-    for (size_t k = 0; k < page_chunks.size(); k++) {
+    for (size_t k = 0; k < pages.images.size(); k++) {
         auto [x, y, w, h] = pages.images[k];
-        if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1024 || y + h > 512 || page_at[k] + 0x28 + size_t(w) * h * 2 > page_data.size()) {
+        const size_t at = page_at[size_t(pages.image_chunks[k])];
+        if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1024 || y + h > 512 || at + 0x28 + size_t(w) * h * 2 > page_data.size()) {
             log += "a texture page's RECT is outside VRAM\n";
             return false;
         }
-        const uint8_t* c = &page_data[page_at[k] + 0x28];
+        const uint8_t* c = &page_data[at + 0x28];
         for (int r = 0; r < h; r++) {
             for (int i = 0; i < w; i++) vram.v[size_t(y + r) * 1024 + size_t(x + i)] = u16(&c[2 * (size_t(r) * w + i)]);
         }
     }
-    // Track 2's CLUT loader uploads the first 50 of its file's 52 chunks; the last two are never used.
+    // Each call's own chunk (Calls): track 2's loader skips chunks 10 and 26. Taking the calls as the chunks in order
+    // gave every Embarcadero CLUT from the 11th on a later chunk's colors (noise on its walls and road, the night
+    // CHECKPOINT gantry unreadable).
     for (size_t k = 0; k < cluts.cluts.size(); k++) {
         auto [x, y] = cluts.cluts[k];
-        if (x < 0 || y < 0 || x + 16 > 1024 || y >= 512 || clut_chunks[k].size() < 40) return false;
-        for (int i = 0; i < 16; i++) vram.v[size_t(y) * 1024 + size_t(x + i)] = u16(&clut_chunks[k][8 + 2 * i]);
+        const auto& c = clut_chunks[size_t(cluts.clut_chunks[k])];
+        if (x < 0 || y < 0 || x + 16 > 1024 || y >= 512 || c.size() < 40) return false;
+        for (int i = 0; i < 16; i++) vram.v[size_t(y) * 1024 + size_t(x + i)] = u16(&c[8 + 2 * i]);
     }
     if (!exe.in(tr.tex_table, tex_entries * 24) || !exe.in(clut_ids, clut_id_count * 4)) return false;
     auto entry = [&](uint32_t i, int f) { return s32(&exe.data[tr.tex_table - exe_base + i * 24 + f * 4]); };
@@ -313,6 +706,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // same way (track_finish_line_setup_8008F080, when a player passes the last checkpoint of the last lap), so chunk 1 is the custom track's
     // FINISH_BANNER, its CHECKPOINT panels in a CHKPNT material, and chunk 89's FINISH panels are the FINISH material,
     // both resampled to one rectangle so the swap keeps the panels' coordinates (docs/custom_tracks.md#finish-banner).
+    // A run-in circuit's gantry (track 1's toll plaza) is on the run-in, a checkpoint passed once: it keeps reading
+    // CHECKPOINT and the FINISH chunk isn't drawn.
+    const bool run_in = tr.run_in_grid != 0;
     int start_banner = -1, finish_banner = -1;
     {
         const uint32_t id_insn = tr.banner_id_insn, alt_insn = tr.banner_alt_insn, chunk_table = 0x800B5C88;
@@ -339,13 +735,19 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // +0x18 and +0x1C lists of u32 id | flags ended by -1): 0x4000 not drawn at night, 0x2000 drawn only at night,
     // 0x1000 semi-transparent. Track 1's ids 112 and 114 are day-only, track 2's 132 and 133 night-only (and
     // semi-transparent), track 4's 89 day-only; plus the ids the draw loop itself draws semi-transparent (tr.semi).
+    // The draw loop walks only these lists, so a chunk no list names is never drawn (docs/sfrush_ps1.md#unlisted-chunks):
+    // Golden Gate's ids 97-100 (four chevron signs floating 100 ft over the road), 115 and 116; Embarcadero's 96,
+    // 103-105, 110-114, 131 (drawn in 130's place once a car trips gp+0x88) and 134; Market's 174; Chinatown's 58 (an
+    // elevated rail section). The finish banners (unlisted too) are drawn by the swap, as above.
     std::map<int, uint32_t> chunk_flags;
+    std::set<int> listed;
     for (uint32_t rec = tr.sections; exe.in(rec + 0x18, 8); rec += 32) {
         uint32_t lists[2] = { exe.w(rec + 0x18), exe.w(rec + 0x1C) };
         if ((lists[0] == 0 && lists[1] == 0) || (lists[0] != 0 && !exe.in(lists[0], 4)) || (lists[1] != 0 && !exe.in(lists[1], 4))) break;
         for (uint32_t list : lists) {
             for (uint32_t a = list; list != 0 && exe.in(a, 4) && exe.w(a) != 0xFFFFFFFFu && a - list < 4096; a += 4) {
                 chunk_flags[int(exe.w(a) & 0xFF)] |= exe.w(a) & 0x7000;
+                listed.insert(int(exe.w(a) & 0xFF));
             }
         }
     }
@@ -359,7 +761,8 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         }
         const bool scenery = std::string(kind) == "SCN2";
         for (size_t k = 0; k < raw.size(); k++) {
-            if (scenery && banner_built && int(k) == finish_banner) continue;   // drawn as the FINISH material
+            if (scenery && (banner_built || run_in) && int(k) == finish_banner) continue;   // drawn as the FINISH material
+            if (scenery && !listed.empty() && !listed.count(int(k) + 1) && int(k) != finish_banner) continue;   // never drawn
             const uint32_t cflags = scenery ? chunk_flags[int(k) + 1] : 0u;     // ids from 1
             if ((cond.condition == Condition::night && (cflags & 0x4000)) || (cond.condition != Condition::night && (cflags & 0x2000))) continue;
             const bool semi = (cflags & 0x1000) != 0;
@@ -373,7 +776,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             // The start gantry's panels: the faces whose texture the FINISH chunk changes.
             std::set<size_t> panels;
             Chunk fin;
-            if (scenery && int(k) == start_banner && finish_banner > start_banner && size_t(finish_banner) < raw.size() &&
+            if (scenery && !run_in && int(k) == start_banner && finish_banner > start_banner && size_t(finish_banner) < raw.size() &&
                 read_chunk(raw[size_t(finish_banner)], fin) && fin.faces.size() == ch.faces.size()) {
                 for (size_t i = 0; i < ch.faces.size(); i++) {
                     const Face& a = ch.faces[i];
@@ -596,6 +999,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     struct Mesh {
         std::vector<V3> verts, normals;
         std::vector<std::array<uint32_t, 3>> tris;
+        std::vector<double> segs;    // per vertex: the spline road segment (_SEGMENT), -1 flat; empty for walls
     };
     std::map<std::string, Mesh> by_surface;
     for (const Ground& gr : grounds) {
@@ -747,12 +1151,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         }
     }
     if (steps) report.push_back(std::to_string(steps) + " steep ground polygons walled at their foot");
-    size_t collision_tris = 0;
-    for (auto& [surface, m] : by_surface) {
-        if (m.tris.empty()) continue;
-        g.mesh("COL_" + surface + "_ps1", m.verts, m.normals, m.tris);
-        collision_tris += m.tris.size();
-    }
+    // (The collision meshes are written after the AI path is read: the spline road is fitted along it.)
 
     // The AI path: the drones' two lines (docs/sfrush_ps1.md#ai-paths), 20-byte records of 0.1 ft x, y, speed,
     // heading and height (y down).
@@ -773,10 +1172,47 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         log += "the AI path couldn't be read\n";
         return false;
     }
-    // Points every 20 ft or less along the PS1's straight chords.
+    // A run-in circuit (track 1, docs/sfrush_ps1.md#run-in): the path is open, from the run-in's start (the Golden Gate
+    // Bridge, 3,300 ft before the toll plaza) once round the loop to where it rejoins its start (point 174, 60 ft
+    // behind point 29). The race setup (func_80051590's track 1 branch, forward) puts the cars in single file from PS1
+    // y 0xE9AC (the back car, 0x80051770) 20 ft apart (0xC8 a car, 0x80051840) toward the run-in, 210 ft before the
+    // path's first point; the path is carried back up the run-in's line to 100 ft behind the front car, where Rush 2
+    // puts the start line when a track has no START (docs/custom_tracks.md#run-in-circuits).
+    if (run_in) {
+        const uint32_t ori = exe.in(tr.run_in_grid, 4) ? exe.w(tr.run_in_grid) : 0u;
+        if (ori >> 16 != 0x3402) {
+            log += "the run-in's grid couldn't be read\n";
+            return false;
+        }
+        constexpr int cars = 8, car_step = 0xC8;   // 0.1 ft
+        const double start_y = ((ori & 0xFFFF) - car_step * (cars - 1) + 1000) / 10.0;   // game x = PS1 y, ft
+        V3 c0 = (left[0] + right[0]) * 0.5, c1 = (left[1] + right[1]) * 0.5;
+        V3 back = c0 - c1;
+        double len = a49::norm(back);
+        if (len > 0 && std::fabs(back[0]) > 1e-6 && (start_y - c0[0]) / back[0] > 0) {
+            V3 shift = back * ((start_y - c0[0]) / back[0]);
+            // At the grid's height: the setup's car +4 (height, y down, 1/2560 ft) from lui/ori just before the
+            // grid's y (0xFFF52B00: 277 ft up, the bridge deck; the path's own heights run 50 ft under it there).
+            const uint32_t lui = exe.in(tr.run_in_grid - 0x68, 8) ? exe.w(tr.run_in_grid - 0x68) : 0u;
+            const uint32_t lo = exe.in(tr.run_in_grid - 0x64, 4) ? exe.w(tr.run_in_grid - 0x64) : 0u;
+            V3 l0 = left[0] + shift, r0 = right[0] + shift;
+            if (lui >> 16 == 0x3C05 && lo >> 16 == 0x34A5) {
+                const double up = -double(int32_t((lui & 0xFFFF) << 16 | (lo & 0xFFFF))) / 2560.0;
+                l0[1] = r0[1] = up;
+            }
+            left.insert(left.begin(), l0);
+            right.insert(right.begin(), r0);
+        }
+    }
+    // Points every 20 ft or less along the PS1's straight chords (a loop's last back to its first).
     std::vector<V3> lp, rp;
     size_t n = left.size();
     for (size_t i = 0; i < n; i++) {
+        if (run_in && i + 1 == n) {
+            lp.push_back(left[i]);
+            rp.push_back(right[i]);
+            break;
+        }
         size_t j = (i + 1) % n;
         V3 ci = (left[i] + right[i]) * 0.5, cj = (left[j] + right[j]) * 0.5;
         int steps = std::max(1, int(std::ceil(a49::norm(cj - ci) / 20.0)));
@@ -789,8 +1225,121 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     size_t m = lp.size();
     std::vector<V3> mid(m);
     for (size_t i = 0; i < m; i++) mid[i] = (lp[i] + rp[i]) * 0.5;
+
+    // The spline road (road_splines, above): the floor near the drones' line is cut into footprints of segments
+    // fitted to it; the floor's meshes are written again from the result, every other floor polygon as it was.
+    size_t collision_tris = 0;
+    {
+        auto add = [&](Mesh& mm, std::array<V3, 3> p, double seg) {
+            V3 nn = a49::cross(p[1] - p[0], p[2] - p[0]);
+            if (a49::norm(nn) < 1e-9) return;
+            nn = a49::unit(nn);
+            if (nn[1] < 0) {
+                std::swap(p[1], p[2]);
+                nn = nn * -1.0;
+            }
+            uint32_t base = uint32_t(mm.verts.size());
+            for (int c : { 0, 1, 2 }) {
+                mm.verts.push_back(gl(p[c]));
+                mm.normals.push_back(nn);
+                mm.segs.push_back(seg);
+            }
+            mm.tris.push_back({ base, base + 1, base + 2 });
+        };
+        const char* const floor_names[3] = { "ROAD", "DIRT", "VERGE" };
+        std::vector<GroundTri> floor;
+        std::vector<std::pair<std::array<V3, 3>, int>> steep;     // floor too steep to fit (normal y < 0.2), by class
+        for (const Ground& gr : grounds) {
+            int s = gr.flags & 0x18;
+            if (s == 0x18) continue;     // water: as written above
+            int cls = s == 0 ? 0 : s == 0x08 ? 1 : 2;
+            for (int k = 0; k < gr.tri_count; k++) {
+                std::array<V3, 3> p{ gr.p[gr.tris[k][0]], gr.p[gr.tris[k][1]], gr.p[gr.tris[k][2]] };
+                V3 nn = a49::cross(p[1] - p[0], p[2] - p[0]);
+                if (a49::norm(nn) < 1e-9) continue;
+                nn = a49::unit(nn);
+                if (nn[1] < 0) nn = nn * -1.0;
+                if (nn[1] < 0.2) steep.push_back({ p, cls });
+                else floor.push_back({ p, nn, cls });
+            }
+        }
+        // Golden Gate only (spline_road_track: what was measured on the others).
+        RoadSplines rs;
+        if (spline_road_track(tr.n)) rs = road_splines(floor, mid, lp, rp, run_in);
+        else rs.hint.assign(floor.size(), -1);
+        std::vector<a49::CollisionPoly> cand;
+        for (size_t i = 0; i < floor.size(); i++) {
+            if (rs.hint[i] < 0) continue;
+            a49::CollisionPoly cp;
+            cp.flags = uint32_t(floor[i].cls) | 0x1000;
+            for (const V3& q : floor[i].p) cp.pts.push_back(for_a49(q));
+            cp.normal = for_a49(floor[i].n);
+            cp.seg = rs.hint[i];
+            cand.push_back(std::move(cp));
+        }
+        std::vector<a49::FootprintTri> foot;
+        std::vector<a49::SplinePoly> kept;
+        std::vector<a49::FlatPoly> flat;
+        if (!rs.records.empty()) {
+            // A polygon's pieces may go to any strip at the 4 stations either side of its own (stations nearest
+            // first): the strips' bands meet edge to edge, so no piece is offered to two.
+            a49::SplineCut cut;
+            cut.u_band = rs.u_band;
+            cut.candidates = [&rs](const a49::CollisionPoly& p) {
+                std::vector<int> ks;
+                int per = rs.per_chain, j0 = p.seg % per;
+                for (int dj : { 0, -1, 1, -2, 2, -3, 3, -4, 4 }) {
+                    int j = j0 + dj;
+                    if (rs.open ? (j < 0 || j >= rs.stations - 1) : false) continue;
+                    if (!rs.open) j = (j % rs.stations + rs.stations) % rs.stations;
+                    for (int i = 0; i < strip_count; i++) ks.push_back(i * per + j);
+                }
+                return ks;
+            };
+            a49::cut_spline_road(rs.records, cand, foot, kept, flat, report, cut);
+        }
+        for (const char* nm : floor_names) by_surface.erase(nm);
+        for (size_t i = 0; i < floor.size(); i++) {
+            if (rs.hint[i] < 0 || rs.records.empty()) add(by_surface[floor_names[floor[i].cls]], floor[i].p, -1.0);
+        }
+        for (const auto& [p, cls] : steep) add(by_surface[floor_names[cls]], p, -1.0);
+        for (const a49::FootprintTri& ft : foot) {
+            add(by_surface[floor_names[ft.flags & 3]], { for_a49(ft.pts[0]), for_a49(ft.pts[1]), for_a49(ft.pts[2]) }, ft.seg);
+        }
+        auto fan = [&](uint32_t flags, const std::vector<V3>& pts, double seg) {
+            for (size_t c = 1; c + 1 < pts.size(); c++) {
+                add(by_surface[floor_names[flags & 3]], { for_a49(pts[0]), for_a49(pts[c]), for_a49(pts[c + 1]) }, seg);
+            }
+        };
+        for (const a49::SplinePoly& sp : kept) fan(sp.flags, sp.pts, sp.seg);
+        for (const a49::FlatPoly& f : flat) fan(f.flags, f.pts, -1.0);
+        snprintf(line, sizeof(line), "spline road: %d stations every %.0f ft along the drones' line (%d fitted from the "
+                 "ones before), %d strips of %.0f ft, %zu of %zu floor triangles near it", rs.stations, spline_spacing,
+                 rs.weak, strip_count, strip_width, cand.size(), floor.size());
+        report.push_back(line);
+
+        for (auto& [surface, mm] : by_surface) {
+            if (mm.tris.empty()) continue;
+            bool segs = mm.segs.size() == mm.verts.size() &&
+                        std::any_of(mm.segs.begin(), mm.segs.end(), [](double s) { return s >= 0; });
+            g.mesh("COL_" + surface + "_ps1", mm.verts, mm.normals, mm.tris,
+                   segs ? std::vector<std::pair<std::string, std::vector<double>>>{ { "_SEGMENT", mm.segs } }
+                        : std::vector<std::pair<std::string, std::vector<double>>>{});
+            collision_tris += mm.tris.size();
+        }
+        if (!rs.records.empty()) {
+            int splines = g.empty("ROAD_SPLINES");
+            nlohmann::json segments = nlohmann::json::array();
+            for (const auto& r : rs.records) {
+                nlohmann::json row = nlohmann::json::array();
+                for (double v : r) row.push_back(std::isfinite(v) ? v : 0.0);
+                segments.push_back(row);
+            }
+            g.js["nodes"][splines]["extras"] = { { "segments", segments } };
+        }
+    }
     auto tangent = [&](size_t i) {
-        V3 d = mid[(i + 1) % m] - mid[(i + m - 1) % m];
+        V3 d = run_in ? mid[std::min(i + 1, m - 1)] - mid[i > 0 ? i - 1 : 0] : mid[(i + 1) % m] - mid[(i + m - 1) % m];
         double l = std::hypot(d[0], d[2]);
         return l > 0 ? V2{ d[0] / l, d[2] / l } : V2{ 0.0, 1.0 };
     };
@@ -813,7 +1362,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             nrms.push_back({ 0, 1, 0 });
             nrms.push_back({ 0, 1, 0 });
         }
-        for (size_t i = 0; i < m; i++) {
+        for (size_t i = 0; i < (run_in ? m - 1 : m); i++) {
             uint32_t j = uint32_t((i + 1) % m), ii = uint32_t(i);
             // Wound for gl() (not mirrored): the same turn to_gltf gave these corners the other way round.
             tris.push_back({ 2 * ii, 2 * j, 2 * ii + 1 });
@@ -879,6 +1428,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     };
     // Where the path crosses plane k (from n . p > d to below) inside one of gate k's sectors, from point i to i + 1.
     auto crosses = [&](int k, size_t i) {
+        if (run_in && i + 1 >= m) return false;   // no chord back from an open path's end
         const V3& a = mid[i];
         const V3& b = mid[(i + 1) % m];
         double sa = plane_side(k, a), sb = plane_side(k, b);
@@ -914,6 +1464,33 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         gate_plane.push_back(k);
         at = found;
     }
+    // A run-in circuit: the PS1's finish plane is crossed only on the run-in (the toll plaza; the loop never comes
+    // back through it, so a PS1 car passes it once), so it is a checkpoint there, as on the N64's Golden Gate, whose
+    // course this is: its lap runs START (the bridge), the toll plaza, two checkpoints round the loop and FINISH at the
+    // PS1's gate 3 (docs/sfrush_arcade.md: the arcade version's gates, from the N64's, stand at the PS1's gates). The
+    // loop start (where the path's end comes back beside its run-in, a checkpoint as a run-in circuit needs:
+    // docs/custom_tracks.md#run-in-circuits) is the path point nearest the end, short of the end's own stretch.
+    if (run_in && gates.size() == 4) {
+        size_t loop_start = m;
+        double best = 1e30;
+        for (size_t i = finish; i < m / 2; i++) {
+            double d = a49::norm(mid[i] - mid[m - 1]);
+            if (d < best) best = d, loop_start = i;
+        }
+        if (loop_start == m || loop_start <= finish || loop_start >= gates[1].second || best > 300.0) {
+            log += "the run-in's loop start couldn't be placed\n";
+            return false;
+        }
+        const size_t toll = finish, g1 = gates[1].second, g2 = gates[2].second, g3 = gates[3].second;
+        gates = { { "CHECKPOINT_1", toll }, { "CHECKPOINT_2", loop_start }, { "CHECKPOINT_3", g1 }, { "CHECKPOINT_4", g2 },
+                  { "FINISH", g3 } };
+        gate_plane = { 0, -1, 1, 2, 3 };
+        finish = g3;
+    }
+    else if (run_in) {
+        log += "the run-in's gates couldn't be placed\n";
+        return false;
+    }
     {
         std::string at_points = "gates at path points";
         for (const auto& gt : gates) {
@@ -929,6 +1506,12 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     for (size_t gi = 0; gi < gates.size(); gi++) {
         const auto& [gname, i] = gates[gi];
         int k = gate_plane[gi];
+        if (k < 0) {
+            // The loop start: across the path, wide enough for the loop's end and the run-in beside it.
+            V2 tg = tangent(i);
+            g.empty(gname, a49::gate_matrix(for_a49(mid[i]), for_a49({ tg[0], 0.0, tg[1] }), std::max(halves[i], 30.0) + 60.0));
+            continue;
+        }
         const uint8_t* r = &cpf[16 * k];
         // In PS1 (x, y) (0.1 ft): n . (x, y) = d, the height term left out (the planes are upright on track 4).
         double nx = s32(r), ny = s32(r + 8), dd = s32(r + 12);
@@ -1145,8 +1728,14 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // race setup starts the clock at 60 whatever the track (0x80015E04). The other tracks (forward): 38 on tracks 1 and 2
     // (0x80015DF0, 0x80015DCC), 60 on track 3 (0x80015DA8), each gate's time from their own tables (gp+0xC60, set by
     // checkpoint_passed per track index), and no first-gates bonus.
+    // Snow keeps no times of its own: the PS1's 8 s more a gate were for its snow's two halvings, which the recomp keeps
+    // one of (the quarter from 64 mph played too slowly), so the race time model times it with the track's traction
+    // (src/race_time_model.cpp), the clock as tight as on any converted track.
     std::string race_toml;
-    {
+    if (cond.condition == Condition::snow) {
+        report.push_back("race times: the race time model's, with the snow's traction");
+    }
+    else {
         constexpr uint32_t snow_insn = 0x80054358;
         const uint32_t start_insn = cond.condition == Condition::snow ? snow_start_insn : tr.start_insn;
         const uint32_t gate_times = tr.gate_times, bonus_insn = tr.bonus_insn;
@@ -1158,16 +1747,22 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         }
         int start = int(exe.w(start_insn) & 0xFFFF), bonus = bonus_insn != 0 ? int(exe.w(bonus_insn) & 0xFFFF) : 0;
         int snow = cond.condition == Condition::snow ? int(exe.w(snow_insn) & 0xFFFF) : 0;
-        auto gate_time = [&](int k) { return int(uint8_t(exe.b(gate_times + uint32_t(k)))) + snow; };
-        race_toml = "[race]\nstart_time = " + std::to_string(start) + "\nfinish_time = " + std::to_string(gate_time(0)) +
+        // A gate's time by its PS1 plane; a run-in's loop start (no PS1 gate) adds nothing.
+        auto gate_time = [&](int k) { return k < 0 ? 0 : int(uint8_t(exe.b(gate_times + uint32_t(k)))) + snow; };
+        int finish_plane = 0;
+        for (size_t gi = 0; gi < gates.size(); gi++) if (gates[gi].first == "FINISH") finish_plane = gate_plane[gi];
+        race_toml = "[race]\nstart_time = " + std::to_string(start) + "\nfinish_time = " + std::to_string(gate_time(finish_plane)) +
                     "\ncheckpoint_time = [";
-        for (size_t gi = 1; gi < gates.size(); gi++) {
+        int listed = 0;
+        for (size_t gi = 0; gi < gates.size(); gi++) {
+            if (gates[gi].first == "FINISH") continue;
             int k = gate_plane[gi];
-            race_toml += (gi > 1 ? ", [" : "[") + std::to_string(gate_time(k) + (gi < 3 ? bonus : 0)) + ", " +
+            race_toml += (listed > 0 ? ", [" : "[") + std::to_string(gate_time(k) + (listed < 2 ? bonus : 0)) + ", " +
                          std::to_string(gate_time(k)) + "]";
+            listed++;
         }
         race_toml += "]\n\n";
-        report.push_back("race times: start " + std::to_string(start) + " s, finish +" + std::to_string(gate_time(0)) +
+        report.push_back("race times: start " + std::to_string(start) + " s, finish +" + std::to_string(gate_time(finish_plane)) +
                          " s, " + race_toml.substr(race_toml.find("checkpoint_time")));
     }
 
@@ -1181,8 +1776,8 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         // (up to 26 by day), so distant scenery fades to black (8, 8, 8). The sky is the dome above.
         // The cars: the PS1 draws them with their night paint pages and textures (CARSGFXN, func_80030930), the paint
         // ramps (CLUT entries 1-6) at about a quarter of the day's; here every car, whatever game it is from, is tinted
-        // by that ratio, measured over every car texture both sets have (car_light), and carries the PS1's light glows
-        // (car_lamps).
+        // by that ratio, measured over every car texture both sets have (car_light). The PS1's light glow sprites
+        // (light_sprite_draw, docs/sfrush_ps1.md#snow-and-night) aren't ported.
         std::array<double, 3> day{}, night{};
         for (const char* f : { "BLACK", "BLUE", "BROWN", "GREEN", "ORANGE", "PURPLE", "RED", "WHITE", "YELLOW", "BMW01", "BMW02",
                                "BUGETT01", "BUGETT02", "CAM01", "CAM02", "CONCEP01", "CONCEP02", "HUTCH01", "JEP01", "JET01",
@@ -1199,7 +1794,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         char light[8];
         auto channel = [&](int k) { return day[k] > 0 ? int(std::lround(std::clamp(night[k] / day[k], 0.0, 1.0) * 255.0)) : 255; };
         snprintf(light, sizeof(light), "#%02x%02x%02x", channel(0), channel(1), channel(2));
-        look_toml = std::string("[look]\nfog_color = \"#080808\"\nsky = \"none\"\ncar_light = \"") + light + "\"\ncar_lamps = true\n\n";
+        look_toml = std::string("[look]\nfog_color = \"#080808\"\nsky = \"none\"\ncar_light = \"") + light + "\"\n\n";
         report.push_back(std::string("night: car light ") + light);
     }
     else {
@@ -1212,14 +1807,16 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         // car_integrate (0x8005D190), in snow: every car's horizontal forces for the frame (thrust and the tires'
         // friction) halved from speed 151 (slti 0x97 at 0x8005D204) and again from 301 (0x12D at 0x8005D240). Speed is
         // the horizontal |v| / 32 (v in 1/2560 ft a frame), at the car conversion's frames_per_second. Rush 2 scales
-        // the same forces ([handling] traction, src/track_traction.cpp).
+        // the same forces ([handling] traction, src/track_traction.cpp). Only the first step is kept: with the second,
+        // speeding up from 64 mph took four times as long as dry, which played far too slowly; halved from 32 mph, it
+        // takes twice as long and turning and braking are halved too.
         constexpr uint32_t first_insn = 0x8005D204, second_insn = 0x8005D240;
         if (!exe.in(first_insn, 4) || !exe.in(second_insn, 4) || exe.w(first_insn) >> 16 != 0x2842 || exe.w(second_insn) >> 16 != 0x2842) {
             log += "the snow handling couldn't be read\n";
             return false;
         }
         auto mph = [&](uint32_t insn) { return int(exe.w(insn) & 0xFFFF) * 32.0 / 2560.0 * frames_per_second * 3600.0 / 5280.0; };
-        snprintf(line, sizeof(line), "[handling]\ntraction = [[%.1f, 0.5], [%.1f, 0.25]]\n\n", mph(first_insn), mph(second_insn));
+        snprintf(line, sizeof(line), "[handling]\ntraction = [[%.1f, 0.5]]\n\n", mph(first_insn));
         condition_toml = line;
         report.push_back(std::string("snow: ") + line);
     }
@@ -1241,11 +1838,14 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     const char* described = cond.condition == Condition::snow ? " in the snow" : cond.condition == Condition::night ? " at night" : "";
     out[dir + "track.toml"] = a49::text_bytes(
-        "[track]\nname = \"" + track_name + "\"\n" +
+        // smooth_height: the PS1's road polygons are coarse (a crease of 1-6 degrees every 57 ft on Golden Gate's
+        // lanes), and with only the blended tilt each crease still kicked the car on straights (user report 2026-11-09;
+        // docs/sfrush_ps1.md#collision).
+        "[track]\nname = \"" + track_name + "\"\nsmooth_height = true\n" + (run_in ? "run_in = true\n" : "") +
         "author = \"San Francisco Rush, PlayStation (converted)\"\n"
         "description = \"Track " + t + " of the PlayStation San Francisco Rush" + described + "\"\n\n" + race_toml +
         // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
-        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" + condition_toml + look_toml +
+        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" + ai_speed_toml(tr.n) + condition_toml + look_toml +
         "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + menu_toml + diorama_toml + mover_toml);
     // The track select picture: the PS1's own (TITLETGA/TRK<n>N.TGA, 512 x 168, 15-bit, rows top-down whatever the
     // header says), a map of the course with its districts named, whole: the route preview keeps its 512 x 168 texels

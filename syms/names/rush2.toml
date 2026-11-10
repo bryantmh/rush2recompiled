@@ -6096,7 +6096,7 @@ ref = "docs/rush2049_research/car_physics.md#9-accurate-car-stats-and-torque-reb
 vram = 0x80069A54
 name = "car_linear_accel_stage"
 sig = "void car_linear_accel_stage(Car *car)"
-desc = "Linear accelerations stage of the physics step: +0x1C, +0x20, +0x24 = the car-frame force sum +0x4, +0x8, +0xC (gravity rotated in by car_force_sum) x 0x80110018 / the weight +0x5AC ($f0 holds the quotient), then car_angular_accel; +0x24 is stored in the jal's delay slot. Hooked at 0x80069A9C by rush2_track_traction (src/track_traction.cpp: a custom track's [handling] traction)."
+desc = "Linear accelerations stage of the physics step: +0x1C, +0x20, +0x24 = the car-frame force sum +0x4, +0x8, +0xC (gravity rotated in by car_force_sum) x 0x80110018 / the weight +0x5AC ($f0 holds the quotient), then car_angular_accel; +0x24 is stored in the jal's delay slot. Hooked at 0x80069A9C by rush2_track_traction (src/track_traction.cpp: a custom track's [handling] traction scales the sum's world-horizontal parts, gravity and slopes included, keeping the vertical)."
 consts = "0x80110018 = car_linear_accel_scale (32.2 x the gravity setting); 0x5AC = weight"
 status = "verified"
 area = "car"

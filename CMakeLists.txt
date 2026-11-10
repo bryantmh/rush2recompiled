@@ -287,7 +287,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/track2049.cpp
     ${CMAKE_SOURCE_DIR}/src/track_cache.cpp
     ${CMAKE_SOURCE_DIR}/src/track_traction.cpp
-    ${CMAKE_SOURCE_DIR}/src/car_lamps.cpp
+    ${CMAKE_SOURCE_DIR}/src/car_lights.cpp
     ${CMAKE_SOURCE_DIR}/src/race_time_model.cpp
     ${CMAKE_SOURCE_DIR}/src/prewarm.cpp
     ${CMAKE_SOURCE_DIR}/src/texture_prewarm.cpp

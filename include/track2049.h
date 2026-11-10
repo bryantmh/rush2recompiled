@@ -196,6 +196,8 @@ namespace rush2::track2049 {
     // Whether the race is on a converted course (a Rush 2049 track or arena, a custom or arcade track, a California
     // Speed track) rather than a stock Rush 2 one: one is applied in the slot being raced.
     bool converted_race(uint8_t* rdram);
+    // Whether that converted course is a night one: its fog color is near black (Car Lights, src/car_lights.cpp).
+    bool night_race(uint8_t* rdram);
     // Whether the race is on a custom track whose track.toml asks for California Speed's road hold
     // ([track] road_hold = true; src/calspeed/calspeed_rom.cpp rush2_calspeed_road_hold).
     bool mod_road_hold(uint8_t* rdram);
@@ -205,15 +207,13 @@ namespace rush2::track2049 {
     // The custom track (rush2::track_mod::tracks() index) applied in the slot being raced, or -1 (src/music.cpp: its
     // own songs and the course it is a version of).
     int raced_mod(uint8_t* rdram);
-    // Whether the race is on a custom track that races with smooth collision (its track.toml smooth_collision), and its
-    // fold angle (degrees).
-    bool mod_smooth_collision(uint8_t* rdram, float* fold = nullptr);
+    // Whether the race is on a custom track that races with smooth collision (its track.toml smooth_collision), its
+    // fold angle (degrees) and whether it asks for the averaged road height (smooth_height).
+    bool mod_smooth_collision(uint8_t* rdram, float* fold = nullptr, bool* height = nullptr);
     // Whether the race is on a point-to-point custom track ([track] point_to_point = true).
     bool mod_point_to_point(uint8_t* rdram);
     // The raced custom track's [look] car_light as 0xRRGGBBFF (every car drawn multiplied by it), 0 for none.
     uint32_t mod_car_light(uint8_t* rdram);
-    // Whether the raced custom track asks for the cars' light glows ([look] car_lamps; src/car_lamps.cpp).
-    bool mod_car_lamps(uint8_t* rdram);
     // The factor the raced custom track's [handling] traction gives a car going `mph`, 1 without one.
     float mod_traction(uint8_t* rdram, float mph);
     // Whether the race is on the obstacle course.

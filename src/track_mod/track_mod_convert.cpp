@@ -1396,6 +1396,7 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     str("track", "gravity", s.gravity);
     if (auto v = t["track"]["smooth_collision"].value<bool>()) s.smooth_collision = *v;
     if (auto v = t["track"]["smooth_fold"].value<double>()) s.smooth_fold = float(std::clamp(*v, 0.0, 90.0));
+    if (auto v = t["track"]["smooth_height"].value<bool>()) s.smooth_height = *v;
     if (auto v = t["track"]["road_hold"].value<bool>()) s.road_hold = *v;
     if (auto v = t["track"]["point_to_point"].value<bool>()) s.point_to_point = *v;
     if (auto v = t["track"]["run_in"].value<bool>()) s.run_in = *v;
@@ -1461,7 +1462,6 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             report.error("track.toml: car_light must look like \"#454046\".");
         }
     }
-    if (auto v = t["look"]["car_lamps"].value<bool>()) s.car_lamps = *v;
     if (auto* arr = t["handling"]["traction"].as_array()) {
         float last = -1.0f;
         for (auto& e : *arr) {
@@ -1476,6 +1476,23 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             }
             last = float(*speed);
             s.traction.push_back({ float(*speed), float(*factor) });
+        }
+    }
+    if (auto* arr = t["ai"]["speed_quantiles"].as_array()) {
+        float last = 0.0f;
+        for (auto& e : *arr) {
+            auto mph = e.value<double>();
+            if (!mph || *mph < 1.0 || *mph > 255.0 || float(*mph) < last) {
+                report.error("track.toml: [ai] speed_quantiles lists mph from 1 to 255, slowest first; the stock table is used.");
+                s.ai_speed_quantiles.clear();
+                break;
+            }
+            last = float(*mph);
+            s.ai_speed_quantiles.push_back(float(*mph));
+        }
+        if (s.ai_speed_quantiles.size() == 1) {
+            report.error("track.toml: [ai] speed_quantiles needs at least two speeds; the stock table is used.");
+            s.ai_speed_quantiles.clear();
         }
     }
     if (auto* arr = t["audio"]["music"].as_array()) {
@@ -2788,45 +2805,76 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // 37-51 mph where they hold 72-100). They follow the tightest corner in the next 500 ft, and only loosely: this
         // table matches that radius's quantiles to the lane speeds' over every lane of Rush 2's ten circuit tracks and
         // Rush 2049's six race tracks (2049's / 1.2), so the speeds spread as the stock ones do (tools/stock_track_glb.py).
+        // [ai] speed_quantiles replaces it (below; the PS1 SF Rush's courses take their N64 versions' lane speeds, which
+        // the stock table rated 10-30 mph slow in Golden Gate's corners: tools/rush1/lane_speed_table.py).
         static const float table[][2] = { { 91, 83 }, { 114, 97 }, { 154, 107 }, { 205, 118 }, { 270, 124 },
                                           { 347, 131 }, { 430, 136 }, { 538, 142 }, { 725, 149 }, { 1088, 153 },
                                           { 1800, 158 } };
+        const size_t last = 10;
         const size_t ahead = size_t(500.0f / spine_step);
         // [handling] traction (snow): a car at or past a step's speed pushes along the ground with that step's
-        // factor, cornering and braking alike (src/track_traction.cpp). The table's speeds are grip-limited up to its
-        // last radius (the same sideways grip, s^2 / r, carries on for gentler corners, capped at the straights'
-        // speed), so with factor f a corner takes sqrt(f) of that speed, solved over the steps since f depends on
-        // the speed; braking (below) is f times as hard. No traction: the table's speeds, unchanged.
+        // factor, cornering and braking alike (src/track_traction.cpp). The table's speeds aren't all at the cars'
+        // grip: its tight corners are driven at up to a_dry, its gentle ones at a fraction of it (149 mph round 725 ft
+        // is 66 ft/s^2 against 177 round 114 ft). So a corner is slowed only where its speed needs more sideways
+        // grip than f x a_dry, to sqrt(f x a_dry x r); solved over the steps, since f depends on the speed. The
+        // first version took sqrt(f) of every speed and braked f times as softly: the AI crawled through gentle bends
+        // and braked on the straights, where a player in snow is still far from the cars' grip.
         const auto& steps = settings.traction;
         auto grip_at = [&](float mph) {
             float f = 1.0f;
             for (const auto& st : steps) if (mph >= st[0]) f = st[1];
             return f;
         };
-        auto with_traction = [&](float s_grip, float cap) {
-            if (steps.empty()) return std::min(s_grip, cap);
-            // From the fastest step's range down: the first range the scaled speed reaches is the answer, held
+        // ft/s^2: the most sideways grip the stock table asks for, the cars' grip as Rush 2's and Rush 2049's lanes
+        // show it (a track's own speeds may ask for more on a fast course; snow still holds them to this grip).
+        float a_dry = 0.0f;
+        for (const auto& t : table) a_dry = std::max(a_dry, (t[1] * 1.4667f) * (t[1] * 1.4667f) / t[0]);
+        auto with_traction = [&](float s_table, float r, float cap) {
+            if (steps.empty()) return std::min(s_table, cap);
+            // From the fastest step's range down: the first range the grip-limited speed reaches is the answer, held
             // to the range's top (the speed just below the next step, whose weaker grip it can't take).
             for (size_t k = steps.size() + 1; k-- > 0;) {
                 float lo = k == 0 ? 0.0f : steps[k - 1][0];
                 float hi = k == steps.size() ? 1e9f : steps[k][0];
-                float s = std::sqrt(k == 0 ? 1.0f : steps[k - 1][1]) * s_grip;
+                float f = k == 0 ? 1.0f : steps[k - 1][1];
+                float s = std::min(s_table, std::sqrt(f * a_dry * std::min(r, 1e7f)) / 1.4667f);
                 if (s >= lo || k == 0) return std::min({ s, hi, cap });
             }
-            return std::min(s_grip, cap);
+            return std::min(s_table, cap);
         };
+        std::vector<float> r_ahead(n);
         for (size_t i = 0; i < n; i++) {
             float r = 1e9f;
             for (size_t k = 0; k <= ahead; k++) r = std::min(r, radius[ahead_of(i, k)]);
+            r_ahead[i] = r;
+        }
+        // A track's own speed quantiles: the points ranked by the radius ahead (ties keep path order), each taking the
+        // speed at its rank, so the path's speeds spread exactly as the given ones.
+        const auto& quantiles = settings.ai_speed_quantiles;
+        std::vector<float> ranked(n, 0.0f);
+        if (!quantiles.empty() && n > 1) {
+            std::vector<size_t> order(n);
+            for (size_t i = 0; i < n; i++) order[i] = i;
+            std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) { return r_ahead[x] < r_ahead[y]; });
+            for (size_t k = 0; k < n; k++) {
+                float at = float(k) / float(n - 1) * float(quantiles.size() - 1);
+                size_t lo = std::min(size_t(at), quantiles.size() - 2);
+                ranked[order[k]] = quantiles[lo] + (quantiles[lo + 1] - quantiles[lo]) * (at - float(lo));
+            }
+        }
+        const float straights = quantiles.empty() ? table[last][1] : quantiles.back();
+        for (size_t i = 0; i < n; i++) {
+            const float r = r_ahead[i];
             float s = table[0][1];
-            if (r >= table[10][0]) s = table[10][1] * std::sqrt(std::min(r, 1e7f) / table[10][0]);
-            else for (int t = 0; t < 10; t++) {
+            if (!quantiles.empty()) s = ranked[i];
+            else if (r >= table[last][0]) s = table[last][1] * std::sqrt(std::min(r, 1e7f) / table[last][0]);
+            else for (size_t t = 0; t < last; t++) {
                 if (r > table[t][0] && r <= table[t + 1][0]) {
                     float f = std::log(r / table[t][0]) / std::log(table[t + 1][0] / table[t][0]);
                     s = table[t][1] + (table[t + 1][1] - table[t][1]) * f;
                 }
             }
-            v[i] = with_traction(s, table[10][1]) * 1.4667f;
+            v[i] = with_traction(s, r, straights) * 1.4667f;
         }
         // Authored speeds (AIPATH_main's _SPEED, forward races only) replace the computed ones and keep their own
         // braking; AISPEED caps still apply.
@@ -2865,16 +2913,19 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 v[i] = std::min(v[i], caps[c].second * 1.4667f);
             }
         }
-        // Brake ahead of slow points: v^2 <= v_next^2 + 2 * decel * step, twice around for the wrap.
+        // Brake ahead of slow points: v^2 <= v_next^2 + 2 * decel * step, twice around for the wrap. The AI's 28 ft/s^2
+        // is well inside the grip the table shows the cars have, so traction only cuts it where f x a_dry falls below
+        // it (never at the PS1 snow's f = 0.5: 88 ft/s^2).
         const float decel = 28.0f;
+        auto decel_at = [&](float fps) { return std::min(decel, grip_at(fps / 1.4667f) * a_dry); };
         for (int pass = 0; pass < 2; pass++) {
             for (size_t k = 0; k < n; k++) {
                 size_t i = (n - 1 - k), j = ahead_of(i, 1);
                 if (authored[i] || (p2p && i + 1 == n)) continue;
-                // The grip at the speed braked from: the slower point's factor first, then the factor at the speed
-                // that gives (never more, the steps weakening as the speed rises).
-                float from = std::sqrt(v[j] * v[j] + 2.0f * decel * grip_at(v[j] / 1.4667f) * spine_step);
-                from = std::sqrt(v[j] * v[j] + 2.0f * decel * grip_at(from / 1.4667f) * spine_step);
+                // The grip at the speed braked from: the slower point's first, then at the speed that gives (never
+                // more, the steps weakening as the speed rises).
+                float from = std::sqrt(v[j] * v[j] + 2.0f * decel_at(v[j]) * spine_step);
+                from = std::sqrt(v[j] * v[j] + 2.0f * decel_at(from) * spine_step);
                 v[i] = std::min(v[i], from);
             }
         }

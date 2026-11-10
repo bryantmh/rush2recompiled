@@ -211,6 +211,8 @@ def main():
                     "(race_watch.py --records; moving objects)")
     ap.add_argument('--peek', action='append', default=[], help='an RDRAM u32 (hex) to print the smallest and largest of '
                     'during the race (race_watch.py --peek, repeatable; e.g. heap pointers 8010C438 8010C454)')
+    ap.add_argument('--motion', type=int, help="log this car's position and velocity every physics step and print "
+                    'its vertical kicks (race_watch.py --motion; road bumps)')
     ap.add_argument('--peek-changes', action='store_true', help='with --peek: print each change, timed from launch, '
                     'in every game state (race_watch.py --peek-changes)')
     ap.add_argument('--user-settings', action='store_true', help="copy build/'s graphics, general, cheats, circuit "
@@ -258,11 +260,12 @@ def main():
                         str(a.seconds), '--out', a.out] + (['--shots', a.shots] if a.shots else []) +
                        (['--records', os.path.abspath(a.records)] if a.records else []) +
                        [v for p in a.peek for v in ('--peek', p)] + (['--peek-changes'] if a.peek_changes else []) +
+                       (['--motion', str(a.motion)] if a.motion is not None else []) +
                        (['--exe', a.exe] if a.exe else []), env=env, capture_output=True, text=True,
                        timeout=a.seconds + 60)
     with open(os.path.join(a.out, 'watch.txt'), 'w') as f:
         f.write(r.stdout + r.stderr)
-    if a.records or a.peek:
+    if a.records or a.peek or a.motion is not None:
         print(r.stdout.rstrip())
     log = os.path.join(a.out, 'run.log')
     if os.path.exists(log):

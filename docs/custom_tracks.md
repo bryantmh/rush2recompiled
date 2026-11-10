@@ -144,7 +144,8 @@ negative value pushes the car forward harder the faster it goes, and it runs awa
 Flat polygons meet at creases, and a car feels every crease as a bump. The stock Rush 2 and Rush 2049 tracks smooth
 their main roads with the game's spline road: a chain of segments, each a smooth curved stretch of road, and a polygon
 on it takes its height from its segment instead of from its own flat face. This is meant for tools that convert
-other games' tracks (tools/arcade2049 uses it), not for modelling by hand.
+other games' tracks (tools/arcade2049 uses it, and the PlayStation SF Rush converter fits one to Golden Gate:
+docs/sfrush_ps1.md#collision), not for modelling by hand.
 
 - An empty named `ROAD_SPLINES` with a custom property `segments`: a list of segments, each a list of 33 numbers, the
   game's segment record as it reads it, in game units (feet; game x is minus glTF x): origin (3), the world to segment
@@ -190,10 +191,18 @@ edge. None of this touches Rush 2's own tracks.
 - `[track] smooth_fold = 20`: the fold angle in degrees (0 to 90). An edge whose faces meet at more than this angle
   stays sharp. Lower it to keep more edges sharp, raise it to round more.
 - `[track] smooth_collision = false`: the raw flat faces, as the game would drive them, cracks and ledges included.
+- `[track] smooth_height = true` (default false): the wheels' road height is the floor's height averaged over a
+  32 ft disc round the wheel (`averaged_surface` in src/smooth_collision.cpp), so the road's slope changes gradually
+  over about 64 ft instead of in one step at each edge. The tilt blending alone leaves that step, and on coarse road
+  (faces 50-130 ft across meeting at 1-7 degrees) every crease kicks the suspension at speed, even on straights.
+  The floor is found by position, so near-miss vertices, T-junctions and triangle fans average alike; a curb, ledge,
+  road on another level (more than 6 ft off) or fold past the fold angle isn't averaged in.
+  The PlayStation SF Rush tracks set it. (California Speed's tracks round each crease with fillets instead: those
+  assume quads meeting four at a corner, and on triangle fans they stepped the height.)
 
 The Rush 2049 arcade tracks the Games tab builds set `smooth_collision = false`: their road is built for flat faces.
 
-(`rush2::track2049::mod_smooth_collision` hands the raced track's `smooth_collision` and `smooth_fold` to
+(`rush2::track2049::mod_smooth_collision` hands the raced track's `smooth_collision`, `smooth_fold` and `smooth_height` to
 src/smooth_collision.cpp, set as the race applies the track, so the wheel probes never read the settings.)
 
 Checking it: RUSH2_SMOOTH_LOG=1 prints how many corners were smoothed and how many kept sharp when a race on the
@@ -324,7 +333,6 @@ sky          = "none"      # a stock sky: see Sky
 cloud_scroll = 0.0         # sky texture scroll speed (the clouds sky)
 sky_parallax = 0.0         # how much the sky shifts as the camera moves (the clouds sky)
 # car_light  = "#454046"   # a night track: every car drawn darkened by this color: see Night
-# car_lamps  = true        # the cars show headlights and tail lights: see Night
 
 # [handling]
 # traction = [[32, 0.5], [64, 0.25]]   # a slippery track (snow, ice): see Handling
@@ -382,30 +390,24 @@ music = "theme.ogg"                         # a file in the track's folder: Ogg 
 
 ### Night
 
-A night track darkens its world in its own textures and `fog_color`. Two `[look]` settings do the same for the cars,
+A night track darkens its world in its own textures and `fog_color`. A `[look]` setting does the same for the cars,
 whatever game they come from:
 
 ```toml
 [look]
 car_light = "#454046"   # every car is drawn multiplied by this color
-car_lamps = true        # every car shows glowing headlights and tail lights
 ```
 
 - `car_light` darkens (or tints) the cars the way a Rush 2049 night track's painted lighting does, in both Car
   Lighting settings (Graphics tab): with Light Probes the cars still darken under bridges and in tunnels, then take
   this color on top. Rush 2's own tunnel shading stays too.
-- `car_lamps` gives every car the PlayStation SF Rush's night lights: a warm glow on each headlight, seen from ahead,
-  and a red one on each tail light, seen from behind, dim while driving and bright while braking. A light goes out
-  when its corner of the car is badly damaged, and a wrecked car shows none. Where the lights go comes from the
-  car mod's `lamps` (docs/car_mods.md#new-cars), or is measured from the car's body.
-- The SF Rush PlayStation mod's NIGHT version of Chinatown uses both, with the PlayStation's night textures, fog and
-  sky.
+- The SF Rush PlayStation mod's NIGHT versions use it, with the PlayStation's night textures, fog and sky.
 
 ### Handling
 
 `[handling] traction` makes a track slippery, as the PlayStation SF Rush's snow: steps of speed (mph) at which every
-car's push along the ground (engine, brakes, tires and drag together, not gravity) is multiplied by a factor. The
-last step a car's speed has reached counts.
+car's push along the ground (engine, brakes, tires and drag together, and a slope's pull: every force but the
+vertical part) is multiplied by a factor. The last step a car's speed has reached counts.
 
 ```toml
 [handling]
@@ -414,10 +416,32 @@ traction = [[32, 0.5], [64, 0.25]]   # from 32 mph half, from 64 mph a quarter
 
 Top speed stays the same (the engine and the drag weaken together), but speeding up, braking and turning take two or
 four times as long, so cars drift wide through corners. The computer opponents drive it too: their target speeds
-along the AI path take it into account (a corner at sqrt(factor) of its dry speed, braking factor times as hard), so
-they slow for the corners instead of sliding into the walls. Steps go in rising speed, each factor above 0 and up to
-4. The SF Rush PlayStation mod's SNOW versions of Golden Gate Park, Embarcadero, Market Street and Chinatown use the
-steps above, the PlayStation's own.
+along the AI path take it into account, so they slow for the corners instead of sliding into the walls. Only the
+corners that need more sideways grip than factor x the most the dry AI table uses (177 ft/s^2) are slowed, to what
+that grip holds; gentle bends, straights and the AI's braking (28 ft/s^2, inside that grip) stay as they are dry. Steps go in rising speed, each factor above 0 and up to 4.
+Without `[race]` times of its own, the race clock comes from the race time model with the same steps (the average
+car's acceleration, cornering and braking times the factor), so a slippery track grants the time it costs. The SF
+Rush PlayStation mod's SNOW versions of Golden Gate, Embarcadero, Market and Chinatown use `[[32.1, 0.5]]`: the
+PlayStation's first halving (its second, a quarter from 64 mph, played too slowly) and no times of their own.
+
+### AI speeds
+
+The computer cars' target speeds along `AIPATH_main` come from the tightest corner in the next 500 ft, through a
+table fitted to Rush 2's and Rush 2049's stock lanes. A track whose original game had faster or slower computer cars
+can give their speeds instead:
+
+```toml
+[ai]
+speed_quantiles = [69, 127, 134, 134, 139, 140, 141, 144, 147, 149, 151, 151, 153, 154, 155, 157, 158, 158, 159, 161, 174]
+```
+
+The speeds (mph) are quantiles of the original lanes, evenly spaced, slowest first (above: the N64 SF Rush's Golden
+Gate, 0, 5, ..., 100%). The path's points are ranked by the radius ahead and each takes the speed at its rank, the
+tightest the slowest, so the path's speeds spread exactly as the original's. `_SPEED` on the path, `AISPEED_`
+markers and `[handling] traction` still apply on top. `tools/rush1/lane_speed_table.py` prints them for the N64 SF
+Rush's tracks; the SF Rush PlayStation mod gives its versions of Golden Gate, Embarcadero and Market their N64
+courses' speeds and Chinatown all seven N64 tracks' (the stock table had the computer cars 10-30 mph slow in Golden
+Gate's corners).
 
 ## Sky
 
@@ -894,9 +918,9 @@ Attributes (tick Data > Mesh > Attributes when you export).
 
 | Section | Settings | See |
 |---|---|---|
-| `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `smooth_collision`, `smooth_fold` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
+| `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `smooth_collision`, `smooth_fold`, `smooth_height` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
 | `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
-| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light`, `car_lamps` | [Sky](#sky), [Night](#night) |
+| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light` | [Sky](#sky), [Night](#night) |
 | `[handling]` | `traction` | [Handling](#handling) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
 | `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |

@@ -37,6 +37,7 @@
 #include "rush2.h"
 #include "calspeed.h"
 #include "car2049.h"
+#include "car_lights.h"
 #include "car_mods.h"
 #include "paint_colors.h"
 #include "car_probes.h"
@@ -2345,19 +2346,6 @@ float rush2::car2049::mod_car_shadow_radius(int type) {
                                           : 0.0f;
 }
 
-bool rush2::car2049::mod_car_lamps(int type, ModCar& out) {
-    if (!rush2::car_types::is_mod(type)) return false;
-    std::lock_guard lock{ side_mutex };
-    const ModSlot& slot = mod_slots[type - rush2::car_types::first_mod];
-    if (!slot.loaded || !slot.spec.has_lamps) return false;
-    out.has_lamps = true;
-    out.head_lamp = slot.spec.head_lamp;
-    out.tail_lamp = slot.spec.tail_lamp;
-    memcpy(out.head, slot.spec.head, sizeof(out.head));
-    memcpy(out.tail, slot.spec.tail, sizeof(out.tail));
-    return true;
-}
-
 bool rush2::car2049::mod_car_marks_hidden(int type) {
     return rush2::car_types::is_mod(type) && mod_no_marks[type - rush2::car_types::first_mod].load(std::memory_order_relaxed);
 }
@@ -3358,6 +3346,11 @@ extern "C" bool rush2_calspeed_brake_lights(uint8_t* rdram, recomp_context* ctx)
     if (MEM_BU(0, (int32_t)0x800E7BB0) != 0) return false; // Rush 2 leaves the lights alone then
     int car = (int16_t)MEM_H(0, (int32_t)((uint32_t)ctx->r4 + 0xE));
     if (car < 0 || car >= 8) return false;
+    // Every car's lights' state, Rush 2's rule below, for Car Lights (src/car_lights.cpp).
+    {
+        uint32_t flags = (uint32_t)MEM_W(0, (int32_t)(0x80112584 + car * 0x354));
+        rush2::car_lights::set_braking(car, (int16_t)ctx->r5 != 0 && (flags & 0x1000) != 0 && (flags & 0x10) == 0);
+    }
     uint32_t base = 0;
     const Paint* p = car_instance(rdram, car, base);
     // A car mod livery with brake lights on the car (any car, Rush 2's too).
@@ -3437,6 +3430,30 @@ extern "C" void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx) {
         if (livery < (int)livery_bodies.size()) {
             set_damage_textures(rdram, base, livery_bodies[livery], level, lit);
             dent_body(rdram, base, &livery_bodies[livery], level);
+        }
+    }
+}
+
+void rush2::car2049::brake_light_sources(uint8_t* rdram, int car, BrakeLightSources& out) {
+    out = BrakeLightSources{};
+    if (car < 0 || car >= 8) return;
+    uint32_t base = 0;
+    const Paint* p = car_instance(rdram, car, base);
+    if (p != nullptr) {
+        out.base = base;
+        out.palette = !p->calspeed;
+        for (const Paint::DamageLoad& d : p->damage_loads) {
+            if (d.lit != 0) out.lit_copies.push_back({ base + d.pristine, base + d.lit });
+            if (d.lit_damaged != 0 && d.damaged != 0) out.lit_copies.push_back({ base + d.damaged, base + d.lit_damaged });
+        }
+        for (const auto& [texels, lit] : p->tail_lit) out.lit_bytes.push_back({ base + texels, lit });
+        for (const Paint::BrakeBlock& b : p->brake_blocks) out.lists.push_back(base + b.list);
+    }
+    uint32_t livery_base = 0;
+    if (int livery = rush2::car_mods::livery_body(rdram, car, livery_base); livery >= 0) {
+        std::lock_guard lock{ livery_mutex };
+        if (livery < (int)livery_bodies.size()) {
+            for (const Paint::BrakeBlock& b : livery_bodies[livery].brake_blocks) out.lists.push_back(livery_base + b.list);
         }
     }
 }
@@ -3876,6 +3893,12 @@ namespace {
         }
         return env;
     }
+}
+
+int rush2::car2049::model_car(uint32_t node) {
+    if (node < scene_node_table || car_of_node.empty()) return -1;
+    auto it = car_of_node.find(int((node - scene_node_table) / scene_node_size));
+    return it != car_of_node.end() ? it->second : -1;
 }
 
 void rush2::car2049::light_model(uint8_t* rdram, recomp_context* ctx, uint32_t dl) {

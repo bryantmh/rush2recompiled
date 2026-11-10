@@ -24,8 +24,11 @@ CLUT_IDS = 0x800A7B08        # face byte 3 -> CLUT id ((y << 6) | (x >> 4))
 
 
 def scan(e, start, end):
-    """[(kind, args)] for LoadImage (x, y, w, h) and CLUT (x, y) calls between start and end."""
-    regs = {0: 0}; stack = {}; out = []
+    """[(kind, args, chunk)] for LoadImage (x, y, w, h) and CLUT (x, y) calls between start and end. chunk is the
+    .DAT chunk the call gets: the loaders step their chunk pointer by the .SIZ sizes (lw $v0, 4k($s1) adds chunk
+    k's; the last into $a2), so after the size of chunk k the next call gets chunk k + 1. Track 2's CLUT loader steps over chunks 10
+    and 26 without uploading them, so its calls aren't the chunks in order."""
+    regs = {0: 0}; stack = {}; out = []; chunk = 0
     a = start
     while a < end:
         w = e.w(a); op = w >> 26; rs = (w >> 21) & 31; rt = (w >> 16) & 31; imm = w & 0xFFFF
@@ -34,6 +37,9 @@ def scan(e, start, end):
         if op == 9 and rs in regs: regs[rt] = (regs[rs] + simm) & 0xFFFFFFFF
         elif op == 0xD and rs in regs: regs[rt] = regs[rs] | imm
         elif op == 0xF: regs[rt] = imm << 16
+        elif op == 0x23 and rs == 17:
+            chunk = simm // 4 + 1
+            regs.pop(rt, None)
         elif op == 0x29 and rs == 29 and rt in regs: stack[simm] = regs[rt] & 0xFFFF
         elif op == 3:
             t = (a & 0xF0000000) | ((w & 0x3FFFFFF) << 2)
@@ -43,9 +49,9 @@ def scan(e, start, end):
             if dop == 0x29 and drs == 29 and drt in regs: stack[dsimm] = regs[drt] & 0xFFFF
             if dop == 9 and drs in regs: regs[drt] = (regs[drs] + dsimm) & 0xFFFFFFFF
             if t == LOAD_IMAGE:
-                out.append(('image', tuple(stack.get(o, -1) for o in (0x10, 0x12, 0x14, 0x16))))
+                out.append(('image', tuple(stack.get(o, -1) for o in (0x10, 0x12, 0x14, 0x16)), chunk))
             elif t == LOAD_CLUT:
-                out.append(('clut', (regs.get(4, -1), regs.get(5, -1))))
+                out.append(('clut', (regs.get(4, -1), regs.get(5, -1)), chunk))
             for r in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 24, 25):
                 regs.pop(r, None)
             a += 8; continue
@@ -60,11 +66,14 @@ def scan(e, start, end):
     return out
 
 
-def placements(e, track):
+def placements(e, track, chunks=False):
+    """The page RECTs and CLUT positions in call order; with chunks, also each call's .DAT chunk index."""
     p = PAGE_LOADERS[track]; c = CLUT_LOADERS[track]
-    pages = [x for k, x in scan(e, p, e.func_end(p)) if k == 'image']
-    cluts = [x for k, x in scan(e, c, e.func_end(c)) if k == 'clut']
-    return pages, cluts
+    pages = [(x, n) for k, x, n in scan(e, p, e.func_end(p)) if k == 'image']
+    cluts = [(x, n) for k, x, n in scan(e, c, e.func_end(c)) if k == 'clut']
+    if chunks:
+        return pages, cluts
+    return [x for x, n in pages], [x for x, n in cluts]
 
 
 def tex_table(e, track):
@@ -80,16 +89,19 @@ class Vram:
     """1024x512 halfwords, with a track's pages and CLUTs uploaded as the game does."""
     def __init__(self, disc, e, track, variant=''):
         self.v = [0] * (1024 * 512)
-        pages, cluts = placements(e, track)
+        pages, cluts = placements(e, track, chunks=True)
         pc = disc.chunks('T%dPAGE/T%dPAGE%s.DAT' % (track, track, variant))
         cc = disc.chunks('T%dCLUT/T%dCLUT%s.DAT' % (track, track, variant))
-        self.pages, self.cluts = pages, cluts
-        for (x, y, w, h), c in zip(pages, pc):
-            px = struct.unpack_from('<%dH' % (w * h), c, 0x28)
+        self.pages, self.cluts = [x for x, n in pages], [x for x, n in cluts]
+        # The page loader reads the .DAT as one buffer and uploads w x h from each chunk's start whatever its size
+        # (track 4's night chunk 28 is 4 rows short and runs into chunk 29).
+        data = b''.join(pc); at = [sum(len(c) for c in pc[:k]) for k in range(len(pc))]
+        for (x, y, w, h), n in pages:
+            px = struct.unpack_from('<%dH' % (w * h), data, at[n] + 0x28)
             for r in range(h):
                 self.v[(y + r) * 1024 + x:(y + r) * 1024 + x + w] = px[r * w:(r + 1) * w]
-        for (x, y), c in zip(cluts, cc):
-            self.v[y * 1024 + x:y * 1024 + x + 16] = struct.unpack_from('<16H', c, 8)
+        for (x, y), n in cluts:
+            self.v[y * 1024 + x:y * 1024 + x + 16] = struct.unpack_from('<16H', cc[n], 8)
 
     def texel4(self, tx, ty, clut, u, v):
         """RGBA of the 4-bit texel (u, v) of the texture page at (tx, ty) with CLUT id clut."""

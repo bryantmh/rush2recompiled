@@ -25,7 +25,9 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [AI paths](#ai-paths)
 - [Checkpoints](#checkpoints)
 - [Start and finish banner](#start-and-finish-banner)
+- [Unlisted chunks](#unlisted-chunks)
 - [Race times](#race-times)
+- [Run-in](#run-in)
 - [Cars](#cars)
 - [Wheels](#wheels)
 - [Car physics](#car-physics)
@@ -143,6 +145,13 @@ converter pairs them as the renderer does (`read_chunk`, `uv[k ^ 1]`). PSV model
 - `T<n>CLUT/T<n>CLUT.DAT` (+ S, N): 1064-byte chunks whose 16-color CLUT (+8) the CLUT loader (`func_8003A4A0`,
   `8003AF18`, `8003B990`, `8003C408`) puts at a hard-coded (x, y) through `func_80014F38`, which also writes 31
   copies below it, each a step brighter or darker (distance shading). Row 0 is the original. **[V]**
+- **Which chunk each call gets:** the loaders read the whole .DAT into one buffer and step a chunk pointer through it
+  by the .SIZ sizes (`lw rt, 4k($s1)` adds chunk k's), so a call gets the chunk the pointer is at, not the call's
+  number. Track 2's CLUT loader (`func_8003AF18`) steps over chunks 10 and 26 without uploading them: its 50 calls
+  get chunks 0-9, 11-25 and 27-51. The other CLUT loaders upload all 52 in order, the page loaders all 34. **[V]**
+  The converter first took call k as chunk k, which gave every Embarcadero CLUT from the 11th on the next chunk's
+  (from the 26th the one after): noise on walls, road and trees, grass black, the night CHECKPOINT gantry
+  unreadable and the snow one blue. It (and `vram.py`) now follow the pointer.
 - The texture table (35 entries of 6 s32: VRAM x, VRAM y, ?, v offset, CLUT x, CLUT y) is static: 0x800A7478 for
   track 2 (when 0x800B34F8 == 1), 0x800A77C0 for tracks 1, 3 and 4, which share one VRAM layout. A face's texel (u, v)
   is at VRAM (x & ~63 + u / 4, (y & 256) + v + v offset), 4-bit, through its CLUT. **[V]** The fixup
@@ -201,6 +210,41 @@ vertices are (x, -height, y) of the track frame. **[V]**
   high edges: one face along the low edge facing downhill, 3 ft under it to 3 ft over the top, the polygon kept as
   ground so a car coming down from above (behind the one-sided wall) still rolls down. Only that polygon qualifies
   on the PS1 disc; Golden Gate's 54-degree banked-curve bands (next to other bands or nothing) stay drivable.
+- **Creases:** the PS1 ground is flat planes (above), so its curves are facets, and on tracks 1-3 most floor quads
+  are bent quads (two planes: Golden Gate 583 of 859, folded a median 2 degrees; Embarcadero 73 of 501; Market 613
+  of 1,426; Chinatown 37 of 922). Every bent quad's split matches both of its record's planes (offline, every quad on
+  tracks 1, 3 and 4), and the converted planes meet within 0.05 ft: the data is read right, the creases and the bank
+  wobbling from quad to quad are the PS1's. The PS1 hides them by damping its cars' pitch and roll hard every frame
+  on the ground (`car_damp_x`, `car_damp_z`, docs/functions/sfrush_ps1_car.md); Rush 2 rides them, and Golden Gate
+  rocked and bumped all round, worst in the turns (user report 2026-11-09).
+  - **Spline road (Golden Gate):** the converter fits Rush 2's spline road ([Spline road](custom_tracks.md#spline-road))
+    to the PS1 floor (`road_splines`, ps1_track.cpp): stations every 40 ft along the drones' line, at each a profile
+    across the road with a knot every 12 ft out to 60 ft each side (least squares through the ground every 2 ft,
+    lightly held straight where the ground gives out), the center height smoothed along the lap once and the knots'
+    heights off it twice ([1 4 6 4 1]). A segment's cross-section is a straight line and the turns are dished (flat in
+    the middle, 6-8 ft up toward the edges), so the road is 10 parallel chains of segments, one per strip, meeting at
+    the knots. Each segment's frame lies along its chord (the cut takes a segment whose next station's center isn't
+    at u 0.5 for a chain's end, and a 12 ft strip's chord in a turn strays to u 0.57 off the station's tangent); the
+    surface keeps the station's cross-section (the start line's slant) and tangent (the normal, the cubic's end
+    slopes). The arcade converter's cut (`a49::cut_spline_road`, with the strips' bands and every strip of the 4
+    stations either side as candidates) makes the footprints, keeping pieces within 1 ft of their segment; kerbs and
+    the rest stay flat, with the averaged height of `smooth_height` ([Smooth collision](custom_tracks.md#smooth-collision)).
+    Measured in game, a computer car's lap (`tools/test_race.py --motion 1`: pitch / roll jerk, 95th percentile,
+    rad/s^2; vertical, g): faces with the averaged height 1.71 / 1.01, 0.70 g; spline road 0.28 / 0.29, 0.51 g, the
+    wheels on it 99% of the lap; the N64 Golden Gate 0.74 / 0.11, 0.45 g. On the faces the big pitch and roll changes
+    were where the wheels crossed from spline road to flat (26 of 56 such steps), almost none on the spline (11 of 1,244).
+  - **Not the others yet:** Market rides smoothly on its faces (1.90 / 0.86, the N64's 2.59 / 4.16); with the spline
+    road its jumps' crests and size went wrong (5.08 / 4.37, and at 40 ft its collision passed the game's 64 KB of
+    vertex lists). Embarcadero is rough either way (4.82 / 4.42 faces, 6.08 / 6.17 spline, N64 1.45 / 0.37): the car
+    shudders side to side every 5 ft along the waterfront straight (2,900-4,300 ft into the lap), which isn't the
+    creases, and the strips left that straight flat.
+  - **Tried first:** smooth collision's tilt blending alone (its corner matching also misses most of these corners:
+    each polygon's corners are rebuilt through its s16 matrix, and only 27% land in the same 1/32 ft cell as their
+    neighbor's); California Speed's crease fillets (on triangle fans with obtuse corners each triangle rounding only its
+    own edges stepped the height by up to 0.8 ft: kicks over 30 g 3 -> 58); the height averaged over a disc round the
+    wheel (`smooth_height`, 8-64 ft: a wider disc can't take out a wobble that is in the road's heights, and past
+    32 ft it got worse). A single chain with a straight cross-section left the dished turns 1-8 ft off it and flat,
+    stepping where spline met flat.
 
 ## AI paths
 
@@ -240,7 +284,9 @@ START texture beside FINISH on that page isn't on the gantry. **[V]** (rendered 
 - **The swap:** the scenery draw loop in `func_80042FF0` takes chunk id s2 from the visible list and its pointer from
   the table 0x800B5C88 (ids from 1, so id n is SCN2 chunk n - 1). On track 4 (0x800B34F8 = 3), when gp+0x20 is set
   and the id is 2 (0x80044628), it draws the chunk at 0x800B5DF0 (id 90) instead (0x80044638). Tracks 2 and 3 have
-  their own pairs (ids 0x5F, 0x82 -> 0x800B5EA4, 0x800B5E94; 0x95 -> 0x800B5F44). **[V]**
+  their own pairs (ids 0x5F -> 0x800B5EA4, 0x95 -> 0x800B5F44), track 1 0x4E -> 0x800B5E7C. Track 2 also draws id
+  131 (0x800B5E94) in place of 130 (0x82) once gp+0x88 is set, a one-time trigger a car trips (0x800171EC: a box
+  test on the cars' positions, then a sound); the converter keeps 130, the start of the race. **[V]**
 - **gp+0x20 (0x800B26F0):** set per view before each player's scenery pass (0x80016468 player 1, 0x80016884 player
   2) when that player's laps still to go (0x80101250 / 0x80101658, car stride 0x408; laps 0x800B2888 - 1 at race
   setup 0x80015EE0) are 0 or fewer: the viewing player's own last lap. **[V]**
@@ -249,6 +295,23 @@ START texture beside FINISH on that page isn't on the gantry. **[V]** (rendered 
   ([Finish banner](custom_tracks.md#finish-banner)); its four panel faces (the ones chunk 89 retextures) are the
   CHKPNT material, the CHECKPOINT strip resampled corner for corner onto FINISH's 128 x 32 rectangle, and FINISH is
   that rectangle of chunk 89's page. Chunk 89 isn't drawn. Rush 2's swap is for the whole screen, so in split screen the first player there turns it for everyone.
+
+## Unlisted chunks
+
+`track_draw_chunks` (`func_80042FF0`) only walks the section lists (the per-track 32-byte records, lists at +0x18 and
++0x1C, [Snow and night](#snow-and-night)), and nothing else reads the chunk table 0x800B5C88 but the loader
+(`func_80036C40`) and the swaps above. So a scenery chunk no list names is never drawn. **[V]**
+
+| Track | Unlisted ids (SCN2 chunk = id - 1) |
+|---|---|
+| 1 Golden Gate | 97-100 (one chevron sign each, 100 ft over the cliff road), 115, 116, 125 (the FINISH swap) |
+| 2 Embarcadero | 96, 103-105, 110-114, 131 (the gp+0x88 swap), 134, 135 (the FINISH swap) |
+| 3 Market | 174, 175 (the FINISH swap) |
+| 4 Chinatown | 58 (an elevated rail section on pillars), 90 (the FINISH swap) |
+
+The converter drew every chunk in the file, so Golden Gate showed the four chevrons floating in the sky (user
+report). It now leaves out every unlisted chunk but the finish banners, which [the swap](#start-and-finish-banner)
+handles (`ps1_track.cpp`, `listed`).
 
 ## Race times
 
@@ -268,6 +331,34 @@ track 4 forward (gp+0x70 the track, gp+0x4C the direction), 60 or 180 in other m
   Rush 2's custom tracks otherwise add the start time again there), `checkpoint_time` [34, 29], [16, 11], [32, 32].
   Rush 2's difficulty scaling (x 1 + (5 - difficulty) x 0.075) applies to them as to every custom track's, in place
   of the PS1's difficulty bonus.
+
+## Run-in
+
+Track 1 (Golden Gate) starts on a run-in, as the N64's Golden Gate does: the AI path (175 points, 21,500 ft) is open,
+from the Golden Gate Bridge's north end (point 0) south over the bridge, through the toll plaza (point 10) and onto
+the loop at point 29; its end (point 174) comes back beside point 29 (60 ft) instead of to its start (5,687 ft away).
+**[V]**
+
+- **The grid:** the race setup `func_80051590`'s track 1 branch (forward, 0x80051710 on) puts the cars in single file
+  in two columns (x -1622 and -1639 ft: lui/ori 0x80051750-0x80051760), the back car at y 0xE9AC (5982 ft, ori at
+  0x80051770) and each next one 20 ft further on (a2 += 0xC8, 0x80051840), height 277 ft up (car +4 = 0xFFF52B00 in
+  1/2560 ft, y down: lui/ori 0x80051708 / 0x8005170C, + 0x500 a car): on the bridge's north approach, 210 ft before
+  the path's first point and 3,300 ft before the toll plaza. **[V]**
+- **The gates:** the finish plane (gate 0) is crossed once, at the toll plaza on the run-in, and the loop never comes
+  back through its sector (4): every path point of the loop is in other sectors. Gates 1-3 are on the loop (points 42,
+  86, 121). **[V]** How the PS1 counts a second lap there isn't worked out.
+- **Not the run-in:** `T1ROAD/T5ROAD2.DAT` replaces `T1ROAD2` (func_80036C40) while 0x800B2AA0 is set, which
+  0x800147C4 does for menu mode gp+0x48 == 3 (track 1, the clock at 180: 0x80015E1C), another mode's road. **[V]**
+- **Into Rush 2** (`src/sfrush_ps1/ps1_track.cpp`, `run_in_grid`): a run-in circuit (`run_in = true`,
+  docs/custom_tracks.md#run-in-circuits). The path is carried back from point 0 along its first chord to 100 ft
+  behind the PS1's front car, at the grid's height (the path's own heights run 50 ft under the bridge deck there), so
+  the start line falls on the PS1's grid; it ends at point 174. The gates follow the N64 course (the SF Rush arcade
+  version's gates, from the N64's, stand at the PS1's: docs/sfrush_arcade.md): CHECKPOINT_1 the toll plaza (gate 0),
+  CHECKPOINT_2 the loop start (the path point nearest the end, point 29, 60 ft from it), CHECKPOINT_3 and 4 gates 1
+  and 2, FINISH gate 3. Times: the start's (38 s, snow 60), each gate's own byte (toll 20, gates 1 and 2 21 and 17,
+  FINISH 17; snow 8 more each), the loop start 0. The toll gantry keeps reading CHECKPOINT (chunk 124, its FINISH
+  version, isn't drawn). Checked in game: the race starts on the bridge's north approach and runs over the bridge;
+  drones pass start, toll, loop start, gates 1-2 and FINISH, then lap 2 goes loop start, gates 1-2, FINISH.
 
 ## Cars
 
@@ -572,7 +663,16 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   and +8; the vertical one is kept) are halved at speed (car +0x30) 151 and up and halved again at 301 and up (a
   quarter). With the UFO picked (special car 8) every car's are halved instead. PIGGY's own taper and the other rule
   of the dry path are skipped. Against the BMW's top speed (768) that is 20% and 39%: the top speed is kept (thrust and
-  friction scale together), but above 39% of it a car accelerates, brakes and grips a quarter as hard. **[V]**
+  friction scale together), but above 39% of it a car accelerates, brakes and grips a quarter as hard. **[V]** The
+  thrust is one of the scaled forces (0x8005FCB8-0x8005FD4C add it into 0x800ED0FC, +4, +8, per car 0xC8 apart), and
+  car speed is sqrt(vx^2 + vz^2) >> 5 (0x8005031C-0x8005032C), so the thresholds are 32 and 64 mph at the car
+  conversion's 25 frames a second. On a flat straight the BMW's velocity change a frame is 16 x 12 (thrust) - v / 128
+  (rolling friction, 2/1024 a wheel), top |v| 24576; worked through frame by frame (that sum, halved from |v| 4832 and quartered from 9632 in snow) it is
+  at 0.62, 0.86, 0.95 of its top speed after 5, 10, 15 s dry and at 0.42, 0.55, 0.65, 0.72 after 5, 10, 15, 20 s in
+  snow: the PS1's own snow takes 3.5 times as long to reach 90% of top speed (1022 frames against 293), and covers
+  0.77 of the dry distance over 40 s (the 8 s a gate allow for it). The PS1 has no gravity along a slope on the ground:
+  `car_gravity` (0x8005E0CC) adds gravity only while a wheel is off the ground and otherwise takes the velocity's part
+  along the car's up axis away, so hills neither slow nor speed a car. **[V]**
 - **Snow race times:** `checkpoint_passed` adds 8 s more at each gate (gp+0x40, [Race times](#race-times)), and the
   race starts with 60 s on the clock on every track (0x80015E04; the day and night starts: track 1 38 s at
   0x80015DF0, track 2 38 s at 0x80015DCC, track 3 60 s at 0x80015DA8, track 4 45 s at 0x80015D80). **[V]**
@@ -584,26 +684,38 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   N64 SF Rush course (`variant_of = "sfrush:golden_gate"` and so on), so the track select shows the course's diorama
   with the version's band. Per track the converter reads its own loaders (page / CLUT: track 1 0x80037C2C /
   0x8003A4A0, track 2 0x80038644 / 0x8003AF18, track 3 0x80039048 / 0x8003B990; track 2's CLUT loader uploads 50 of
-  its 52 chunks, the last two unused), texture table (0x800A7478 for track index 1, 0x800A77C0 for the others),
+  its 52 chunks, skipping 10 and 26: [Textures](#textures)), texture table (0x800A7478 for track index 1, 0x800A77C0 for the others),
   banner instructions (track 1 0x80044524 / 0x80044534, track 2 0x8004459C / 0x800445AC, track 3 0x800445DC /
   0x800445EC), gate tables (counts / sectors / first / times: track 1 0x800B2AF8 / 0x800AA388 / 0x800B2B00 /
   0x800B2AD8, track 2 0x800B2B08 / 0x800AA394 / 0x800B2B10 / 0x800B2AE0, track 3 0x800AA3A0 / 0x800AA3BC /
   0x800AA3CC / 0x800AA37C) and start time; the bonus instruction 0x800542D8 is track 4's only. Track 2's knock-over
   props (table 0x800A55B4: T2K001 cone at scale 0x380, T2K002 traffic light and T2K003 tree at 0x280, both 6.4 ft up
-  and the tree upside down, all turned 90 degrees as `model_prepare` 0x8003E714 does) become `PROP_KNOCK_` props. Snow: the race times 8 s more at every gate (read from 0x80054358), and
-  `[handling] traction = [[32.1, 0.5], [64.1, 0.25]]` (speeds 151 and 301 from 0x8005D204 / 0x8005D240 in mph at the
-  car conversion's 25 frames a second: `src/track_traction.cpp` scales every car's across and ahead forces, gravity's
-  share kept, before car_linear_accel_stage_80069A54 turns them into accelerations: car +0x1C..+0x24 = the car-frame force sum +0x4..+0xC x 0x80110018 / the weight +0x5AC). Checked: over 23 s of the same start, the
+  and the tree upside down, all turned 90 degrees as `model_prepare` 0x8003E714 does) become `PROP_KNOCK_` props. Snow: the PS1's race times are 8 s more at every gate (0x80054358), for its two halvings; the recomp keeps one, so its snow versions keep no times and the race time model times them with the traction (docs/custom_tracks.md#handling). And
+  `[handling] traction = [[32.1, 0.5]]` (speed 151 from 0x8005D204 in mph at the car conversion's 25 frames a second;
+  the PS1's second halving from 301 / 64.1 mph, 0x8005D240, is left out on purpose: speeding up on a quarter of the
+  thrust played far too slowly, so snow is half the push from 32 mph, twice as long to speed up: `src/track_traction.cpp`, before car_linear_accel_stage_80069A54 turns the
+  car-frame force sum +0x4..+0xC into accelerations (car +0x1C..+0x24 = force x 0x80110018 / the weight +0x5AC),
+  turns the sum, gravity in it, into the world, scales its horizontal parts and keeps the vertical one, as the PS1
+  scales its frame's velocity change). Rush 2's slopes push a car through the ground forces' horizontal parts, so
+  those weaken with the thrust and a hill in snow is what it is dry, slowed alike; the first version kept gravity's
+  share whole, which left a car on a quarter of its thrust against all of a hill, a thing the PS1 (no slope force)
+  never does. Checked against the PS1's numbers above: Rush 2's car is at 0.57, 0.82, 0.94 of its top speed (about
+  145 mph) after 5, 10, 15 s dry and 0.41, 0.54, 0.61, 0.66 after 5-20 s in snow (the PS1's 0.42, 0.55, 0.65, 0.72),
+  so snow's slow climb to speed (60-80 mph for the first 10 s) is the PS1's own. Over 23 s of the same start the
   drones covered 0.76 of their night (full traction) distance with no wrecks, against the 0.75 the PS1's 8 s per gate
   allows for. The drones' target speeds take the traction into account (docs/custom_tracks.md#handling): without
   it they reached Market's and Golden Gate's tight corners at their dry speed and wrecked there (7 and 3 wrecks in
   60 s, none at night); with it none of the four tracks had a wreck, the drones at 0.58-0.71 of their night pace.
+  That first model slowed every corner to sqrt(f) and braked f times as softly, so the drones braked on the
+  straights and a player pulled away (user report); slowing only corners past f x the table's 177 ft/s^2 gives, over
+  60 s, Market 0.77 and Golden Gate 0.91 of night pace, Chinatown and Embarcadero snow no wrecks either, braking
+  above 100 mph 0-2% of the time (tools/drone_pace.py).
   Scaling the tires' grip alone (the first version) left the engine and drag whole: cars reached full
   speed and slid off (0.58, two drones wrecking over and over). Night: fog #080808, a `SKY` dome colored as the PS1's
   gradient (grey 64 at 25.6 degrees and up to (0, 0, 25) at the horizon), `car_light` the night car pages' ratio to
-  the day's over every car texture both sets have (entries 1-6: #454046) and `car_lamps` (src/car_lamps.cpp: the glows
-  above for every car, the PS1 cars at the PS1's points through their .json's `lamps`). The diorama, logo and picture
-  are the day track's.
+  the day's over every car texture both sets have (entries 1-6: #454046). The diorama, logo and picture are the day
+  track's. The light glow sprites above aren't ported: a first version drew them as flare cards at the PS1's points
+  (or points measured from other cars' bodies), and they didn't sit on the cars' real lights.
 - **Not a texture:** `ART/T<n>P08.GFX` / `P08N.GFX` (VRAM (384, 32), 64 x 128) loads only while gp+0x3C (the hidden
   pickups) is set: the pickups' page, which mods don't carry. **[V]**
 

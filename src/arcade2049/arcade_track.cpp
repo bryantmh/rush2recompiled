@@ -316,25 +316,8 @@ namespace {
         h = dot(P - q, normal);
     }
 
-    struct FlatPoly {
-        uint32_t flags;
-        std::vector<V3> pts;
-        V3 normal;
-    };
-
-    struct FootprintTri {
-        uint32_t flags;
-        std::array<V3, 3> pts;
-        int seg;
-    };
-
-    // An arcade spline polygon kept as it is, on its own segment (spline_road: loops).
-    struct SplinePoly {
-        uint32_t flags;
-        std::vector<V3> pts;
-        V3 normal;
-        int seg;
-    };
+    // FlatPoly, FootprintTri and SplinePoly (a spline polygon kept as it is, on its own segment: loops) are in
+    // arcade_internal.h, shared with the PlayStation converter (cut_spline_road).
 
     // The arcade's spline road as the game's (ROAD_SPLINES, docs/custom_tracks.md): Rush 2 and the N64 take a spline
     // polygon's height from its segment (collision_seg_surface_8006BDA8), not from the polygon, which only marks
@@ -353,13 +336,15 @@ namespace {
     // footprint whose plane is over 5 ft off their surface.
     void spline_road_pass(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
                           const std::set<int>& no_band, std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept,
-                          std::vector<FlatPoly>& flat, std::vector<std::string>& report, std::set<int>& bad) {
+                          std::vector<FlatPoly>& flat, std::vector<std::string>& report, std::set<int>& bad,
+                          const SplineCut& cut = {}) {
         std::vector<Seg> segs;
         for (const auto& r : records) segs.emplace_back(r);
         int ns = int(segs.size());
         auto nxt = [&](int k) -> const Seg& { return segs[(k + 1) % ns]; };
 
-        // Segment k's stretch from above: its start line to its next one's, well past the road's edges (u -1.5..2.5).
+        // Segment k's stretch from above: its start line to its next one's, well past the road's edges (u -1.5..2.5;
+        // cut.u_band can set another range).
         std::vector<std::optional<Path64>> bands(ns);
         for (int k = 0; k < ns; k++) {
             if (no_band.count(k)) continue;
@@ -371,7 +356,9 @@ namespace {
                 V3 p = G.O + G.f30 * ((u - 0.5) * G.f54);
                 return V2{ p[0], p[2] };
             };
-            std::vector<V2> q{ line(S, -1.5), line(S, 2.5), line(T, 2.5), line(T, -1.5) };
+            double u0 = -1.5, u1 = 2.5;
+            if (size_t(k) < cut.u_band.size()) u0 = cut.u_band[k][0], u1 = cut.u_band[k][1];
+            std::vector<V2> q{ line(S, u0), line(S, u1), line(T, u1), line(T, u0) };
             // A valid band: no edge crosses the opposite one (a bowtie).
             auto crosses = [](V2 a, V2 b, V2 c, V2 d) {
                 auto side = [](V2 p, V2 q, V2 r) { return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]); };
@@ -413,8 +400,12 @@ namespace {
             for (const V3& q : p.pts) xz.push_back({ q[0], q[2] });
             Paths64 rest = boolean(ClipType::Union, Paths64{ to_path(xz, fine) });
             std::vector<int> ks;
-            for (int k = std::max(0, p.seg - spline_window); k < std::min(ns, p.seg + spline_window + 1); k++) ks.push_back(k);
-            std::stable_sort(ks.begin(), ks.end(), [&](int a, int b) { return std::abs(a - p.seg) < std::abs(b - p.seg); });
+            if (cut.candidates) {
+                for (int k : cut.candidates(p)) if (k >= 0 && k < ns) ks.push_back(k);
+            } else {
+                for (int k = std::max(0, p.seg - spline_window); k < std::min(ns, p.seg + spline_window + 1); k++) ks.push_back(k);
+                std::stable_sort(ks.begin(), ks.end(), [&](int a, int b) { return std::abs(a - p.seg) < std::abs(b - p.seg); });
+            }
             for (int k : ks) {
                 if (!bands[k] || rest.empty()) continue;
                 Paths64 part = boolean(ClipType::Intersection, rest, Paths64{ *bands[k] });
@@ -532,9 +523,9 @@ namespace {
     // (docs/arcade2049.md#segments-the-spline-road).
     void spline_road(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
                      std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept, std::vector<FlatPoly>& flat,
-                     std::vector<std::string>& report) {
+                     std::vector<std::string>& report, const SplineCut& cut = {}) {
         std::set<int> bad;
-        spline_road_pass(records, polys, {}, tris, kept, flat, report, bad);
+        spline_road_pass(records, polys, {}, tris, kept, flat, report, bad, cut);
     }
 
     // ----------------------------------------------------------------------------------------- crowding
@@ -1043,6 +1034,12 @@ namespace {
 
 // One arcade track (TRACKS/<folder>) as the mod's tracks/<track_id>/ (in a49, whose Vertex the body means).
 namespace rush2::arcade2049 {
+void cut_spline_road(const std::vector<std::array<double, 33>>& records, const std::vector<CollisionPoly>& polys,
+                     std::vector<FootprintTri>& tris, std::vector<SplinePoly>& kept, std::vector<FlatPoly>& flat,
+                     std::vector<std::string>& report, const SplineCut& cut) {
+    spline_road(records, polys, tris, kept, flat, report, cut);
+}
+
 static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_dir, const ArcadeTrack& track,
                       const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
                       const std::function<bool()>& cancelled) {

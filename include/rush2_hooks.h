@@ -442,8 +442,8 @@ void rush2_calspeed_respawn_place(uint8_t* rdram, recomp_context* ctx);
 void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
 // A custom track's [handling] traction in car_linear_accel_stage (src/track_traction.cpp).
 void rush2_track_traction(uint8_t* rdram, recomp_context* ctx);
-// The cars' light glows on a custom track with [look] car_lamps, before each view (src/car_lamps.cpp).
-void rush2_car_lamps_view(uint8_t* rdram, recomp_context* ctx);
+// Car Lights: the lit brake lights' markers on a night track, before each view (src/car_lights.cpp).
+void rush2_car_lights_view(uint8_t* rdram, recomp_context* ctx);
 // California Speed's walls and missed wheels (src/calspeed/calspeed_walls.cpp) and physics (calspeed_physics.cpp),
 // with the CS Physics option.
 int rush2_calspeed_wall_collision(uint8_t* rdram, recomp_context* ctx);

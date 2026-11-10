@@ -2504,11 +2504,11 @@ text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rd
 
 # SF Rush visibility (src/rush1/track1.cpp): the camera position, for SF Rush's own region choice in rush2_track49_pvs.
 # Views 2 and 3 move the sky model node they draw to their own camera (rush2_players4_sky_view, src/players4.cpp).
-# The cars' light glows on a custom track with [look] car_lamps are placed for the view (src/car_lamps.cpp).
+# Car Lights' brake light markers on a night track are placed for the view (src/car_lights.cpp).
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
-text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_car_lamps_view(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx);"
+text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_car_lights_view(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx);"
 
 [[patches.hook]]
 func = "model_find_by_name_8005BE3C"

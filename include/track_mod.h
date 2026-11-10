@@ -99,13 +99,16 @@ namespace rush2::track_mod {
         // [look] car_light: every car on the track is drawn multiplied by this color (a night track's darkness, the
         // PS1 SF Rush's night: src/rush2049/track2049_movers.cpp, src/car_probes.cpp). Unset: the cars' own lighting.
         std::optional<std::array<uint8_t, 3>> car_light;
-        // [look] car_lamps: the cars carry the PS1 SF Rush's night light glows, headlights and tail lights
-        // (src/car_lamps.cpp).
-        bool car_lamps = false;
         // [handling] traction: [speed in mph, factor] steps, in rising speed: a car at or past a step's speed has its
         // push along the ground (engine, brakes, tires, drag; not gravity) times that factor, the last step reached
         // counting (src/track_traction.cpp; the PS1 SF Rush's snow). Empty: Rush 2's.
         std::vector<std::array<float, 2>> traction;
+        // [ai] speed_quantiles: the computer cars' target speeds (mph) as quantiles, evenly spaced from slowest to
+        // fastest: each AI path point takes the speed at its rank by the tightest corner in the next 500 ft, the
+        // tightest the slowest (src/track_mod/track_mod_convert.cpp target_speeds), in place of the radius table fitted
+        // to Rush 2's and Rush 2049's stock lanes. The PS1 SF Rush's courses take their N64 versions' lane speeds
+        // (tools/rush1/lane_speed_table.py). Empty: the stock table.
+        std::vector<float> ai_speed_quantiles;
         // [audio] music: the track's own songs, played as its Original (src/music.cpp): a song of the game
         // ("track1".."track8": Rush 2's by its track select order, or a Sound tab song's key such as "r49dc_5"), or
         // music files in the track's folder (.ogg, .wav), one or a list. music is the first, music_list all of them.
@@ -125,6 +128,9 @@ namespace rush2::track_mod {
         // (src/smooth_collision.cpp); smooth_fold (degrees, default 20): an edge folding more than this stays sharp.
         bool smooth_collision = true;
         float smooth_fold = 20.0f;
+        // [track] smooth_height (default false): the wheels' road height is the floor's averaged over a disc round the
+        // wheel (averaged_surface in src/smooth_collision.cpp), for coarse road whose creases kick the car.
+        bool smooth_height = false;
         // [track] road_hold (default false): California Speed's road hold (src/calspeed/calspeed_rom.cpp
         // rush2_calspeed_road_hold) keeps cars on the track's crests, while the CS Road Hold option is on.
         bool road_hold = false;

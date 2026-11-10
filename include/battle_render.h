@@ -11,9 +11,9 @@
 // each view from display lists of their own, so they need no scene nodes or track geometry.
 namespace rush2::battle_render {
     // 0-159 src/rush2049/battle.cpp, 160-175 coin glows (src/collectibles.cpp), 176-185 arcade checkpoint banners
-    // (src/arcade2049/arcade_checkpoints.cpp), 186-217 the cars' light glows (src/car_lamps.cpp). Models of the port's
-    // own (add_model) draw without the Rush 2049 ROM too.
-    constexpr int max_slots = 218;
+    // (src/arcade2049/arcade_checkpoints.cpp), 186-201 the cars' brake lights (src/car_lights.cpp). Models of the
+    // port's own (add_model) draw without the Rush 2049 ROM too.
+    constexpr int max_slots = 202;
 
     // Loads the model files from the Rush 2049 ROM if they aren't (game thread). False without a ROM.
     bool ready(uint8_t* rdram);

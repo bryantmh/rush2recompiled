@@ -83,8 +83,10 @@ namespace {
         std::vector<Smooth> smooth;
         std::vector<Corner> corners;
         std::vector<Lift> lifts;        // per SEG record, California Speed's tracks only
-        // Crease fillets (crease_fillet), California Speed's tracks only: the smoothed floor polygons by 64 ft cell.
+        // Crease fillets (crease_fillet, California Speed's tracks) or the averaged height (averaged_surface, custom
+        // tracks asking for it): the smoothed floor polygons by 64 ft cell.
         bool fillets = false;
+        int surface = 0;                // the surface wanted when the table was built (surface_wanted)
         std::unordered_map<uint64_t, std::vector<int>> cells;
         std::vector<bool> in_cells;     // the polygon is in cells (both sides of an edge must agree)
     };
@@ -127,6 +129,15 @@ namespace {
         float fold = 20.0f;
         if (!rush2::calspeed::racing(rdram)) rush2::track2049::mod_smooth_collision(rdram, &fold);
         return fold;
+    }
+    // The wheels' road height besides the flat faces: surface_fillets on California Speed's tracks (crease_fillet),
+    // surface_averaged on a custom track whose track.toml asks for it ([track] smooth_height; the PlayStation SF Rush
+    // tracks, src/sfrush_ps1/ps1_track.cpp; averaged_surface), else surface_flat.
+    enum { surface_flat, surface_fillets, surface_averaged };
+    int surface_wanted(uint8_t* rdram) {
+        if (rush2::calspeed::racing(rdram)) return surface_fillets;
+        bool height = false;
+        return rush2::track2049::mod_smooth_collision(rdram, nullptr, &height) && height ? surface_averaged : surface_flat;
     }
 
     float f32(uint8_t* rdram, uint32_t at) {
@@ -335,12 +346,13 @@ namespace {
     }
 
     // Builds the corner normals for the loaded file.
-    void build(uint8_t* rdram, float fold_cos) {
+    void build(uint8_t* rdram, float fold_cos, int surface) {
         uint32_t polys = (uint32_t)MEM_W(0, (int32_t)poly_table_ptr), verts = (uint32_t)MEM_W(0, (int32_t)vert_table_ptr);
         table = Table{};
         table.polys = polys;
         table.verts = verts;
         table.fold_cos = fold_cos;
+        table.surface = surface;
         if (polys == 0 || verts <= polys) return;
         int n = (int)((verts - polys) / poly_size);
         if (n <= 0 || n > 0x4000) return;
@@ -414,9 +426,9 @@ namespace {
                    polys, n, table.corners.size(), smoothed, sharp, fold_cos);
             fflush(stdout);
         }
-        if (rush2::calspeed::racing(rdram)) {
+        if (surface != surface_flat) {
             auto start = std::chrono::steady_clock::now();
-            // RUSH2_SMOOTH_FILLET=0: no crease fillets (a test aid for comparing).
+            // RUSH2_SMOOTH_FILLET=0: no crease fillets or averaged height (a test aid for comparing).
             static const bool fillets_off = getenv("RUSH2_SMOOTH_FILLET") != nullptr && strcmp(getenv("RUSH2_SMOOTH_FILLET"), "0") == 0;
             table.fillets = !fillets_off;
             table.in_cells.assign(n, false);
@@ -441,9 +453,9 @@ namespace {
                     }
                 }
             }
-            build_lifts(rdram, n);
+            if (rush2::calspeed::racing(rdram)) build_lifts(rdram, n);
             if (log_on) {
-                printf("[smooth] spline lifts built in %.2f ms\n",
+                printf("[smooth] fillet cells and spline lifts built in %.2f ms\n",
                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
                 fflush(stdout);
             }
@@ -759,6 +771,64 @@ namespace {
         }
         return add;
     }
+
+    // The averaged road height ([track] smooth_height; the PlayStation SF Rush tracks). Their floor is triangles in fans,
+    // 5 or 6 meeting at a corner, with obtuse corners: the fillets above (rounding each edge of the wheel's own polygon)
+    // disagreed between neighboring triangles near those corners and stepped the height by up to 0.8 ft there (offline,
+    // Golden Gate's lanes at 120 mph: kicks over 30 g 3 -> 58). Instead the height is the floors' heights averaged over
+    // a disc round the wheel, a center sample and rings, tent-weighted (1 at the center, falling to 0 at
+    // averaged_radius). A sample takes the floor under it nearest the wheel's own plane carried there (within 1 ft plus
+    // 0.4 ft per ft out, at most 6 ft, so a curb, ledge or road on another level isn't averaged in), unless it folds
+    // away past the fold angle; else that plane. The samples are found by position, so the same disc gives the same
+    // height whichever polygon the wheel is on, and the slope is the samples' planes' slopes, weighted alike.
+    // The radius, measured in game (tools/test_race.py --motion 0: a Rush 2 car, gas held, the body's vertical kicks;
+    // user report 2026-11-09): Golden Gate's climb onto the bridge (550-1200 ft from the start) is a vertical curve of
+    // 3.3-3.7 degree creases every 80 ft. Flat faces with blended tilt: 12 kicks over 1.5 g there, 5 over 2.5 g, 3.9 g
+    // at most; an 8 ft disc 12, 3, 3.0 g; 16 ft 10, 1, 2.7 g; 24 ft 6, 0, 2.5 g; 32 ft 5, 0, 2.4 g. The rest of the
+    // first 7,800 ft gained none: over 3 g 11 -> 8, the largest (a landing at 7,100 ft, in every run) 11.8 -> 7.2 g.
+    // RUSH2_SMOOTH_RADIUS=<ft>: another disc radius (a test aid for tuning); rings about 3 ft apart, 2 to 4 of them.
+    const float averaged_radius = [] {
+        const char* v = getenv("RUSH2_SMOOTH_RADIUS");
+        return v != nullptr && atof(v) > 0.0 ? (float)atof(v) : 32.0f;
+    }();
+    const int averaged_rings = std::clamp((int)std::lround(averaged_radius / 3.0f), 2, 4);
+    struct DiscSample {
+        float dx, dz, w;
+    };
+    const std::vector<DiscSample>& disc_samples() {
+        static const std::vector<DiscSample> samples = [] {
+            std::vector<DiscSample> out{ { 0.0f, 0.0f, 1.0f } };
+            for (int k = 1; k <= averaged_rings; k++) {
+                float r = averaged_radius * k / (averaged_rings + 1), w = 1.0f - (float)k / (averaged_rings + 1);
+                for (int a = 0; a < 6 * k; a++) {
+                    float t = 6.28318531f * (a + 0.5f * (k % 2)) / (6 * k);
+                    out.push_back({ r * std::cos(t), r * std::sin(t), w });
+                }
+            }
+            return out;
+        }();
+        return samples;
+    }
+    float averaged_surface(int i, float x, float z, float* slope_x, float* slope_z) {
+        const Smooth& s = table.smooth[i];
+        float height = 0.0f, sx = 0.0f, sz = 0.0f, total = 0.0f;
+        for (const DiscSample& d : disc_samples()) {
+            float px = x + d.dx, pz = z + d.dz, own = plane_y(i, px, pz);
+            int j = floor_at(px, pz, own, std::min(6.0f, 1.0f + 0.4f * std::sqrt(d.dx * d.dx + d.dz * d.dz)));
+            if (j >= 0) {
+                const Smooth& o = table.smooth[j];
+                if (o.face[0] * s.face[0] + o.face[1] * s.face[1] + o.face[2] * s.face[2] < table.fold_cos) j = -1;
+            }
+            const Smooth& f = table.smooth[j >= 0 ? j : i];
+            height += d.w * (j >= 0 ? plane_y(j, px, pz) : own);
+            sx += d.w * -f.face[0] / f.face[1];
+            sz += d.w * -f.face[2] / f.face[1];
+            total += d.w;
+        }
+        *slope_x = sx / total;
+        *slope_z = sz / total;
+        return height / total;
+    }
 }
 
 // The smooth surface for the found polygon (rush2_smooth_collision_surface).
@@ -776,7 +846,10 @@ static void smooth_surface(uint8_t* rdram, recomp_context* ctx) {
     }
     if (polys == 0 || poly < polys) return;
     float fold_cos = (float)std::cos(fold_degrees(rdram) * 3.14159265358979 / 180.0);
-    if (table.polys != polys || table.verts != verts || table.fold_cos != fold_cos) build(rdram, fold_cos);
+    int surface = surface_wanted(rdram);
+    if (table.polys != polys || table.verts != verts || table.fold_cos != fold_cos || table.surface != surface) {
+        build(rdram, fold_cos, surface);
+    }
     // A floor rising from where the wheel last rested is the road going on (a ramp): no ledge rule for it.
     bool joined = f32(rdram, (uint32_t)ctx->r17 + 4) < -ledge_step && joined_to_support(rdram, sp, poly);
     if (joined && log_probes && (uint32_t)MEM_W(sp_car, (int32_t)sp) == player_car) {
@@ -873,12 +946,14 @@ static void smooth_surface(uint8_t* rdram, recomp_context* ctx) {
     // Clover) toward each neighbor while the fillets bend the surface only within 15 ft of the edge, so mid-polygon
     // the wheel's frame leaned off the flat road under it; the drive force along that frame then lifted a player's
     // rear 0.1-0.3 ft at each crease, the bump every few seconds round Clover. The fillets' surface is smooth (its
-    // slope continuous across every rounded crease), so its normal is too, and flat wherever the road is flat.
+    // slope continuous across every rounded crease), so its normal is too, and flat wherever the road is flat. A custom
+    // track with [track] smooth_height takes the averaged surface the same way (averaged_surface).
     bool on_fillets = table.fillets && s.face[1] >= 0.5f;
     float surface_y = 0.0f;
     if (on_fillets) {
         float sx = -s.face[0] / s.face[1], sz = -s.face[2] / s.face[1];
-        surface_y = plane_y((int)index, p[0], p[2]) + crease_fillet((int)index, p[0], p[2], &sx, &sz);
+        if (table.surface == surface_averaged) surface_y = averaged_surface((int)index, p[0], p[2], &sx, &sz);
+        else surface_y = plane_y((int)index, p[0], p[2]) + crease_fillet((int)index, p[0], p[2], &sx, &sz);
         normal[0] = -sx;
         normal[1] = 1.0f;
         normal[2] = -sz;

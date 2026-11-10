@@ -612,7 +612,7 @@ namespace {
         write_report(f.entry.folder, report);
         remember_report(f.entry, report, ok);
         if (!ok) return false;
-        rush2::race_time::fill(out.track);
+        rush2::race_time::fill(out.track, out.settings.traction);
         // Its full-size textures first: a cache entry is only trusted with its textures there (textures_current).
         if (write_textures(f, out.textures)) remember_textures(f);
         if (f.sky_pending) return true;
