@@ -39,10 +39,10 @@ index 79dfc38..88b207c 100644
  build_pixel_shader(  rt64 "src/shaders/Im3DPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/PostProcessPS.hlsl")
 diff --git a/include/rt64_extended_gbi.h b/include/rt64_extended_gbi.h
-index d387090..d59a12f 100644
+index d387090..2ac8309 100644
 --- a/include/rt64_extended_gbi.h
 +++ b/include/rt64_extended_gbi.h
-@@ -80,7 +80,13 @@
+@@ -80,7 +80,14 @@
  #define G_EX_SETVERTEXSEGMENT_V1        0x000031
  #define G_EX_SETTEXCOORDWRAPPOINT_V1    0x000032
  #define G_EX_SETRECTASPECT_V1           0x000033
@@ -53,11 +53,12 @@ index d387090..d59a12f 100644
 +#define G_EX_SETSKYDRAW_V1              0x000037
 +#define G_EX_SETTWOSIDEDWALLS_V1        0x000038
 +#define G_EX_SETCARLIGHT_V1             0x000039
-+#define G_EX_MAX                        0x00003A
++#define G_EX_SETTWOSIDEDSKIP_V1         0x00003A
++#define G_EX_MAX                        0x00003B
  
  #define G_EX_ORIGIN_NONE            0x800
  #define G_EX_ORIGIN_LEFT            0x0
-@@ -579,4 +585,61 @@ typedef union {
+@@ -579,4 +586,70 @@ typedef union {
          PARAM(aspect, 2, 0) \
      )
  
@@ -106,6 +107,15 @@ index d387090..d59a12f 100644
 +    G_EX_COMMAND1(cmd, \
 +        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETTWOSIDEDWALLS_V1, 24, 0), \
 +        PARAM(on, 2, 0) \
++    )
++
++// Rush 2 recomp: no two-sided walls copies for the triangles drawn with texels last loaded (G_LOADBLOCK / G_LOADTILE)
++// from this RDRAM address (a one-sided road block meant to be unseen from behind). 0 empties the list. The list lasts
++// until the end of the display list.
++#define gEXSetTwoSidedSkip(cmd, address) \
++    G_EX_COMMAND1(cmd, \
++        PARAM(RT64_EXTENDED_OPCODE, 8, 24) | PARAM(G_EX_SETTWOSIDEDSKIP_V1, 24, 0), \
++        (unsigned int)(address) \
 +    )
 +
 +// Rush 2 recomp: the triangles that follow aren't drawn but mark a light (FramebufferRenderer, submitCarLights): a point
@@ -312,19 +322,20 @@ index 4857f22..5646b55 100644
  
      NLOHMANN_JSON_SERIALIZE_ENUM(UserConfiguration::InternalColorFormat, {
 diff --git a/src/gbi/rt64_gbi_extended.cpp b/src/gbi/rt64_gbi_extended.cpp
-index 20c0d4d..a85ebb2 100644
+index 20c0d4d..b8ddea1 100644
 --- a/src/gbi/rt64_gbi_extended.cpp
 +++ b/src/gbi/rt64_gbi_extended.cpp
-@@ -4,6 +4,8 @@
+@@ -4,6 +4,9 @@
  
  #include "rt64_gbi_extended.h"
  
++#include <algorithm>
 +#include <cstring>
 +
  #include "../include/rt64_extended_gbi.h"
  
  namespace RT64 {
-@@ -331,6 +333,38 @@ namespace RT64 {
+@@ -331,6 +334,49 @@ namespace RT64 {
              state->rdp->setRectAspect(aspect);
          }
  
@@ -360,10 +371,21 @@ index 20c0d4d..a85ebb2 100644
 +            state->rsp->extended.twoSidedWalls = uint8_t((*dl)->p1(0, 2));
 +        }
 +
++        void setTwoSidedSkipV1(State *state, DisplayList **dl) {
++            const uint32_t address = (*dl)->w1 & 0x1FFFFFFF;
++            auto &skip = state->rsp->extended.twoSidedSkip;
++            if (address == 0) {
++                skip.clear();
++            }
++            else if (std::find(skip.begin(), skip.end(), address) == skip.end()) {
++                skip.push_back(address);
++            }
++        }
++
          void noOpHook(State *state, DisplayList **dl) {
              uint32_t magicNumber = (*dl)->p0(0, 24);
              if (magicNumber == RT64_HOOK_MAGIC_NUMBER) {
-@@ -439,6 +473,12 @@ namespace RT64 {
+@@ -439,6 +485,13 @@ namespace RT64 {
              Map[G_EX_SETVERTEXSEGMENT_V1] = &setVertexSegmentV1;
              Map[G_EX_SETTEXCOORDWRAPPOINT_V1] = &setTexcoordWrapPointV1;
              Map[G_EX_SETRECTASPECT_V1] = &setRectAspectV1;
@@ -373,6 +395,7 @@ index 20c0d4d..a85ebb2 100644
 +            Map[G_EX_SETSKYDRAW_V1] = &setSkyDrawV1;
 +            Map[G_EX_SETTWOSIDEDWALLS_V1] = &setTwoSidedWallsV1;
 +            Map[G_EX_SETCARLIGHT_V1] = &setCarLightV1;
++            Map[G_EX_SETTWOSIDEDSKIP_V1] = &setTwoSidedSkipV1;
              MapInitialized = true;
          }
      }
@@ -674,10 +697,28 @@ index 3227ab1..883cf36 100644
  
          ext.sharedResources->interpolatedCondition.notify_all();
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
-index a10c11a..bf0e4ab 100644
+index a10c11a..5214b12 100644
 --- a/src/hle/rt64_rdp.cpp
 +++ b/src/hle/rt64_rdp.cpp
-@@ -785,6 +785,13 @@ namespace RT64 {
+@@ -627,6 +627,8 @@ namespace RT64 {
+             }
+         }
+ 
++        extended.lastTexelLoad = texture.address;
++
+         // Perform the first step of the deferred operation.
+         loadTileOperation(t, texture, true);
+ 
+@@ -755,6 +757,8 @@ namespace RT64 {
+             }
+         }
+ 
++        extended.lastTexelLoad = texture.address;
++
+         // Perform the first step of the deferred operation.
+         loadBlockOperation(t, texture, true);
+ 
+@@ -785,6 +789,13 @@ namespace RT64 {
          t.lrs = lrs;
          t.lrt = lrt;
  
@@ -691,7 +732,7 @@ index a10c11a..bf0e4ab 100644
  #   ifdef ASSERT_LOAD_METHODS
          assert((texture.siz == G_IM_SIZ_16b) && "Non-16 bit textures are not currently supported.");
          assert((t.siz == G_IM_SIZ_4b) && "Non-4 bit tiles are not currently supported.");
-@@ -1076,6 +1083,29 @@ namespace RT64 {
+@@ -1076,6 +1087,29 @@ namespace RT64 {
          state->updateDrawStatusAttribute(DrawAttribute::ExtendedFlags);
      }
  
@@ -722,10 +763,19 @@ index a10c11a..bf0e4ab 100644
          extended.scissorLeftOriginStack[0] = G_EX_ORIGIN_NONE;
          extended.scissorRightOriginStack[0] = G_EX_ORIGIN_NONE;
 diff --git a/src/hle/rt64_rdp.h b/src/hle/rt64_rdp.h
-index 84f4e7c..e00423d 100644
+index 84f4e7c..26db62c 100644
 --- a/src/hle/rt64_rdp.h
 +++ b/src/hle/rt64_rdp.h
-@@ -199,6 +199,10 @@ namespace RT64 {
+@@ -98,6 +98,8 @@ namespace RT64 {
+             uint16_t scissorLeftOriginStack[RDP_EXTENDED_STACK_SIZE];
+             uint16_t scissorRightOriginStack[RDP_EXTENDED_STACK_SIZE];
+             DrawExtendedFlags drawExtendedFlags;
++            // Rush 2 recomp: the texture image address of the last G_LOADBLOCK / G_LOADTILE (gEXSetTwoSidedSkip).
++            uint32_t lastTexelLoad = 0;
+         } extended;
+ 
+         struct {
+@@ -199,6 +201,10 @@ namespace RT64 {
          void forceUpscale2D(bool force);
          void forceTrueBilerp(uint8_t mode);
          void forceScaleLOD(bool force);
@@ -779,7 +829,7 @@ index 6051f4e..690d3b2 100644
  
          // Dump memory contents into a file if the process is active.
 diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
-index ee2030b..bca4525 100644
+index ee2030b..b772e9e 100644
 --- a/src/hle/rt64_rsp.cpp
 +++ b/src/hle/rt64_rsp.cpp
 @@ -4,7 +4,10 @@
@@ -806,7 +856,7 @@ index ee2030b..bca4525 100644
      
      void RSP::setTexture(uint8_t tile, uint8_t level, uint8_t on, uint16_t sc, uint16_t tc) {
          textureState.tile = tile;
-@@ -1128,8 +1137,158 @@ namespace RT64 {
+@@ -1128,8 +1137,161 @@ namespace RT64 {
              maxMatrix = std::max(maxMatrix, worldIndices[globalIndex]);
          }
  
@@ -941,7 +991,10 @@ index ee2030b..bca4525 100644
 +
 +                search(yaw, distance, 1);
 +                search(yaw + 64, -distance, -1);
-+                if (culled && !blocked && (extended.twoSidedWalls == 1)) {
++                const auto &skip = extended.twoSidedSkip;
++                const bool skipped = !skip.empty() &&
++                    (std::find(skip.begin(), skip.end(), state->rdp->extended.lastTexelLoad & 0x1FFFFFFF) != skip.end());
++                if (culled && !blocked && !skipped && (extended.twoSidedWalls == 1)) {
 +                    entry.copyAt = uint32_t(faceIndices.size());
 +                    faceIndices.push_back(globalIndices[2]);
 +                    faceIndices.push_back(globalIndices[1]);
@@ -966,7 +1019,7 @@ index ee2030b..bca4525 100644
          if (usesCulling) {
              const hlslpp::float3 U = posScreen[globalIndices[1]] - posScreen[globalIndices[0]];
              const hlslpp::float3 V = posScreen[globalIndices[2]] - posScreen[globalIndices[0]];
-@@ -1159,7 +1318,7 @@ namespace RT64 {
+@@ -1159,7 +1321,7 @@ namespace RT64 {
              }
          }
  
@@ -975,7 +1028,7 @@ index ee2030b..bca4525 100644
      }
  
      void RSP::drawIndexedTri(uint32_t a, uint32_t b, uint32_t c) {
-@@ -1291,6 +1450,10 @@ namespace RT64 {
+@@ -1291,6 +1453,11 @@ namespace RT64 {
          extended.baseSegmentAddresses = {};
          extended.vertexSegmentEnabled = {};
          extended.forceBranch = false;
@@ -983,11 +1036,12 @@ index ee2030b..bca4525 100644
 +        extended.twoSidedSeen.clear();
 +        extended.twoSidedWorkload = -1;
 +        extended.twoSidedFaceCount = 0;
++        extended.twoSidedSkip.clear();
      }
  
      void RSP::setGBI(GBI *gbi) {
 diff --git a/src/hle/rt64_rsp.h b/src/hle/rt64_rsp.h
-index 61bb3b1..61511c0 100644
+index 61bb3b1..8e51d7b 100644
 --- a/src/hle/rt64_rsp.h
 +++ b/src/hle/rt64_rsp.h
 @@ -6,6 +6,8 @@
@@ -999,7 +1053,7 @@ index 61bb3b1..61511c0 100644
  #include <stdint.h>
  
  #include "common/rt64_common.h"
-@@ -227,6 +229,20 @@ namespace RT64 {
+@@ -227,6 +229,22 @@ namespace RT64 {
              std::array<uint32_t, G_EX_VERTEX_MAX> baseSegmentAddresses;
              std::array<bool, G_EX_VERTEX_MAX> vertexSegmentEnabled;
              bool forceBranch;
@@ -1017,10 +1071,12 @@ index 61bb3b1..61511c0 100644
 +            std::unordered_map<uint64_t, std::vector<TwoSidedEntry>> twoSidedSeen;
 +            int twoSidedWorkload;
 +            size_t twoSidedFaceCount;
++            // gEXSetTwoSidedSkip: texel addresses (physical) whose triangles get no copies.
++            std::vector<uint32_t> twoSidedSkip;
          } extended;
  
          RSP(State *state);
-@@ -280,6 +296,7 @@ namespace RT64 {
+@@ -280,6 +298,7 @@ namespace RT64 {
          void setLookAt(uint8_t index, uint32_t address);
          void setLookAtVectors(interop::float3 x, interop::float3 y);
          void setFog(int16_t mul, int16_t offset);

@@ -86,8 +86,13 @@ namespace {
         float radius;
         uint32_t dl;
     };
+    struct OneSided {
+        uint32_t address;                            // In RDRAM
+        uint8_t bytes[8];                            // Its first texels, as the file has them
+    };
     struct Placed {
         std::vector<ChunkRef> chunks;
+        std::vector<OneSided> one_sided;            // The road blocks' texels (gEXSetTwoSidedSkip)
     };
 
     std::mutex mutex;                                // Guards ready and key (held only to swap them)
@@ -100,6 +105,7 @@ namespace {
     uint32_t ring = 0, ring_cursor = 0;
     uint8_t* rdram_base = nullptr;
     bool drawn[max_views] = {};
+    uint32_t one_sided_sent = 0;                     // The road blocks model_draw last found loaded (for the log)
 
     bool in_race(uint8_t* rdram) {
         switch (MEM_W(0, (int32_t)game_state)) {
@@ -289,9 +295,9 @@ namespace {
         return rush2::scenery_fill::make_guide(*containers[d], *fit, guide);
     }
 
-    // Builds (or loads) the underlay of the track in geometry asset `asset` and writes it into `arena`. key: its
-    // diorama's (guide_key).
-    void build_track(int asset, std::string key, uint64_t gen, int arena_index) {
+    // Builds (or loads) the underlay of the track in geometry asset `asset` (loaded at `address`) and writes it into
+    // `arena`. key: its diorama's (guide_key).
+    void build_track(int asset, uint32_t address, std::string key, uint64_t gen, int arena_index) {
         std::vector<uint8_t> geometry, placement, shared[2];
         std::vector<rush2::assets::Span> spans;
         if (!rush2::assets::read_current(asset, geometry, spans) ||
@@ -335,8 +341,19 @@ namespace {
             std::lock_guard arena_lock{ arena_mutex[arena_index] };
             if (!encode(rdram_base, mesh, arenas[arena_index], *placed, gen)) return;
         }
-        printf("[Fill] Track asset 0x%02X: %zu chunks %s in %.2fs, diorama %s\n", asset, placed->chunks.size(), cached ? "loaded" : "built",
-               std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), guided ? guide.key.c_str() : "none");
+        // The road blocks' texels where the game loads the geometry, and their first bytes there (model_draw checks
+        // them: the worker can run before the game has finished loading the track).
+        for (uint32_t offset : mesh.one_sided) {
+            if (offset + sizeof(OneSided::bytes) > geometry.size()) continue;
+            OneSided o;
+            o.address = address + offset;
+            memcpy(o.bytes, &geometry[offset], sizeof(o.bytes));
+            placed->one_sided.push_back(o);
+        }
+        printf("[Fill] Track asset 0x%02X: %zu chunks %s in %.2fs, diorama %s, %zu one-sided textures\n", asset,
+               placed->chunks.size(), cached ? "loaded" : "built",
+               std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), guided ? guide.key.c_str() : "none",
+               placed->one_sided.size());
         fflush(stdout);
         std::lock_guard lock{ mutex };
         if (generation.load() == gen) ready = std::move(placed);
@@ -471,7 +488,7 @@ void rush2::scenery_fill::view_begin(uint8_t* rdram, uint32_t view) {
     uint64_t gen = ++generation;
     int arena_index = next_arena;
     next_arena ^= 1;
-    std::thread(build_track, asset, guide_key(rdram, asset), gen, arena_index).detach();
+    std::thread(build_track, asset, address, guide_key(rdram, asset), gen, arena_index).detach();
 }
 
 void rush2::scenery_fill::model_draw(uint8_t* rdram, recomp_context* ctx) {
@@ -479,7 +496,8 @@ void rush2::scenery_fill::model_draw(uint8_t* rdram, recomp_context* ctx) {
     const uint32_t node = (uint32_t)ctx->r23;
     if (node < rush2::scene_nodes::table || node >= rush2::scene_nodes::table_end) return;
     const int index = int((node - rush2::scene_nodes::table) / rush2::scene_nodes::node_size);
-    GfxCommand cmds[6];
+    constexpr uint32_t max_one_sided = 8;
+    GfxCommand cmds[6 + max_one_sided];
     uint32_t count = 0;
     if (index < placement_first || index >= placement_end) {
         // Any other model (cars, props placed by code) only counts as something seen from behind on a wall's plane,
@@ -500,6 +518,24 @@ void rush2::scenery_fill::model_draw(uint8_t* rdram, recomp_context* ctx) {
         {
             std::lock_guard lock{ mutex };
             placed = ready;
+        }
+        // The road blocks the two-sided walls leave out (RT64 empties the list at each frame's start).
+        if (placed) {
+            uint32_t sent = 0;
+            for (const OneSided& o : placed->one_sided) {
+                bool loaded = sent < max_one_sided;
+                // A signed offset: an unsigned one makes MEM_BU's address unsigned, reading far past RDRAM.
+                for (int32_t i = 0; loaded && i < (int32_t)sizeof(o.bytes); i++) loaded = MEM_BU(i, (int32_t)o.address) == o.bytes[i];
+                if (loaded) {
+                    gEXSetTwoSidedSkip(&cmds[count++], o.address);
+                    sent++;
+                }
+            }
+            if (sent != one_sided_sent) {
+                one_sided_sent = sent;
+                printf("[Fill] Two-sided walls leave out %u of %zu one-sided textures\n", sent, placed->one_sided.size());
+                fflush(stdout);
+            }
         }
         uint32_t list = placed ? underlay_list(rdram, view, *placed) : 0;
         if (list != 0) {

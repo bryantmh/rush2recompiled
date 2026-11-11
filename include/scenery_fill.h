@@ -59,6 +59,9 @@ namespace rush2::scenery_fill {
     struct Mesh {
         std::vector<Texture> textures;
         std::vector<Chunk> chunks;
+        // Two-sided walls leave out the track's one-way road blocks (one_sided_hashes): the file offsets of their
+        // texels in the track's geometry (every mipmap level), which the game loads them from in RDRAM.
+        std::vector<uint32_t> one_sided;
         std::vector<uint8_t> serialize() const;
         bool deserialize(const std::vector<uint8_t>& data);
     };
@@ -110,7 +113,12 @@ namespace rush2::scenery_fill {
                const std::vector<rush2::catalog::Placement>& placements, const Guide* guide = nullptr,
                BuildStats* stats = nullptr);
     // Bumped when the build changes, so cached underlays are built again.
-    constexpr uint32_t build_version = 4;
+    constexpr uint32_t build_version = 5;
+    // Textures (RT64 replacement hashes, as Dump Textures lists them) of road blocks the tracks draw one-sided on
+    // purpose, so they hide from behind: no two-sided walls copies of them (issue 62).
+    // - NYONEBPARK1.11, the N.Y.P.D. barricade: New York Downtown's one-way gate after the Brooklyn Bridge, seen from
+    //   behind on the bridge's offramp (and the road blocks on the side streets).
+    constexpr uint64_t one_sided_hashes[] = { 0x2E93790202DA2D0Aull };
     // A texture's image as RT64 decodes it once the underlay loads it.
     rush2::upscale::Image image_of(const Texture& t);
 

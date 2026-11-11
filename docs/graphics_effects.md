@@ -431,6 +431,26 @@ History (2026-11-08): copies fought or beat real backs three times. Hawaii's sta
 the same triangles as its front, so matching exact corners missed it), and Civic Dreamcast's blinking arrow signs
 (z-fighting with the plane match limited to culled backs 1/8 ft away); the user's rule: zero unintended z-fighting.
 
+**One-way road blocks** (issue 62, 2026-11-10): some barricades are one-sided on purpose, so they hide from behind.
+New York Downtown's N.Y.P.D. barricade (texture `NYONEBPARK1.11`, drawn in ~45 of its section models) closes the road
+back onto the Brooklyn Bridge (the `NYONECHALL7` one, game (-1571, 104, -352)) and side streets; from the bridge's
+offramp the original shows the road through it, and a two-sided copy put a mirrored barricade across the road. Such
+textures never get copies:
+- `one_sided_hashes` (include/scenery_fill.h) lists their RT64 replacement hashes (as Dump Textures' hashes.txt has
+  them: NYONEBPARK1.11 = `2E93790202DA2D0A`). The underlay build (`rush2::scenery_fill::build`) finds them in the
+  track's container and keeps their texels' file offsets, mipmap levels included (`Mesh::one_sided`, cached with the
+  underlay).
+- `model_draw`, before each view's first track model, sends the RDRAM address of each (the geometry's slot record
+  data pointer + offset) with `gEXSetTwoSidedSkip(address)` (`G_EX_SETTWOSIDEDSKIP_V1` 0x3A; RT64 empties the list at
+  each display list's start), once the first 8 bytes there are the file's (the worker can run before the game has
+  loaded the track).
+- RT64 keeps the texture image address of the last `G_LOADBLOCK` / `G_LOADTILE` (`RDP::extended.lastTexelLoad`;
+  palette loads don't count) and makes no copy of a triangle drawn while it is a listed address.
+Test: `python tools/test_race.py 1 --cars 0 --drones 1 --user-settings --seconds 60 --shots 45,55 --script "1:B:59"
+--env RUSH2_CS_PLACE=-1470,112,-255,-0.71,-0.70,0,0.5` stops the car on the offramp facing the gate (the log says
+`[Fill] Two-sided walls leave out 1 of 1 one-sided textures`); add `--exe .release/build/Rush2Recompiled.exe` for a
+build without it. `tools/rdram_find.py PID --file ASSET --offset OFS` finds where the game put an asset's bytes.
+
 **Extended ground.** A ground underlay built from the raced track's own models (the same inputs as the
 [car light probes](#car-light-probes): the slot's geometry and placement assets as loaded, `rush2::probes::raced_track`,
 and the shared containers 0x12 and 0x14, through `rush2::catalog::for_each_placed_triangle`):
