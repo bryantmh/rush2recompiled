@@ -204,6 +204,16 @@ vertices are (x, -height, y) of the track frame. **[V]**
   channel beside the shortcut). 0x40 = the next record is skipped by the ground query; 0x80 (ordinary road and grass
   on track 4) sets a per-car flag (0x801015C4 + car x 0x408) read at 0x8005E134 and 0x80062F04. `& 7 != 0` marks the
   0x28-byte records. **[V]** surfaces, **[I]** 0x80.
+- **Walls under a road above:** an A wall's face (10 ft under its ground to 40 ft over it) is cut to 3 ft under any
+  ground over its line, and only along the stretch that ground covers (the wall is split into pieces, 4 ft samples).
+  Ground counts as over the line where one polygon lies 8 ft out on both sides of it (a road whose edge sits on or
+  just past the line, Embarcadero's ramp at x -2674 overhanging its wall by 2-5 ft, keeps the wall that stops cars
+  driving off it). Testing only ground corners within 30 ft of the wall missed big polygons: Market's street at
+  61.7 ft (one 490 x 103 ft polygon, x -440 to 50, z -4988 to -4883) over a 30 ft wide lower level (29-44 ft, x
+  -131.5 to -161.5), whose two side walls rose to 84 ft through the street, an invisible wall across all four lanes
+  61% of the way round the lap (snow and night; user report 2026-11-10). The same cut now also applies to one wall
+  each on Chinatown (x 806-846, z 2608, street at 27.5 ft over the -6 ft level) and Golden Gate (x 2710, z -782, a
+  slope at -76 ft over the -85 ft level), off the lanes. **[V]** (converter output, AI lanes against wall faces)
 - **Steps:** a dead end can be a ground polygon instead of a wall. Track 4's lane beside the street that climbs to the
   big loop (glb x 744-762 m, ending at z -120 m) ends in one road polygon rising 65 ft in 40 ft (59 degrees) to the
   street above, drawn as a rock wall with a chevron sign. A PS1 car doesn't climb it **[I]** (how the PS1 refuses it

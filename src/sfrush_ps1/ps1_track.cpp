@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -1068,17 +1069,72 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                     if (y > hi + 8.0 && y < top + 3.0 && seg_dist(grounds[i].p[c]) < 30.0) top = std::max(hi + 5.0, y - 3.0);
                 }
             }
-            V3 a0{ w.a[0], bottom, w.a[1] }, b0{ w.b[0], bottom, w.b[1] }, a1{ w.a[0], top, w.a[1] }, b1{ w.b[0], top, w.b[1] };
-            V3 n{ w.normal[0], 0.0, w.normal[1] };
-            std::array<V3, 4> q{ a0, b0, b1, a1 };
-            if (a49::dot(a49::cross(q[1] - q[0], q[2] - q[0]), n) < 0) std::swap(q[1], q[3]);
-            uint32_t base = uint32_t(m.verts.size());
-            for (int c : { 0, 1, 2, 3 }) {
-                m.verts.push_back(gl(q[c]));
-                m.normals.push_back(n);
+            // Ground passing over the wall's line whose corners are all far from it: Market's street at 61.7 ft, one
+            // 490 x 103 ft polygon over a 30 ft wide lower level (29-44 ft), whose side walls otherwise rose through
+            // the street as an invisible wall across the road (user report 2026-11-10; docs/sfrush_ps1.md#collision).
+            // Sampled every 4 ft along the line, ground counts only where one polygon lies over both sides of it, 8 ft
+            // out (a road whose edge is on or just past the line keeps the wall that stops cars driving off it:
+            // Embarcadero's ramp at x -2674 overhangs its wall by 2-5 ft), and only that stretch of the wall is cut.
+            int samples = std::max(1, int(len / 4.0));
+            std::vector<double> tops(size_t(samples) + 1, top);
+            {
+                double nx = -d[1] / len, nz = d[0] / len;
+                double wx0 = std::min(w.a[0], w.b[0]), wx1 = std::max(w.a[0], w.b[0]);
+                double wz0 = std::min(w.a[1], w.b[1]), wz1 = std::max(w.a[1], w.b[1]);
+                for (const Ground& gr : grounds) {
+                    double gx0 = 1e18, gx1 = -1e18, gz0 = 1e18, gz1 = -1e18, gy1 = -1e18;
+                    for (int c = 0; c < gr.n; c++) {
+                        gx0 = std::min(gx0, gr.p[c][0]);
+                        gx1 = std::max(gx1, gr.p[c][0]);
+                        gz0 = std::min(gz0, gr.p[c][2]);
+                        gz1 = std::max(gz1, gr.p[c][2]);
+                        gy1 = std::max(gy1, gr.p[c][1]);
+                    }
+                    if (gx1 < wx0 - 8.0 || gx0 > wx1 + 8.0 || gz1 < wz0 - 8.0 || gz0 > wz1 + 8.0 || gy1 <= hi + 8.0) continue;
+                    // The polygon's height at (x, z), or NaN where it doesn't lie over it.
+                    auto height = [&](double x, double z) {
+                        for (int k = 0; k < gr.tri_count; k++) {
+                            const V3& p0 = gr.p[gr.tris[k][0]];
+                            const V3& p1 = gr.p[gr.tris[k][1]];
+                            const V3& p2 = gr.p[gr.tris[k][2]];
+                            V3 on = a49::cross(p1 - p0, p2 - p0);
+                            if (std::fabs(on[1]) < 1e-9) continue;
+                            auto side = [&](const V3& a, const V3& b) { return (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]); };
+                            double s0 = side(p0, p1), s1 = side(p1, p2), s2 = side(p2, p0);
+                            if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+                            return p0[1] - (on[0] * (x - p0[0]) + on[2] * (z - p0[2])) / on[1];
+                        }
+                        return std::numeric_limits<double>::quiet_NaN();
+                    };
+                    for (int s = 0; s <= samples; s++) {
+                        double t = double(s) / samples, x = w.a[0] + d[0] * t, z = w.a[1] + d[1] * t;
+                        double y0 = height(x + nx * 8.0, z + nz * 8.0), y1 = height(x - nx * 8.0, z - nz * 8.0);
+                        if (std::isnan(y0) || std::isnan(y1)) continue;
+                        double y = std::min(y0, y1);
+                        if (y > hi + 8.0 && y < tops[size_t(s)] + 3.0) tops[size_t(s)] = std::max(hi + 5.0, y - 3.0);
+                    }
+                }
             }
-            m.tris.push_back({ base, base + 1, base + 2 });
-            m.tris.push_back({ base, base + 2, base + 3 });
+            // One face per run of samples with the same top, each sample's piece reaching halfway to its neighbors.
+            V3 n{ w.normal[0], 0.0, w.normal[1] };
+            for (int s0 = 0; s0 <= samples;) {
+                int s1 = s0;
+                while (s1 < samples && tops[size_t(s1) + 1] == tops[size_t(s0)]) s1++;
+                double t0 = s0 == 0 ? 0.0 : (s0 - 0.5) / samples, t1 = s1 == samples ? 1.0 : (s1 + 0.5) / samples;
+                double h = tops[size_t(s0)];
+                V2 pa{ w.a[0] + d[0] * t0, w.a[1] + d[1] * t0 }, pb{ w.a[0] + d[0] * t1, w.a[1] + d[1] * t1 };
+                std::array<V3, 4> q{ V3{ pa[0], bottom, pa[1] }, V3{ pb[0], bottom, pb[1] }, V3{ pb[0], h, pb[1] },
+                                     V3{ pa[0], h, pa[1] } };
+                if (a49::dot(a49::cross(q[1] - q[0], q[2] - q[0]), n) < 0) std::swap(q[1], q[3]);
+                uint32_t base = uint32_t(m.verts.size());
+                for (int c : { 0, 1, 2, 3 }) {
+                    m.verts.push_back(gl(q[c]));
+                    m.normals.push_back(n);
+                }
+                m.tris.push_back({ base, base + 1, base + 2 });
+                m.tris.push_back({ base, base + 2, base + 3 });
+                s0 = s1 + 1;
+            }
         }
         // Steps: a ground polygon too steep to drive between two flat levels (track 4's dead-end lane beside the street
         // climbing to the big loop, glb x 744-762 z -120 m: one road polygon rising 65 ft in 40 ft, 59 degrees, from the
