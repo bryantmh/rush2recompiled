@@ -545,3 +545,40 @@ loaded (`0x80111954`). The wing and flame lists load their own CI4 TLUTs, so the
 wing colors on their front (zeroing `0x80111954` alone did not help, because those parts never load a palette).
 `draw_car_body` re-emits the car's TLUT load after the wings (the same SETTIMG / SETTILE 7 / LOADTLUT
 `func_80078190` writes) when the TLUT in place is the car's.
+
+### 11.2 Wing contrails
+
+Rush 2049 (N64) trails smoke from both wing tips while the wings are out, in one-player races only
+(`src/rush2049/wings_contrails.cpp`, which ports it). Earlier reviews missed it because it isn't in the wing model or
+the physics: the wing callback `func_800924F4` calls the particle emitter `func_8008EA10` at 0x80092A48 with emitters
+**6** (left) and **7** (right), which Rush 2's emitter (`particle_emitter_spawn_8008270C`, emitters 0-5) doesn't have.
+
+- **When** (0x800929AC-0x80092A48): wing node flag 0x10 (out, and still set while sliding back in) and
+  `0x8014A108 == 1` (one player). Argument 4 is the callback's d = (side x the car's slide distance
+  `0x8011B4B4 [type].x`, `.y`, 0); d.x is scaled by the step only on a slide step. `func_80092484(car, side)`
+  (0x800926E8) clears the side's tip bit once the wings are away.
+- **Emitter 6/7** (`func_8008EA10`, decompiled with `tools/rush2049/decomp.py 49 8008EA10`): needs fewer than 3
+  players. Each puff is a pool entry (`func_8008E3C0`, the pool's free list) with a scene node of its own
+  (`func_8008E26C(model, matrix, -1, 0x52000)`: the 0x44-byte node pool 0x8012E700; +0xC scale, +0x3C color, +0x14
+  model; flags 0x52000 draw it facing the camera, as the explosion's). Puffs a frame by speed s = |car state +0xF8 >> 2|: 4 at s >= 115, 3 at >= 100, 2 at >= 85, else 1; then 1
+  if the side has no last tip (`0x801392D8 [car]` bit 0x4000 left, 0x8000 right), else + 5, + 3 more at s >= 150. The
+  first puff is at the tip: car position + up x (d.y + 0.5) + forward x (d.z - 1.15) + right x (d.x -/+ 2.6)
+  (0x80123994, 0x80123998, 0x8012399C); the tip is kept at `0x8013C098 + car * 0x18` (+0 left, +0xC right). Puff i of
+  n sits i/n of the way back to last frame's tip. Each: life 0.08 + rand x 0.07 s (+0x3C), velocity half the car's,
+  scale 0.075 + rand x 0.1 (node +0xC), frame timer 1/30 s, color by the car's wing style (W table `0x8011128C`
+  [car + 1][type]): `0xB4FFB4A0`, `0xB9B4FFA0`, `0xFFC0BBA0` (0x801174A0-A8). Model: with the Expansion Pak
+  (`0x80156994`) a random one of `SMOKEG1-8` (handles 0x80142948, file 61), else on tracks 0-5 `SMOKERSMOKE`
+  (0x80142946, file 62). Bits 0x1000 / 0x2000 toggle per puff; the puffs that set them step their frames forward
+  (particle +0x50 bit 0), the others backward. Hidden in the car's own view in close cameras (state +0x35C / +0x35D).
+- **Update** (`func_800CADA4`, each frame): life -= dt (`0x8002EB94`), freed at 0 (`func_80090088`, `func_800AFA84`);
+  alpha (node +0x3F) - 9 while life < 1; the frame timer at 0 shows the current SMOKEG frame and steps it; scale +
+  0.03 (0x80123FC0) per frame; position += velocity x dt. Pool `0x8013F1E0`, 100 particles (`0x800B9194`).
+- The model handle table at `0x80142908` follows the name list `0x8011B048`: NEXPLOSIONG1-30, SPARKG1, SMOKERSMOKE,
+  SMOKEG1-8, FIREFIRE (emitter 5), SPLASHG12-19, ...
+- Port: car state offsets are Rush 2049's less 8 (speed +0xF8 is Rush 2's +0xE0), one-player is `0x8010C3E2 == 1`,
+  run once per physics tick (0x8007660C), drawn as billboards in `battle_render` slots 224-323. The puffs follow the
+  Expansion Pak path (SMOKEG1-8). Mod cars with `no_wings` leave none.
+- Frame interpolation: a puff keeps its interpolation id through its SMOKEG frame changes (`battle_render::place`
+  `same_object`), and on its first tick it is drawn tiny at the wing tip and streams out to its place over the next,
+  since the interpolated frames show the car between the last tick and this one and a new puff has no last position
+  (drawn in place, the newest puffs sat ahead of the drawn wing). Its alpha steps per tick (9 of 255), as 2049's.

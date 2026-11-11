@@ -583,6 +583,7 @@ consts = "0x3C = smoke/fast speed split; 0xA = no emission under it"
 status = "verified"
 rush2 = 0x8008270C
 link = "role"
+rush2049 = [0x8008EA10]
 area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
 

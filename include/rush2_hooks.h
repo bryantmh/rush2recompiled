@@ -478,6 +478,8 @@ void rush2_wings_gravity(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_drag(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_model_draw(uint8_t* rdram, recomp_context* ctx);
+// The wings' contrails, once per physics tick (src/rush2049/wings_contrails.cpp).
+void rush2_wings_contrails_tick(uint8_t* rdram, recomp_context* ctx);
 
 // Ghost races (src/ghost.cpp).
 void rush2_ghost_settings(uint8_t* rdram, recomp_context* ctx);

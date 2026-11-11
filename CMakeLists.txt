@@ -321,6 +321,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/wings_rom.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/wings_state.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/wings_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049/wings_contrails.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/wings_sound.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/wings_menu.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp

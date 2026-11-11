@@ -278,9 +278,10 @@ namespace {
         return at;
     }
 
-    // IDs: 0101 vvgg gggg gggg gggg gggg ssss ssss. Distinct from src/interpolation.cpp's and the wings'.
+    // IDs: 0101 vvgg gggg gggg gggg gggs ssss ssss. Distinct from src/interpolation.cpp's and the wings'.
+    static_assert(rush2::battle_render::max_slots <= 0x200, "item_id holds 9 slot bits");
     uint32_t item_id(uint32_t view, uint32_t gen, uint32_t slot) {
-        return 0x50000000u | ((view & 3) << 26) | ((gen & 0x3FFFF) << 8) | (slot & 0xFF);
+        return 0x50000000u | ((view & 3) << 26) | ((gen & 0x1FFFF) << 9) | (slot & 0x1FF);
     }
 }
 
@@ -570,7 +571,7 @@ bool rush2::battle_render::has_model(const char* name) {
 }
 
 void rush2::battle_render::place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view, bool attached,
-                                 bool billboard, float push, bool last) {
+                                 bool billboard, float push, bool last, bool same_object) {
     std::lock_guard lock{ mutex };
     if (slot < 0 || slot >= max_slots) return;
     Item& it = items[slot];
@@ -584,7 +585,7 @@ void rush2::battle_render::place(int slot, const char* model, const float m[9], 
     }
     float d[3] = { pos[0] - it.pos[0], pos[1] - it.pos[1], pos[2] - it.pos[2] };
     // A new use of the slot, or a jump: nothing to move it from on the frames in between.
-    if (!it.on || it.dl != dl || (!attached && d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > teleport_distance * teleport_distance)) {
+    if (!it.on || (it.dl != dl && !same_object) || (!attached && d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > teleport_distance * teleport_distance)) {
         it.gen++;
     }
     it.on = true;

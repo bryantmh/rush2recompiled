@@ -1201,17 +1201,35 @@ ref = "docs/functions/rush2049_util.md#rush-2049-util-functions"
 
 [[func]]
 vram = 0x8008E26C
-desc = "Creates a sky node pair helper (called from func_800BB69C)."
+name = "scene_node_create"
+sig = "s32 scene_node_create(s16 model, f32 *mtx, s16 parent, s32 flags)"
+desc = "Takes the first free node of the 0x44-byte pool 0x8012E700 (+0x14 model == 0xFFFF), sets flags (+0), matrix pointer (+8), model (+0x14), scale +0xC/+0x10 = 1, color +0x3C = 0, links it (func_8008E19C); returns its index."
 status = "inferred"
 area = "render"
-ref = "docs/rush2049_research/geometry.md#55-sky"
+ref = "docs/rush2049_port_plan.md#112-wing-contrails"
 
 [[func]]
 vram = 0x8008E3C0
-desc = "Object pool free-list operation (0x80143FC8 + 0x14)."
+name = "pool_alloc"
+sig = "void *pool_alloc(void *pool)"
+desc = "Takes an entry off a pool's free list (+0x14) onto its used list (+0x10); null when empty."
 status = "inferred"
-area = "other"
-ref = "docs/rush2049_research/movers.md#1-globals-and-timing"
+area = "util"
+ref = "docs/rush2049_port_plan.md#112-wing-contrails"
+
+[[func]]
+vram = 0x8008EA10
+name = "particle_emitter_spawn"
+sig = "void particle_emitter_spawn(s16 car, u32 emitter, s32 stop, f32 *d)"
+desc = "Rush 2049's particle emitter (Rush 2 particle_emitter_spawn_8008270C extended): 0-3 wheels, 4 and 5 the car's own, 6 and 7 the wing-tip contrails (from the wing callback func_800924F4, d = wing offset). Allocates from pool 0x8013F1E0 (func_8008E3C0), node via func_8008E26C with flags 0x52000; puff count by speed, interpolated back to last frame's tip (0x8013C098) for 6/7; color by wing style (W table 0x8011128C). Contrails ported in src/rush2049/wings_contrails.cpp."
+consts = "0x4000/0x8000 = 0x801392D8 bits: left/right tip kept; 0x1000/0x2000 = per-puff toggles; -1.15/+-2.6/0.5 = tip offset back/out/up; 0.08+0.07r = contrail life; 0.075+0.1r = scale"
+status = "verified"
+ported = true
+rush2 = 0x8008270C
+calspeed = [0x800BCF9C]
+link = "role"
+area = "render"
+ref = "docs/rush2049_port_plan.md#112-wing-contrails"
 
 [[func]]
 vram = 0x8008FFD0
@@ -1303,12 +1321,22 @@ status = "inferred"
 ref = "docs/rush2049_research/menus.md#117-menu-sounds"
 
 [[func]]
-vram = 0x800924F4
-desc = "Wing callback: slides the wings out in 6 steps of 15 ms (0 to 5/6 of the car's slide distance), tilts them with the stick, and starts sound 0x3D when sliding starts; builds wing rotation about X and translation (slide, height, 0)."
+vram = 0x80092484
+name = "wing_tip_reset"
+sig = "void wing_tip_reset(s16 car, s16 side)"
+desc = "Clears the contrail's kept tip bit for a side (0x801392D8 [car] &= ~0x4000 left, ~0x8000 right) once the wings are away."
 status = "verified"
 ported = true
 area = "car"
-ref = "src/rush2049/wings_state.cpp"
+ref = "docs/rush2049_port_plan.md#112-wing-contrails"
+
+[[func]]
+vram = 0x800924F4
+desc = "Wing callback: slides the wings out in 6 steps of 15 ms (0 to 5/6 of the car's slide distance), tilts them with the stick, and starts sound 0x3D when sliding starts; builds wing rotation about X and translation (slide, height, 0). While out in a one-player race (0x8014A108 == 1) it calls particle_emitter_spawn_8008EA10(car, 6 left / 7 right, 0, &d) at 0x80092A48 for the wing-tip contrails (docs/rush2049_port_plan.md 11.2); wing_tip_reset_80092484 once they're away."
+status = "verified"
+ported = true
+area = "car"
+ref = "docs/rush2049_port_plan.md#112-wing-contrails"
 
 [[func]]
 vram = 0x80092C58
@@ -2975,6 +3003,16 @@ status = "verified"
 ported = true
 area = "car"
 ref = "src/rush2049/wings_state.cpp"
+
+[[func]]
+vram = 0x800CADA4
+name = "particle_update"
+sig = "void particle_update(void)"
+desc = "Per-frame update of the particle pool 0x8013F1E0: flag 0x10 particles follow their wheel; emitter 5 (fire) pulses; the rest lose life by dt (0x8002EB94), fade alpha 9 a frame, step SMOKEG frames every 1/30 s, grow (+0.03, or +0.05 for emitters < 6) and move by velocity. Wing contrail part ported in src/rush2049/wings_contrails.cpp."
+status = "verified"
+ported = true
+area = "render"
+ref = "docs/rush2049_port_plan.md#112-wing-contrails"
 
 [[func]]
 vram = 0x800CC50C

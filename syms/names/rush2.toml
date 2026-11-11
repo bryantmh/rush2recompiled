@@ -8141,6 +8141,7 @@ desc = "Patched in us.toml. Throws an emitter's particles: emitters 0-3 a wheel,
 status = "verified"
 ported = true
 calspeed = [0x800BCF9C]
+rush2049 = [0x8008EA10]
 area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
 

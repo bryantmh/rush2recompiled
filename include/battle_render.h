@@ -11,9 +11,10 @@
 // each view from display lists of their own, so they need no scene nodes or track geometry.
 namespace rush2::battle_render {
     // 0-159 src/rush2049/battle.cpp, 160-175 coin glows (src/collectibles.cpp), 176-185 arcade checkpoint banners
-    // (src/arcade2049/arcade_checkpoints.cpp), 186-201 the cars' brake lights (src/car_lights.cpp). Models of the
-    // port's own (add_model) draw without the Rush 2049 ROM too.
-    constexpr int max_slots = 202;
+    // (src/arcade2049/arcade_checkpoints.cpp), 186-201 the cars' brake lights (src/car_lights.cpp), 224-323 the
+    // wings' contrail puffs (src/rush2049/wings_contrails.cpp). Models of the port's own (add_model) draw without the
+    // Rush 2049 ROM too. Slots fit 9 bits (item_id).
+    constexpr int max_slots = 324;
 
     // Loads the model files from the Rush 2049 ROM if they aren't (game thread). False without a ROM.
     bool ready(uint8_t* rdram);
@@ -38,8 +39,10 @@ namespace rush2::battle_render {
     // axes are replaced by the view's. push: moved this far (world units) straight away from each view's camera, so a
     // glow drawn without depth writes stays behind the solid model it surrounds. last: drawn after every model without
     // it, for a see-through model that writes depth (the shield's globe), so the models seen through it still show.
+    // same_object: a change of model is the same thing changing its look (a flip-book's next frame), so it keeps moving
+    // smoothly through frame interpolation; otherwise a new model in the slot is a new thing and starts where it is.
     void place(int slot, const char* model, const float m[9], const float pos[3], uint32_t rgba, int view = -1, bool attached = false,
-               bool billboard = false, float push = 0.0f, bool last = false);
+               bool billboard = false, float push = 0.0f, bool last = false, bool same_object = false);
     void hide(int slot);
     // Keeps a placed slot out of one view (-1: drawn in all its views again), without ending its interpolation the
     // way hiding and placing it again would: a car's own weapon in its driver's close cameras.

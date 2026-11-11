@@ -246,6 +246,9 @@ bool rush2::wings::get_pose(uint8_t* rdram, int index, Pose& out) {
     uint32_t car = car_struct(index);
     out.style = w.style;
     out.slide = w.slide;
+    // Rush 2049's wing callback gives the contrail emitter the car's full slide distance (0x8011B4B4 [type]),
+    // scaled by the step only while the wings slide; the wing itself rests at 5/6 of it.
+    out.emit_slide = (w.flags & (opening | closing)) ? w.slide : rest_slide(rdram, car);
     out.height = wing_height(rdram, car);
     out.tilt = w.stick_y * tilt_scale;
     out.flames = true;
