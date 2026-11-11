@@ -456,6 +456,14 @@ build without it. `tools/rdram_find.py PID --file ASSET --offset OFS` finds wher
 and the shared containers 0x12 and 0x14, through `rush2::catalog::for_each_placed_triangle`):
 1. A 32 ft grid over the ground and 4000 ft past it. A cell is covered where an upward-facing triangle (normal y over
    0.5) lies over its center; it takes the lowest such surface's height, vertex color and texture.
+   **Roofs with no floor under them** are not ground: a group of covered cells (neighbors joined where their heights
+   are within 24 ft, a dome's curve) of at most 100 cells that stands over 20 ft above all the covered ground within 4
+   cells (128 ft) of it, water textures left out, stops counting as covered, so the ground round it fills in under it
+   (the floors, step 5, keep it under the roof). A group with no ground near (an island, a pier over a sea plane) stays
+   ground. Reported 2026-11-10: the PlayStation Golden Gate's rotunda (Palace of Fine Arts) has no floor under its dome,
+   so the dome was the lowest surface in its cells and the underlay rose to it as a green cone, in every time of day.
+   On the stock tracks the rule takes building roofs and towers (the Space Needle's top) and fills sky gaps beside
+   them (LA); checked against the build without it with `car_probes_test --fill` on every Rush 2, SF Rush and PS1 track.
 2. Heights and colors of the rest by pull-push (a pyramid of averages, then each empty cell blended from the level
    above): the ground carries on smoothly from its edges and flattens far away.
 3. Textures: the ground textures covering the most cells (up to 8, each at least 2% of the ground), each one's coverage

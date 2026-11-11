@@ -4,7 +4,8 @@
 //
 // 1. The ground: the track's upward-facing triangles as placed (rush2::catalog::for_each_placed_triangle), each cell
 //    of a 32 ft grid marked covered where one lies over its center, with the lowest such surface's height, texture and
-//    vertex color (the lowest, so the underlay never comes up through a bridge, a roof or a road decal).
+//    vertex color (the lowest, so the underlay never comes up through a bridge, a roof or a road decal). A small
+//    group of cells standing well above all the ground near it is a roof with no floor under it, not ground.
 // 2. Heights and colors everywhere else: filled in from the covered cells by pull-push (a pyramid of averages, then
 //    each empty cell blended from the level above), so the ground carries on smoothly from its edges and flattens
 //    out far away.
@@ -447,6 +448,66 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
                     label[i] = t.texture >= 0 ? drawable[size_t(t.texture)] : -1;
                     weight[i] = 1.0f;
                 }
+            }
+        }
+    }
+    // 1a. Roofs with no floor under them: a small group of covered cells (joined where neighbors' heights are within
+    //     roof_join) standing over roof_rise above all the ground within roof_reach of it (covered cells outside the
+    //     group, water left out) is a roof, not ground: it stops counting as covered, and the ground round it fills
+    //     in under it (the floors keep it under the roof). A group with no such ground near (an island, a pier over
+    //     the sea plane) stays ground. The PlayStation Golden Gate's rotunda has no floor under its dome, so the dome
+    //     was the lowest surface in its cells and the underlay rose to it as a green cone (reported 2026-11-10).
+    {
+        constexpr float roof_join = 24.0f;       // Feet between neighboring cells of one surface (a dome's curve)
+        constexpr float roof_rise = 20.0f;       // Feet a roof stands over all the ground near it, at least
+        constexpr size_t roof_cells = 100;       // A roof's cells at most (320 x 320 ft)
+        constexpr int roof_reach = 4;            // Cells round a roof searched for the ground under it (128 ft)
+        std::vector<int> group(cells, -1);
+        std::vector<size_t> members, queue;
+        int groups = 0;
+        for (size_t s = 0; s < cells; s++) {
+            if (weight[s] <= 0 || group[s] >= 0) continue;
+            members.clear();
+            queue.assign(1, s);
+            group[s] = groups;
+            auto neighbors = [&](size_t i, int reach, auto&& fn) {
+                int x = int(i % size_t(g.nx)), z = int(i / size_t(g.nx));
+                for (int dz = -reach; dz <= reach; dz++) {
+                    for (int dx = -reach; dx <= reach; dx++) {
+                        int xx = x + dx, zz = z + dz;
+                        if ((dx == 0 && dz == 0) || xx < 0 || zz < 0 || xx >= g.nx || zz >= g.nz) continue;
+                        size_t j = g.at(xx, zz);
+                        if (weight[j] > 0) fn(j);
+                    }
+                }
+            };
+            while (!queue.empty()) {
+                size_t i = queue.back();
+                queue.pop_back();
+                members.push_back(i);
+                neighbors(i, 1, [&](size_t j) {
+                    if (group[j] < 0 && std::fabs(low[j] - low[i]) <= roof_join) {
+                        group[j] = groups;
+                        queue.push_back(j);
+                    }
+                });
+            }
+            const int id = groups++;
+            if (members.size() > roof_cells) continue;
+            float group_min = 1e30f, border_max = -1e30f;
+            for (size_t i : members) {
+                group_min = std::min(group_min, low[i]);
+                neighbors(i, roof_reach, [&](size_t j) {
+                    if (group[j] != id && !(label[j] >= 0 && blue[size_t(label[j])])) border_max = std::max(border_max, low[j]);
+                });
+            }
+            if (border_max < -1e29f || group_min < border_max + roof_rise) continue;
+            st.roofs += members.size();
+            for (size_t i : members) {
+                weight[i] = 0.0f;
+                low[i] = 1e30f;
+                label[i] = -1;
+                for (int k = 0; k < 3; k++) rgb[i * 3 + k] = 0.0f;
             }
         }
     }

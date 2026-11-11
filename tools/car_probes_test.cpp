@@ -484,8 +484,8 @@ int main(int argc, char** argv) {
                                    guide.triangles.size(), st.guided, st.lie);
             size_t bytes = mesh.serialize().size(), strips = 0;
             for (const auto& c : mesh.chunks) strips += c.strips.size();
-            printf("%s: %zu ground triangles, %zu cells covered, %zu sea; drawn %zu fine + %zu coarse cells = %zu quads, %zu vertices, "
-                   "%zu strips in %zu chunks, %zu textures, %zu KB, %.2f s\n", label.c_str(), st.triangles, st.covered, st.sea, st.fine,
+            printf("%s: %zu ground triangles, %zu cells covered, %zu sea, %zu roof cells; drawn %zu fine + %zu coarse cells = %zu quads, %zu vertices, "
+                   "%zu strips in %zu chunks, %zu textures, %zu KB, %.2f s\n", label.c_str(), st.triangles, st.covered, st.sea, st.roofs, st.fine,
                    st.coarse, st.quads, st.vertices, strips, mesh.chunks.size(), mesh.textures.size(), bytes / 1024, st.seconds);
             rush2::scenery_fill::Mesh back;
             if (!back.deserialize(mesh.serialize())) printf("  serialize round trip failed\n");

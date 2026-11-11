@@ -69,6 +69,7 @@ namespace rush2::scenery_fill {
     struct BuildStats {
         size_t triangles = 0;              // Upward-facing ground triangles read
         size_t covered = 0, sea = 0, fine = 0, coarse = 0;   // Grid cells: with ground, sea, drawn fine, drawn coarse
+        size_t roofs = 0;                  // Cells left out as roofs with no floor under them
         size_t guided = 0;                 // Cells under the diorama
         float lie = 0;                     // The diorama's heights' factor fitted to the track's (0 without a guide)
         size_t quads = 0, vertices = 0;
@@ -113,7 +114,7 @@ namespace rush2::scenery_fill {
                const std::vector<rush2::catalog::Placement>& placements, const Guide* guide = nullptr,
                BuildStats* stats = nullptr);
     // Bumped when the build changes, so cached underlays are built again.
-    constexpr uint32_t build_version = 5;
+    constexpr uint32_t build_version = 6;
     // Textures (RT64 replacement hashes, as Dump Textures lists them) of road blocks the tracks draw one-sided on
     // purpose, so they hide from behind: no two-sided walls copies of them (issue 62).
     // - NYONEBPARK1.11, the N.Y.P.D. barricade: New York Downtown's one-way gate after the Brooklyn Bridge, seen from
