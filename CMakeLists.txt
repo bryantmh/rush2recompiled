@@ -174,6 +174,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/sky_fog.cpp
     ${CMAKE_SOURCE_DIR}/src/scenery_fill.cpp
     ${CMAKE_SOURCE_DIR}/src/scenery_fill_build.cpp
+    ${CMAKE_SOURCE_DIR}/src/scenery_fill_guide.cpp
     ${CMAKE_SOURCE_DIR}/src/cheats.cpp
     ${CMAKE_SOURCE_DIR}/src/fonts.cpp
     ${CMAKE_SOURCE_DIR}/src/texture_upscale.cpp

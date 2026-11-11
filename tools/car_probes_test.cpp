@@ -21,7 +21,10 @@
 // --fill builds Fill Scenery Gaps' ground underlay (src/scenery_fill_build.cpp) instead and prints its size, and writes
 // tmp/scenery_fill/<TRACK>.glb: the track as placed with the underlay (node SCENERYFILL) for tools/glb_view.py.
 // A track argument "dir:<folder>" reads a converted custom track (tools/track_mod_test.cpp's geometry.bin and
-// placement.bin) instead of a stock slot.
+// placement.bin) instead of a stock slot, "r1:N" SF Rush track N (1-7) converted as the game converts it (RUSH1_ROM).
+// --guide lays the track's diorama (src/scenery_fill_guide.cpp) under the build: a stock slot and r1:N find theirs, a
+// dir: track by its folder name or "dir:<folder>=<key>" (a key of the table there); it is written to
+// tmp/scenery_fill/<TRACK>_guide.glb, its triangles in their kind's color.
 //
 // Reads RUSH2_ROM (default rush2.us.recomp.z64 in the project root). Build from Git Bash:
 //   cmd //c "tools\car_probes_test.bat"   (writes tmp\probes_test\car_probes_test.exe)
@@ -47,6 +50,7 @@
 #include "car_probes.h"
 #include "rush2049_rom.h"
 #include "scenery_fill.h"
+#include "track1.h"
 #include "track2049_convert.h"
 
 using namespace rush2::catalog;
@@ -61,6 +65,33 @@ static std::vector<uint8_t> read_all(const std::string& path) {
 
 static uint32_t be32(const std::vector<uint8_t>& d, size_t o) {
     return (uint32_t(d[o]) << 24) | (uint32_t(d[o + 1]) << 16) | (uint32_t(d[o + 2]) << 8) | d[o + 3];
+}
+
+// Game parts src/rush1/track1_convert.cpp's track select art calls, which nothing here reaches.
+void rush2::upscale::add_exact_image(std::vector<uint8_t>, rush2::upscale::Image) {}
+namespace rush2::track2049 {
+    bool set_race_logo(const std::vector<uint8_t>&, const std::vector<uint8_t>&, const std::vector<uint8_t>&, std::vector<uint8_t>&) { return false; }
+}
+
+// The Rush 1 ROM's files as src/rush1/rush1_rom.cpp reads them (the game's version also caches and logs).
+std::shared_ptr<const std::vector<uint8_t>> rush2::track1::main_code(const std::vector<uint8_t>& rom) {
+    static std::shared_ptr<const std::vector<uint8_t>> main;
+    static const std::vector<uint8_t>* from = nullptr;
+    if (from != &rom || !main) {
+        auto data = std::make_shared<std::vector<uint8_t>>();
+        from = &rom;
+        const size_t main_rom = 0x7A7930;
+        if (rom.size() <= main_rom || !rush2::track2049::rush2_lz_decompress(rom.data() + main_rom, rom.size() - main_rom, *data)) return nullptr;
+        main = data;
+    }
+    return main;
+}
+
+bool rush2::track1::read_asset(const std::vector<uint8_t>& rom, int index, std::vector<uint8_t>& out) {
+    auto main = main_code(rom);
+    if (!main || index < 0 || index >= 72) return false;
+    uint32_t offset = be32(*main, 0x800C7C1C - main_vram + index * 4);
+    return offset < rom.size() && rush2::track2049::rush2_lz_decompress(rom.data() + offset, rom.size() - offset, out);
 }
 
 struct Point {
@@ -313,6 +344,7 @@ int main(int argc, char** argv) {
     bool dump = false;
     bool sky = false;
     bool fill = false;
+    bool guided = false;
     int trace_car = -1;
     std::vector<float> above;
     for (int a = 1; a < argc; a++) {
@@ -321,6 +353,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[a], "--dump") == 0) dump = true;
         else if (strcmp(argv[a], "--sky") == 0) sky = true;
         else if (strcmp(argv[a], "--fill") == 0) fill = true;
+        else if (strcmp(argv[a], "--guide") == 0) guided = true;
         else if (strcmp(argv[a], "--trace") == 0 && a + 1 < argc) trace_car = atoi(argv[++a]);
         else if (strcmp(argv[a], "--above") == 0 && a + 3 < argc) for (int k = 0; k < 3; k++) above.push_back((float)atof(argv[++a]));
         else tracks.push_back(argv[a]);
@@ -336,12 +369,23 @@ int main(int argc, char** argv) {
         }
     }
     std::shared_ptr<const rush2::rom2049::Source> source49;
+    std::vector<uint8_t> rom1;
+    auto load_rom1 = [&]() {
+        if (rom1.empty()) {
+            const char* p1 = getenv("RUSH1_ROM");
+            rom1 = read_all(p1 ? p1 : "E:\\Emulation\\roms\\n64\\San Francisco Rush - Extreme Racing.z64");
+        }
+        return !rom1.empty();
+    };
+    // The diorama containers: Rush 2's asset 3 and SF Rush's asset 10.
+    Container dioramas[2];
+    bool dioramas_read[2] = {};
     std::set<std::string> shared_models;
 
     for (const std::string& name : tracks) {
         std::vector<uint8_t> geometry, placement;
         rush2::probes::PaintSource paint;     // A 2049 track's painted lighting colours
-        std::string label, error;
+        std::string label, error, key;
         if (name.rfind("k49:", 0) == 0) {
             int k = atoi(name.c_str() + 4);
             if (!source49) {
@@ -373,6 +417,10 @@ int main(int argc, char** argv) {
         else if (name.rfind("dir:", 0) == 0) {
             // A converted custom track: tools/track_mod_test's output folder (geometry.bin, placement.bin).
             std::string dir = name.substr(4);
+            if (size_t eq = dir.find('='); eq != std::string::npos) {
+                key = dir.substr(eq + 1);
+                dir = dir.substr(0, eq);
+            }
             geometry = read_all((dir + "/geometry.bin").c_str());
             placement = read_all((dir + "/placement.bin").c_str());
             if (geometry.empty() || placement.empty()) {
@@ -380,6 +428,19 @@ int main(int argc, char** argv) {
                 continue;
             }
             label = std::filesystem::path(dir).filename().string();
+            if (key.empty()) key = label;
+        }
+        else if (name.rfind("r1:", 0) == 0) {
+            int t = atoi(name.c_str() + 3);
+            rush2::track1::ConvertedTrack ct;
+            if (!load_rom1() || !rush2::track1::convert_track(rom1, t - 1, "HAWAII", ct, error)) {
+                printf("SF Rush track %d: can't convert (%s)\n", t, error.c_str());
+                continue;
+            }
+            geometry = std::move(ct.geometry);
+            placement = std::move(ct.placement);
+            label = "sfrush_" + std::to_string(t);
+            key = "sfrush:" + std::to_string(t);
         }
         else {
             int slot = atoi(name.c_str());
@@ -388,6 +449,7 @@ int main(int argc, char** argv) {
                 continue;
             }
             label = names[slot];
+            key = std::string("rush2:") + names[slot];
         }
         Container track;
         if (!read_container(geometry, track, error, true)) {
@@ -399,7 +461,27 @@ int main(int argc, char** argv) {
 
         if (fill) {
             rush2::scenery_fill::BuildStats st;
-            rush2::scenery_fill::Mesh mesh = rush2::scenery_fill::build(containers, placements, &st);
+            rush2::scenery_fill::Guide guide;
+            bool have_guide = false;
+            if (guided) {
+                const rush2::scenery_fill::Fit* fit = rush2::scenery_fill::find_fit(key);
+                if (!fit) printf("%s: no diorama fit for \"%s\"\n", label.c_str(), key.c_str());
+                else {
+                    int d = rush2::scenery_fill::sfrush_diorama(*fit) ? 1 : 0;
+                    if (!dioramas_read[d]) {
+                        dioramas_read[d] = true;
+                        std::vector<uint8_t> data;
+                        std::string err;
+                        bool ok = d == 0 ? asset(3, data) : load_rom1() && rush2::track1::convert_container(rom1, 10, data, err);
+                        if (!ok || !read_container(data, dioramas[d], err, true)) printf("diorama container %d: %s\n", d, err.c_str());
+                    }
+                    have_guide = rush2::scenery_fill::make_guide(dioramas[d], *fit, guide);
+                    if (!have_guide) printf("%s: no diorama %s\n", label.c_str(), fit->model);
+                }
+            }
+            rush2::scenery_fill::Mesh mesh = rush2::scenery_fill::build(containers, placements, have_guide ? &guide : nullptr, &st);
+            if (have_guide) printf("%s: diorama %s, %zu triangles, %zu cells, lie %.2f\n", label.c_str(), guide.key.c_str(),
+                                   guide.triangles.size(), st.guided, st.lie);
             size_t bytes = mesh.serialize().size(), strips = 0;
             for (const auto& c : mesh.chunks) strips += c.strips.size();
             printf("%s: %zu ground triangles, %zu cells covered, %zu sea; drawn %zu fine + %zu coarse cells = %zu quads, %zu vertices, "
@@ -443,6 +525,33 @@ int main(int argc, char** argv) {
                 }
             }
             view.models.push_back(std::move(model));
+            if (have_guide) {
+                // The diorama as laid, a little over the underlay, each kind in a flat color.
+                Model gm;
+                gm.name = "FILLGUIDE";
+                gm.lods.resize(1);
+                gm.lods[0].meshes.resize(1);
+                const uint8_t colors[6][3] = { { 0, 0, 0 }, { 30, 90, 220 }, { 40, 160, 40 }, { 150, 150, 150 }, { 220, 190, 120 }, { 255, 0, 0 } };
+                for (const auto& t : guide.triangles) {
+                    for (int v = 0; v < 3; v++) {
+                        rush2::catalog::Vertex o{};
+                        for (int k = 0; k < 3; k++) o.position[k] = t.v[v][k] * 16.0f;
+                        for (int k = 0; k < 3; k++) o.color[k] = colors[int(t.kind)][k];
+                        o.color[3] = 255;
+                        gm.lods[0].meshes[0].vertices.push_back(o);
+                    }
+                }
+                Container gc;
+                gc.models.push_back(std::move(gm));
+                Placement gp{};
+                gp.name = "FILLGUIDE";
+                gp.matrix[0] = gp.matrix[4] = gp.matrix[8] = 1;
+                auto gglb = rush2::catalog::write_glb(gc, label, { gp });
+                if (FILE* f = fopen(("tmp/scenery_fill/" + label + "_guide.glb").c_str(), "wb")) {
+                    fwrite(gglb.data(), 1, gglb.size(), f);
+                    fclose(f);
+                }
+            }
             std::vector<Placement> placed = placements;
             Placement p;
             p.name = "SCENERYFILL";

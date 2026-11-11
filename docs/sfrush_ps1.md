@@ -32,6 +32,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Wheels](#wheels)
 - [Car physics](#car-physics)
 - [Sky](#sky)
+- [Sea](#sea)
 - [Props](#props)
 - [What the converter makes](#what-the-converter-makes)
 - [Track select diorama](#track-select-diorama)
@@ -621,6 +622,19 @@ cable car) and `T2KNOCK/T2K003.PSV`, into gp+0xD60, 0xD64 and 0xD6C. **[V]**
   spin) is the PS1's hidden pickups. **[I]** Not ported: mods carry no collectibles.
 
 ## Snow and night
+## Sea
+
+The PS1 has no sea: under the horizon is the sky's grey haze. With Fill Scenery Gaps on, the extended ground carried
+the city out over the bay and rose to Golden Gate's deck (user report, 2026-11-09). The converter writes a `SEA` mesh
+(docs/custom_tracks.md#sea; src/sfrush_ps1/ps1_track.cpp, after the night sky) for tracks 1 and 2: shore lines in
+track.glb feet, each with the side the sea lies on, extruded out to 30,000 ft. Golden Gate (level -150 ft): the strait
+under the bridge, Marin an island, the Pacific west of the south end and the bay along the Marina; Embarcadero (level
+-8 ft): the bay east of the waterfront road and north of the wharf, placed from the N64 track select dioramas (TRK1O2,
+TRK_2O2), 100-300 ft off the track's ground. The water is a flat 16 x 16 texture of the PS1's own water texel (track
+2's page 576,256, CLUT 28734): snow 16,49,99, night 0,0,16 (only snow and night versions of tracks 1-3 are made).
+The extended ground also lays each course's N64 diorama over it (docs/graphics_effects.md#diorama-guides, fits of
+their own: the PS1 courses are the N64 ones turned a quarter), which adds Market's and any water the shore lines miss.
+
 
 The PS1 races every track (1-4) in three conditions over the same road, scenery and collision: day, snow and night.
 gp+0x40 (0x800B2710) == 1 is snow, gp+0x98 (0x800B2768) set is night. **[V]** No falling snow or other weather

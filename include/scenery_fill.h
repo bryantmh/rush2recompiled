@@ -66,16 +66,51 @@ namespace rush2::scenery_fill {
     struct BuildStats {
         size_t triangles = 0;              // Upward-facing ground triangles read
         size_t covered = 0, sea = 0, fine = 0, coarse = 0;   // Grid cells: with ground, sea, drawn fine, drawn coarse
+        size_t guided = 0;                 // Cells under the diorama
+        float lie = 0;                     // The diorama's heights' factor fitted to the track's (0 without a guide)
         size_t quads = 0, vertices = 0;
         double seconds = 0;
     };
 
+    // A track's track select diorama laid over it (src/scenery_fill_guide.cpp, docs/graphics_effects.md#diorama-guides):
+    // what the land past the track's own ground is (sea, park, city, beach) and its lie (hills and valleys), as the
+    // diorama shows them.
+    enum class Kind : uint8_t { none, water, green, city, sand, route };
+    struct Guide {
+        struct Triangle {
+            float v[3][3];                 // The builder's frame (the track's models as placed), feet
+            Kind kind;
+            uint8_t rgb[3];                // Its color in the diorama
+        };
+        std::vector<Triangle> triangles;   // Facing up (the red route line too, as Kind::route)
+        uint8_t water[3] = { 40, 80, 150 };   // The sea's color where the track has no water of its own
+        std::string key;                   // The table entry it came from
+        uint64_t hash() const;             // For the underlay's cache key
+    };
+    // A table entry: a track version and its diorama, and the fit (tools/diorama_fit.py) that lays the diorama on it:
+    // (x, z) = s * turn(deg) * (mirror ? (-dx, dz) : (dx, dz)) + (tx, tz) in tools/diorama_fit.py's frame (the dumped
+    // glbs': the diorama's x and the builder's negated), heights s * dy.
+    struct Fit {
+        const char* key;                   // "rush2:<SLOT>" (VEGAS ... ATARI), "sfrush:<1-7>", or a custom track's folder
+        const char* model;                 // The diorama: a Rush 2 model (asset 3) for rush2:, else SF Rush's (asset 10)
+        float s, deg;
+        bool mirror;
+        float tx, tz;
+        uint32_t water;                    // 0xRRGGBB, 0 for the default day blue
+    };
+    const Fit* find_fit(const std::string& key);
+    bool sfrush_diorama(const Fit& fit);   // Whether its diorama is SF Rush's
+    // The guide from the container holding fit.model (Rush 2's asset 3 as read by rush2::catalog::read_container, or
+    // SF Rush's asset 10 through rush2::track1::convert_container). False when the model isn't there.
+    bool make_guide(const rush2::catalog::Container& dioramas, const Fit& fit, Guide& out);
+
     // Builds the underlay of a track: the placements draw the models of `containers` (the track's first, then the
-    // shared ones), by name as the game looks them up.
+    // shared ones), by name as the game looks them up. `guide`: the track's diorama, or null.
     Mesh build(const std::vector<const rush2::catalog::Container*>& containers,
-               const std::vector<rush2::catalog::Placement>& placements, BuildStats* stats = nullptr);
+               const std::vector<rush2::catalog::Placement>& placements, const Guide* guide = nullptr,
+               BuildStats* stats = nullptr);
     // Bumped when the build changes, so cached underlays are built again.
-    constexpr uint32_t build_version = 3;
+    constexpr uint32_t build_version = 4;
     // A texture's image as RT64 decodes it once the underlay loads it.
     rush2::upscale::Image image_of(const Texture& t);
 

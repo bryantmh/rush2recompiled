@@ -483,6 +483,15 @@ To model the sky yourself:
 The sky is drawn behind everything and isn't fogged, as Rush 2049's skies are. The report gives its triangle count
 (`SKY: ... triangles`).
 
+### Sea
+
+A track by the sea can say where the water is with a mesh named **`SEA`** (`SEA.001` ... join it): flat faces at the
+water's height, with the water's material, reaching as far out as you like (the report warns past 32,000 ft). The game
+never draws it. With Settings > Graphics > Fill Scenery Gaps on, the extended ground past your track's edges lays its
+water there instead of carrying the land on (docs/graphics_effects.md#fill-scenery-gaps): open water where your
+ground has none, and under ground more than 30 ft above it (a bridge, a pier). Leave it out and the extended ground
+carries your land on in every direction. The report gives its triangle count (`SEA: ... triangles`).
+
 ## Moving objects
 
 Lifts, spinning signs, swinging gates and the like are animated in Blender and play in the game.

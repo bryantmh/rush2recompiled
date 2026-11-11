@@ -441,15 +441,70 @@ and the shared containers 0x12 and 0x14, through `rush2::catalog::for_each_place
 3. Textures: the ground textures covering the most cells (up to 8, each at least 2% of the ground), each one's coverage
    pull-pushed the same way; each cell takes the strongest. Big areas (grass, water, sand) carry on. Taking the
    nearest covered cell's texture instead drew roads that reach the edge on out as stripes.
-4. Drawn: the fine layer, the empty cells within 10 cells (320 ft) of the ground and the covered cells beside them;
-   the coarse layer, 256 ft cells with no ground in them that the fine layer doesn't fill, out to the margin, under the
-   fine layer where they overlap so no gap opens between them.
+4. Drawn: the fine layer, the empty cells within 10 cells (320 ft) of the ground and the covered cells beside them,
+   out to whole 256 ft cells; the coarse layer, the 256 ft cells with no ground or fine cells in them, out to the
+   margin. The two never overlap: a coarse quad under fine ones had to come down to the lowest of them, on a shore the
+   sea's level, which stood the land over it on a wall. Where the fine layer ends over a lower coarse surface, each
+   outer fine edge hangs a **skirt** down to it (the coarse height there less 1 ft), so the sky never shows through the
+   step (steep slopes, seen in game on Golden Gate snow).
 5. **Never through the track**: every triangle drawn, whichever way it faces, sets a floor on each cell it overlaps (a
    lower bound of its height there: the larger of its plane's lowest at the cell's corners and its lowest vertex). A
-   fine corner sits 2 ft under the heights and floors of its four cells, a coarse corner 6 ft under every fine corner of
-   its four coarse cells, so every quad (a mix of its corners) stays under everything over its cell. Heights from
-   upward faces alone let the sheet come up through embankments and walls falling away from a road's edge (Chinatown,
-   reported 2026-11-08).
+   fine corner sits 2 ft under the heights and floors of its four cells, a coarse corner 6 ft under the fine corners
+   within a coarse cell of it that touch the track (its ground or any of its triangles), so every quad (a mix of its
+   corners) stays under everything over its cell; far from the track a coarse corner follows its own height. Heights
+   from upward faces alone let the sheet come up through embankments and walls falling away from a road's edge
+   (Chinatown, reported 2026-11-08).
+6. **The sea**: a custom track's `SEA` mesh ([custom tracks](custom_tracks.md#sea): model FILLSEA, never placed) and a
+   [diorama's](#diorama-guides) water. A cell over the sea is sea, at its height and with its texture, unless the
+   track's own ground there is within 30 ft of it (a quay, a ship's deck); higher ground is a deck over it (a bridge),
+   with the sea drawn under. The sea is left out of the texture vote and the color fill (it turned the inland city to
+   water), and only the track's own ground counts as covered, so open sea is drawn coarse.
+
+**Pages of pictures.** A texture of which a triangle maps only a rectangle (the corners' span in texels, whole repeats
+taken out, under 3/4 of the texture on an axis) is a source of its own: that rectangle, resampled (nearest) to 16-64
+texels a side. The PlayStation SF Rush's textures are pages of many pictures (the converter's 32 x 32 tiles of its 256 x
+256 pages, the pictures at any offset), each face a quad mapping one; the whole page repeated drew a patchwork of
+facades and fences over the snow. Only the textures the strips draw are kept.
+
+### Diorama guides
+
+Every Rush 2 and SF Rush track's track select diorama is a small model of the course and what lies round it: the
+red route line, the sea, parks, city, beach, hills. `src/scenery_fill_guide.cpp` lays it over the track and the
+builder follows it past the track's own ground (reported 2026-11-10: Golden Gate's ground carried on as a dome with a
+bump where the bay is, Embarcadero's city texture ran on under the ships).
+
+- **The fit** (`fits` in src/scenery_fill_guide.cpp, made with `tools/diorama_fit.py`): a similarity transform (scale,
+  turn, mirror, offset) that lays the diorama's red route line (triangles whose color is mostly red) over the track's
+  AI path, seen from above: a search over turns and mirroring, then ICP both ways. Mean distances 36-300 ft against
+  courses 4,000-13,000 ft long. Rush 2's eight race tracks (NY One is NYLTRACK, NY Two NYUTRACK), SF Rush's seven
+  (TRK1O2 ... TRK7O5, from its asset 10 through `rush2::track1::convert_container`), their arcade versions (Rush The
+  Rock: the N64 frames, within a few feet; arcade Sunset's shorter figure 8 fit badly on its own, so it takes the N64
+  fit too) and the PlayStation versions of tracks 1-3 (the N64 courses turned a quarter, fitted on their own; the
+  snow and night ones carry the PlayStation's water colors). The stunt and battle arenas' dioramas have no route line.
+- **Kinds** by the diorama's color (its texture's mean times its vertex colors): route (red), water (blue), green,
+  sand (tan, brown), city (the rest: greys, whites). Per 32 ft cell: the lowest land surface (a building stands on the
+  ground) gives the kind and the lie; water where only water is there. Past the diorama's edge both carry on from it
+  by pull-push (the sea round an island stays sea).
+- **Sea**: the diorama's water where the track has no ground, at the track's own water (its blue textures under the
+  diorama's water: the commonest one, at its median height), else the SEA mesh's, else a flat texture of the version's
+  water color (FILLWATER, with a faint ripple) 4 ft under the lowest ground within 320 ft of the water.
+- **Lie**: the diorama's land height times a factor fitted (least squares, 0 to 1) to the track's ground where both
+  are (the dioramas' hills are drawn taller: 0.2-0.7 on hilly courses, 0 on the flat city ones, 1 on The Rock and
+  Alcatraz), plus the track's ground's difference from that, filled in from where it is known (land only: the sea's
+  level pulled the land down to it a few hundred feet out). Land within 12 cells (384 ft) of the sea slopes down to the
+  sea's level (smoothstep), a shore instead of a cliff.
+- **Textures**: each kind of land takes the track's commonest texture in the diorama's areas of that kind, weighted by
+  how near its hue (color over brightness, so snow and night versions compare alike) is to the diorama's there
+  (1 / (1 + (d / 0.1)^2)), never a water texture (Hawaii's sea plane is the lowest surface under its land) or a
+  striped one (texels changing over twice as much across one axis as along the other: lane lines measure 2.5-7, ground
+  1.0-1.2; a city's streets repeated over the city drew lane lines across it). A kind with under 20 cells of the
+  track's ground keeps the plain vote. The snow and night versions use their own pages, so their ground is snow or
+  dark.
+- **Game side**: `guide_key` (view_begin): an SF Rush track (`rush2::track1::race_track`) is `sfrush:<n>`, a custom
+  track its folder (`rush2::track_mod::race_folder`), a stock Rush 2 slot `rush2:<SLOT>`; the worker reads the
+  diorama containers once (Rush 2's asset 3, SF Rush's asset 10) and the guide's hash joins the cache key.
+- **Offline**: `car_probes_test --fill --guide 2 r1:1 dir:<converted>=<key>` (r1:N converts SF Rush track N from
+  RUSH1_ROM) also writes `tmp/scenery_fill/<TRACK>_guide.glb`, the diorama as laid in its kinds' colors.
 
 The textures are the track's own, re-encoded in their own format and palette (`encode_texture`, checked by decoding
 them as RT64 does, `image_of`, against the catalog's image), so texture packs replace them by content
@@ -473,9 +528,9 @@ between `gEXPush/PopGeometryMode`, `OtherMode` and `CombineMode`: 2-cycle, TEXEL
 `G_RM_AA_ZB_OPA_SURF2`, fog and depth like the track, no culling (a mirrored race needs none); the palette cache
 (0x80111954) is cleared after, as the battle models do.
 
-Offline: `tools/car_probes_test.cpp --fill [TRACK ...]` (build with `tools\car_probes_test.bat`) prints each track's
-underlay size and writes `tmp/scenery_fill/<TRACK>.glb`, the track with the underlay as node SCENERYFILL, for
-`tools/glb_view.py`.
+Offline: `tools/car_probes_test.cpp --fill [--guide] [TRACK ...]` (build with `tools\car_probes_test.bat`) prints each
+track's underlay size and writes `tmp/scenery_fill/<TRACK>.glb`, the track with the underlay as node SCENERYFILL, for
+`tools/glb_view.py`. TRACK: a Rush 2 slot, `r1:N`, or `dir:<folder>` (tools/track_mod_test output).
 
 ## Soft particles (removed)
 
