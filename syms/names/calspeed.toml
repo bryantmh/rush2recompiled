@@ -200,6 +200,7 @@ consts = "0x800D7350-58 = -1, -1, -0.7 drag factors"
 status = "verified"
 ported = true
 rush2 = 0x8006AFD8
+rush1 = [0x80077C90]
 rush2049 = [0x800E23A4]
 link = "role"
 area = "car"
@@ -582,8 +583,8 @@ desc = "Rush 2's particle_emitter_spawn: emitter 0-3 a wheel, 4 and 5 the car's 
 consts = "0x3C = smoke/fast speed split; 0xA = no emission under it"
 status = "verified"
 rush2 = 0x8008270C
-link = "role"
 rush2049 = [0x8008EA10]
+link = "role"
 area = "render"
 ref = "docs/calspeed_research.md#wheel-effects"
 

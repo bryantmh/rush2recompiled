@@ -6188,6 +6188,7 @@ desc = "Patched in us.toml. Rush 2049 wings physics (src/rush2049/wings_state.cp
 consts = "-10, -15, -0.7 = dirt/grass/pavement rear wheel coefficients; 0.0135 = aero drag coefficient"
 status = "verified"
 ported = true
+rush1 = [0x80077C90]
 rush2049 = [0x800E23A4]
 calspeed = [0x8008F268]
 area = "car"

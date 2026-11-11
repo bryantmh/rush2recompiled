@@ -938,7 +938,6 @@ namespace {
             }
             sections.push_back(std::move(sec));
         }
-        // Pre-order: the section chain, then each section's children.
         // The PS1 SF Rush's keys whose spot this course has (ps1_keys.inc, from tools/arcade_collectibles.py;
         // docs/sfrush_ps1.md#keys): KEYP1-4, made from one of the course's own keys with the PS1 key's record name and
         // world position, each a child of the section whose origin is nearest it (the game culls it with that section).
@@ -977,6 +976,7 @@ namespace {
             ps1_kids.emplace_back(best, std::move(k));
         }
         for (auto& [i, k] : ps1_kids) sections[i].kids.push_back(std::move(k));
+        // Pre-order: the section chain, then each section's children.
         size_t n_top = sections.size();
         std::vector<int> first_child;
         size_t at = n_top;

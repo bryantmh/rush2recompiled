@@ -43,10 +43,10 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [What the converter makes](#what-the-converter-makes)
 - [Track select diorama](#track-select-diorama)
 - [Snow and night](#snow-and-night)
+- [Stunt track](#stunt-track)
 - [Music](#music)
 - [Not ported](#not-ported)
 
-- [Stunt track](#stunt-track)
 ## Disc
 
 - **Supported disc:** San Francisco Rush - Extreme Racing (USA), SLUS-00505. A .cue with one MODE2/2352 data track
@@ -833,6 +833,19 @@ The PS1 has no sky model or texture (`ART/CLOUD64.GFX`, its one cloud texture, i
   SF Rush ones), as the other converted tracks have; `fog_color` #D6D6D6, the PS1's fog grey. A dome shaded as the PS1's
   gradient was tried and looked poor in Rush 2.
 
+## Sea
+
+The PS1 has no sea: under the horizon is the sky's grey haze. With Fill Scenery Gaps on, the extended ground carried
+the city out over the bay and rose to Golden Gate's deck (user report, 2026-11-09). The converter writes a `SEA` mesh
+(docs/custom_tracks.md#sea; src/sfrush_ps1/ps1_track.cpp, after the night sky) for tracks 1 and 2: shore lines in
+track.glb feet, each with the side the sea lies on, extruded out to 30,000 ft. Golden Gate (level -150 ft): the strait
+under the bridge, Marin an island, the Pacific west of the south end and the bay along the Marina; Embarcadero (level
+-8 ft): the bay east of the waterfront road and north of the wharf, placed from the N64 track select dioramas (TRK1O2,
+TRK_2O2), 100-300 ft off the track's ground. The water is a flat 16 x 16 texture of the PS1's own water texel (track
+2's page 576,256, CLUT 28734): snow 16,49,99, night 0,0,16 (only snow and night versions of tracks 1-3 are made).
+The extended ground also lays each course's N64 diorama over it (docs/graphics_effects.md#diorama-guides, fits of
+their own: the PS1 courses are the N64 ones turned a quarter), which adds Market's and any water the shore lines miss.
+
 ## Props
 
 `func_80036C40` (track_load_geometry) loads track 4's knock-over models, `T4KNOCK/CONE.PSV` at a1 = 0x380 (its
@@ -1032,19 +1045,6 @@ CLOCKS left from another track races as ON on a track without clocks.
   log).
 
 ## Snow and night
-## Sea
-
-The PS1 has no sea: under the horizon is the sky's grey haze. With Fill Scenery Gaps on, the extended ground carried
-the city out over the bay and rose to Golden Gate's deck (user report, 2026-11-09). The converter writes a `SEA` mesh
-(docs/custom_tracks.md#sea; src/sfrush_ps1/ps1_track.cpp, after the night sky) for tracks 1 and 2: shore lines in
-track.glb feet, each with the side the sea lies on, extruded out to 30,000 ft. Golden Gate (level -150 ft): the strait
-under the bridge, Marin an island, the Pacific west of the south end and the bay along the Marina; Embarcadero (level
--8 ft): the bay east of the waterfront road and north of the wharf, placed from the N64 track select dioramas (TRK1O2,
-TRK_2O2), 100-300 ft off the track's ground. The water is a flat 16 x 16 texture of the PS1's own water texel (track
-2's page 576,256, CLUT 28734): snow 16,49,99, night 0,0,16 (only snow and night versions of tracks 1-3 are made).
-The extended ground also lays each course's N64 diorama over it (docs/graphics_effects.md#diorama-guides, fits of
-their own: the PS1 courses are the N64 ones turned a quarter), which adds Market's and any water the shore lines miss.
-
 
 The PS1 races every track (1-4) in three conditions over the same road, scenery and collision: day, snow and night.
 gp+0x40 (0x800B2710) == 1 is snow, gp+0x98 (0x800B2768) set is night. **[V]** No falling snow or other weather
@@ -1144,21 +1144,6 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   Sprint) is set, and mods don't carry it. It isn't the clocks' texture (that is `ART/PICKUPS.GFX`,
   [Time Sprint](#time-sprint)); what draws from it isn't traced. **[V]**
 
-## Music
-
-The disc's four CD audio tracks (tracks 2-5, 16-bit stereo at 44.1 kHz) are the game's music. The port plays them as
-SF Rush songs (src/music_streams.cpp: `ps1::audio_tracks` finds them through the .cue, a .ccd or a CHD and
-`ps1::read_audio` reads them; nothing is converted or copied into the mod). Like SF Rush's N64 songs they belong to no
-track: an SF Rush N64 track's Original is a random one of the N64 and PlayStation songs, Chinatown's too. They are
-listed in the Sound tab under SF Rush > PlayStation, with a switch for the source while SF Rush has more than one
-installed. Measured -8.4 LUFS against Rush 2's -16.1, they are turned down 7.7 dB (`ps1_music_compensation`). The
-songs are taken to be the PlayStation version's own (not checked against the N64 songs, which only play as sequences
-in the game). **[I]**
-
-## Not ported
-
-- Grand Prix and Extreme ([Game modes](#game-modes)): Rush 2's circuit and DEATHS play them. Explosive and Time Sprint
-  are ported: [Explosive mode](#explosive-mode), [Time Sprint](#time-sprint). The keys too: [Keys](#keys).
 ## Stunt track
 
 Golden Gate has a second road, a stunt course: the same course, scenery and textures with ramps built onto the road
@@ -1245,3 +1230,18 @@ of the four lanes over the stunt road; Golden Gate's other versions keep theirs.
   `tools/lane_surfaces.py --rush2 OUT --plot X Z RADIUS PNG [--trail motion.jsonl] [--steep DEG]` maps the ground,
   walls, lanes and a car's line round a spot, and without --plot lists each lane's runs off the road.
 
+## Music
+
+The disc's four CD audio tracks (tracks 2-5, 16-bit stereo at 44.1 kHz) are the game's music. The port plays them as
+SF Rush songs (src/music_streams.cpp: `ps1::audio_tracks` finds them through the .cue, a .ccd or a CHD and
+`ps1::read_audio` reads them; nothing is converted or copied into the mod). Like SF Rush's N64 songs they belong to no
+track: an SF Rush N64 track's Original is a random one of the N64 and PlayStation songs, Chinatown's too. They are
+listed in the Sound tab under SF Rush > PlayStation, with a switch for the source while SF Rush has more than one
+installed. Measured -8.4 LUFS against Rush 2's -16.1, they are turned down 7.7 dB (`ps1_music_compensation`). The
+songs are taken to be the PlayStation version's own (not checked against the N64 songs, which only play as sequences
+in the game). **[I]**
+
+## Not ported
+
+- Grand Prix and Extreme ([Game modes](#game-modes)): Rush 2's circuit and DEATHS play them. Explosive and Time Sprint
+  are ported: [Explosive mode](#explosive-mode), [Time Sprint](#time-sprint). The keys too: [Keys](#keys).

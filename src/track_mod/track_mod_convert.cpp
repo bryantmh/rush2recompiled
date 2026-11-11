@@ -1406,6 +1406,7 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     if (auto v = t["track"]["smooth_height"].value<bool>()) s.smooth_height = *v;
     if (auto v = t["track"]["road_hold"].value<bool>()) s.road_hold = *v;
     if (auto v = t["track"]["point_to_point"].value<bool>()) s.point_to_point = *v;
+    if (auto v = t["track"]["stunts"].value<bool>()) s.stunts = *v;
     if (auto v = t["track"]["run_in"].value<bool>()) s.run_in = *v;
     if (s.gravity != "rush2" && s.gravity != "rush2049") {
         report.error("track.toml: [track] gravity must be \"rush2\" or \"rush2049\"; \"" + s.gravity + "\" races on Rush 2's.");
@@ -1413,7 +1414,6 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     }
     if (s.type != "race" && s.type != "stunt" && s.type != "battle") {
         report.error("track.toml: [track] type must be \"race\", \"stunt\" or \"battle\"; \"" + s.type + "\" is raced as a race.");
-    if (auto v = t["track"]["stunts"].value<bool>()) s.stunts = *v;
         s.type = "race";
     }
     // Not track settings: the players pick the lap count and mirror mode, which every track has.
@@ -1486,13 +1486,6 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             s.traction.push_back({ float(*speed), float(*factor) });
         }
     }
-    if (auto* arr = t["ai"]["speed_quantiles"].as_array()) {
-        float last = 0.0f;
-        for (auto& e : *arr) {
-            auto mph = e.value<double>();
-            if (!mph || *mph < 1.0 || *mph > 255.0 || float(*mph) < last) {
-                report.error("track.toml: [ai] speed_quantiles lists mph from 1 to 255, slowest first; the stock table is used.");
-                s.ai_speed_quantiles.clear();
     if (auto v = t["handling"]["air_gravity"].value<double>()) {
         if (*v >= 1.0 && *v <= 10.0) {
             s.air_gravity = float(*v);
@@ -1501,6 +1494,13 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             report.error("track.toml: [handling] air_gravity must be from 1 to 10; the track keeps Rush 2's.");
         }
     }
+    if (auto* arr = t["ai"]["speed_quantiles"].as_array()) {
+        float last = 0.0f;
+        for (auto& e : *arr) {
+            auto mph = e.value<double>();
+            if (!mph || *mph < 1.0 || *mph > 255.0 || float(*mph) < last) {
+                report.error("track.toml: [ai] speed_quantiles lists mph from 1 to 255, slowest first; the stock table is used.");
+                s.ai_speed_quantiles.clear();
                 break;
             }
             last = float(*mph);

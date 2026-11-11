@@ -429,8 +429,8 @@ namespace rush2::track2049 {
     int track_for_online_key(const std::string& key);
     // A custom track's name (its track.toml's, else its folder), or "" for the other tracks.
     std::string mod_track_name(int t);
+    // The track select id of a mod's custom track (its folder), or -1 while it isn't installed. Any thread.
+    int mod_track_id(const std::string& mod_id, const std::string& folder);
 }
 
 #endif
-    // The track select id of a mod's custom track (its folder), or -1 while it isn't installed. Any thread.
-    int mod_track_id(const std::string& mod_id, const std::string& folder);

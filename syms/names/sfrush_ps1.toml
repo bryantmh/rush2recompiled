@@ -315,6 +315,15 @@ area = "collision"
 ref = "docs/sfrush_ps1.md#collision"
 
 [[func]]
+vram = 0x8004F9C0
+name = "track1_load_tables"
+sig = "void track1_load_tables(void)"
+desc = "Loads track 1's tables: BOUNDS.DAT (0x340 bytes) to 0x800D8168, TRACK1.CPF to 0x80113490, then COLLMAP.SIZ, FLAGS.DAT and COLLMAP.DAT; from COLLDAT5 in place of COLLDAT1 (but TRACK1.CPF) while gp+0x3D0 (0x800B2AA0, the stunt road) is 1."
+status = "verified"
+area = "track"
+ref = "docs/sfrush_ps1.md#stunt-track"
+
+[[func]]
 vram = 0x8004FBFC
 name = "track4_load_tables"
 sig = "void track4_load_tables(void)"
@@ -324,15 +333,6 @@ area = "track"
 ref = "docs/sfrush_ps1.md#collision"
 
 [[func]]
-[[func]]
-vram = 0x8004F9C0
-name = "track1_load_tables"
-sig = "void track1_load_tables(void)"
-desc = "Loads track 1's tables: BOUNDS.DAT (0x340 bytes) to 0x800D8168, TRACK1.CPF to 0x80113490, then COLLMAP.SIZ, FLAGS.DAT and COLLMAP.DAT; from COLLDAT5 in place of COLLDAT1 (but TRACK1.CPF) while gp+0x3D0 (0x800B2AA0, the stunt road) is 1."
-status = "verified"
-area = "track"
-ref = "docs/sfrush_ps1.md#stunt-track"
-
 vram = 0x8004FD98
 name = "race_frame"
 sig = "void race_frame(void)"
@@ -437,7 +437,7 @@ sig = "void car_gravity(u8 car)"
 desc = "While not all four wheels are down (0x80103228 flags), adds gravity gp+0x4EC (200 with car +0x3DC set) to the vertical force; with all four down, takes the velocity along the car's up axis off the forces."
 status = "verified"
 area = "car"
-ref = "docs/sfrush_ps1.md#car-physics"
+ref = "docs/sfrush_ps1.md#collision"
 
 [[func]]
 vram = 0x8005E34C
@@ -447,7 +447,7 @@ desc = "Per touching wheel: the car-frame velocity / 32 x 8; sideways friction x
 consts = "0x4000 = grip clamp; 0x2800/0x5000 = wheel offsets for the turn"
 status = "verified"
 area = "car"
-ref = "docs/sfrush_ps1.md#car-physics"
+ref = "docs/sfrush_ps1.md#collision"
 
 [[func]]
 vram = 0x8005EAC0

@@ -3479,6 +3479,7 @@ name = "car_wheel_forces_drag"
 desc = "2049 road drag; same as Rush 2's for stock cars (wings, off-road tires and surfaces 1-2 add terms). Gates the in-air code on the covered flag +0x35A and fades car lighting (+0x360). 2049 drag function; counterpart of Rush 2 func_8006AFD8. | Drag: aero drag coefficient (descriptor +0x60) and rolling resistance (+0x64); the wing code scales the longitudinal resistance here. Rush 2's equivalent is func_8006AFD8."
 status = "verified"
 rush2 = 0x8006AFD8
+rush1 = [0x80077C90]
 calspeed = [0x8008F268]
 link = "role"
 area = "car"
