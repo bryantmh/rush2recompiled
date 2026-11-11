@@ -2684,6 +2684,13 @@ func = "save_write_settings_to_pak_800A8D1C"
 before_vram = 0x800A8FF8
 text = "    if (rush2_circuit_fixed_difficulty(rdram, ctx)) goto L_800A914C;"
 
+# Circuit drone skill (src/circuit.cpp, GitHub issue 60): HALFPIPE to MIDWAY raced backward read past the car's 14
+# skill entries in the standings; keep the entry within them.
+[[patches.hook]]
+func = "rubber_band_800A1A98"
+before_vram = 0x800A2358
+text = "    rush2_circuit_skill_entry(rdram, ctx);"
+
 # Accurate Circuit Review (src/circuit.cpp, docs/rush2049_research/menus.md section 9): the circuit's races and player
 # 1's places are kept when it completes (func_800A8B04), and the car player 1 raced each race in when it ends
 # (func_800A8D1C); the victory screen that follows (func_800ABE7C) then shows

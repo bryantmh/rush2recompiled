@@ -738,6 +738,7 @@ without them.
 | `RUSH2_TEST_TRACK=ID` | The track select opens on that track (with `menus:host`, a custom track at 38 and up). |
 | `RUSH2_TEST_VPAD=S:INPUT[:HOLD],...` | A virtual SDL controller pressing INPUT S seconds after launch, through the real controller path: port claim, bindings, Background Input (src/input.cpp). |
 | `RUSH2_RAM_WATCH=ADDR:SIZE,...`, `RUSH2_RAM_DUMP=DIR` | Log changes of RAM values each frame / dump RDRAM on each change (`src/ram_watch.cpp`). |
+| `RUSH2_RAM_POKE=ADDR:SIZE:VALUE,...` | Write hex values every frame while racing (game state 3), e.g. `8010C3E8:4:1` to race as a circuit race (`src/ram_watch.cpp`, docs/npc_cars.md#circuit-skill). |
 
 Several instances on one machine: `tools/online_test.py OUT --times T,... --instance "name|ENV=...|input script"`
 starts them from the one build, a few seconds apart, the host first, screenshots each window at the given times

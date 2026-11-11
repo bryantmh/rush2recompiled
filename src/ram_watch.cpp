@@ -5,6 +5,9 @@
 //                                              or 4; hex addresses, e.g. 8010C0D0:4)
 //   RUSH2_RAM_DUMP=DIR                         writes RDRAM 0x80000000-0x81000000 to DIR/ram_<frame>_<ADDR>_<value>.bin
 //                                              each time a watched value changes
+//   RUSH2_RAM_POKE=ADDR:SIZE:VALUE[,...]       writes each value (hex) every frame while racing (game state 3),
+//                                              to put a race in a state the test can't reach quickly (e.g. 8010C3E8:4:1
+//                                              makes it read the circuit's tables)
 //
 // Snapshots taken around a change (a menu starting a race, say) can then be diffed outside the game.
 
@@ -29,16 +32,14 @@ namespace {
         bool seen;
     };
     std::vector<Watch> watches;
+    std::vector<Watch> pokes;   // value = the value to write
     std::string dump_dir;
     bool parsed = false;
 
     void parse() {
         parsed = true;
         const char* spec = std::getenv("RUSH2_RAM_WATCH");
-        if (spec == nullptr) {
-            return;
-        }
-        std::string text = spec;
+        std::string text = spec != nullptr ? spec : "";
         size_t pos = 0;
         while (pos < text.size()) {
             size_t end = text.find(',', pos);
@@ -50,6 +51,27 @@ namespace {
             w.size = colon == std::string::npos ? 4 : std::atoi(entry.c_str() + colon + 1);
             if (w.size == 1 || w.size == 2 || w.size == 4) {
                 watches.push_back(w);
+            }
+        }
+        if (const char* poke = std::getenv("RUSH2_RAM_POKE")) {
+            std::string list = poke;
+            size_t at = 0;
+            while (at < list.size()) {
+                size_t end = list.find(',', at);
+                std::string entry = list.substr(at, end == std::string::npos ? std::string::npos : end - at);
+                at = end == std::string::npos ? list.size() : end + 1;
+                Watch w{};
+                char* rest = nullptr;
+                w.address = (uint32_t)std::strtoul(entry.c_str(), &rest, 16);
+                if (*rest == ':') {
+                    w.size = (int)std::strtol(rest + 1, &rest, 10);
+                }
+                if (*rest == ':') {
+                    w.value = (uint32_t)std::strtoul(rest + 1, nullptr, 16);
+                }
+                if (w.size == 1 || w.size == 2 || w.size == 4) {
+                    pokes.push_back(w);
+                }
             }
         }
         if (const char* dir = std::getenv("RUSH2_RAM_DUMP")) {
@@ -83,6 +105,15 @@ namespace {
 void rush2::ram_watch::frame(uint8_t* rdram, uint32_t frame_number) {
     if (!parsed) {
         parse();
+    }
+    if (!pokes.empty() && MEM_W(0, (int32_t)0x8010C0D0) == 3) {   // game state 3: racing
+        for (const Watch& p : pokes) {
+            switch (p.size) {
+                case 1: MEM_B(0, (int32_t)p.address) = (int8_t)p.value; break;
+                case 2: MEM_H(0, (int32_t)p.address) = (int16_t)p.value; break;
+                default: MEM_W(0, (int32_t)p.address) = (int32_t)p.value; break;
+            }
+        }
     }
     for (Watch& w : watches) {
         uint32_t value = read(rdram, w);

@@ -2144,12 +2144,12 @@ ref = "docs/menus.md#no-controllers-marquee"
 
 [[var]]
 vram = 0x800BD42C
-name = "circuit_gen_word_a"
-type = "u32"
-desc = "Word read by circuit_generate. (low confidence)"
+name = "circuit_drone_skill_rows"
+type = "s32[8][14]"
+desc = "The computer cars' skill rows (values 0-6, row 7 all 0): circuit_generate copies one row to each car's 14 standings skill entries (0x800D3B28 + car x 0x58 + 0x3C: courses 0-6 forward, then backward) and shuffles them; rubber_band scales a drone's pace in a circuit by skill / 3 + 0.75."
 area = "race"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/npc_cars.md#circuit-skill"
 
 [[var]]
 vram = 0x800BD430
@@ -5419,6 +5419,15 @@ status = "verified"
 ref = "docs/game_fixes.md#pause-menu-extras"
 
 [[var]]
+vram = 0x800D3B28
+name = "circuit_standings"
+type = "u8[8][0x58]"
+desc = "Circuit standings, 0x58 bytes a car: +1 overall place, +2 points (u16), +4 + race place in each race, +0x20 + race points in it, +0x3C 14 s16 skill entries (course + 7 x backward, courses 0-6; from 0x800BD42C). rubber_band reads the skill of the raced course in a circuit; the hook at 0x800A2358 keeps courses 7-10 raced backward within the car's 14 (src/circuit.cpp)."
+area = "race"
+status = "verified"
+ref = "docs/npc_cars.md#circuit-skill"
+
+[[var]]
 vram = 0x800D3B29
 name = "save_settings_byte"
 type = "u8"
@@ -5431,7 +5440,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D3B2A
 name = "circuit_gen_halfword"
 type = "s16"
-desc = "Halfword set by circuit generate, saved/loaded with settings to pak."
+desc = "Car 0's circuit points (standings 0x800D3B28 + 2), set by circuit generate, saved/loaded with settings to pak."
 area = "save"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"

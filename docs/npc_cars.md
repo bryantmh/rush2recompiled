@@ -108,3 +108,32 @@ ahead) into $f2 and $f12. The game falls back to a base value itself in two plac
 set it resets both, but only when a comparison against car state +0xE9 passes (not worked out). With catch-up off, the
 hook at 0x800A2F14 (`rush2_drone_catch_up`) puts both base values back every frame, after those paths join, so a
 drone's pace follows DIFFICULTY and its place but not the gaps.
+
+### Circuit skill
+
+In a circuit (race type 0x8010C3E8 == 1) `rubber_band_800A1A98` also scales each drone's pace factor $f20 by its skill
+on the course (0x800A230C-0x800A2378): $f20 x= skill / 3 + 0.75, skill = s16 at the circuit standings 0x800D3B28 +
+car x 0x58 + 0x3C + 2 x (track + 7 x backward), track = 0x8010C3F0 (a host slot for an added course), backward =
+0x80119848. Those are 14 entries a car, courses 0-6 forward then backward, which `circuit_generate_800A7DCC` fills from
+the rows at 0x800BD42C (values 0-6, so 0.75x-2.75x) and shuffles. Rush 2's circuits only ran courses 0-6. HALFPIPE to
+MIDWAY (7-10, offered by the Circuit Courses option, src/circuit.cpp) raced forward read entries 7-10 (another course's
+backward skill, in range); raced backward they read entries 14-17, past the car's record, into the next car's place and
+points. CRASH backward read the next car's points, a u16 that grows over the circuit: the drones' +0x808 / +0x814
+targets went far out of range (drone 1's +0x808 at -1.66 25 s in and still falling 0.01 a frame, against ~0.96
+normally), drones stalled, wrecked and were flung off the course (positions of 1e11 ft to inf; the minimap dots leave
+the map) and in 3 of 7 runs the game froze 28 s in (GitHub issue 60). The freeze is the lane walk in
+`drone_driver_80074990` (0x80074CD4-0x80074D80): it steps to the next lane point (`path_next_node_8006DB00`) and takes
+each segment's length off a distance that starts as the drone's distance along its lane (lane state +0) + 80 - the
+segment (+0xC), until it is 0. For a drone 1e11 ft out, subtracting a segment of tens of feet leaves the float
+unchanged, so the loop never ends: cdb showed the physics thread ([Game] 5, physics_tick_drones ->
+physics_car_tick -> drone_driver+0xb5a) spinning and every other game thread waiting on it. The hook at
+0x800A2358 (`rush2_circuit_skill_entry`) keeps the entry within the car's 14 (entry mod 14: backward 7-10 use entries
+0-3; everything Rush 2 itself reads is unchanged).
+
+Test without a circuit: `tools/test_race.py 8 --drones 7 --seconds 105 --env RUSH2_TEST_RACE_BACKWARD=1 --env
+RUSH2_RACE_RECORD=<absolute .r2rc> --env RUSH2_RAM_POKE=8010C3E8:4:1,800D3B2A:2:96,...` (race type circuit, and points
+150 for cars 0-7 at 0x800D3B2A + car x 0x58: what the old code read; src/ram_watch.cpp). To see the bug on the fixed
+build, poke the entry the fix reads instead (entry 1: 0x800D3B66 + car x 0x58). Bug: drones stall by 15 s, are flung out
+by ~28-52 s, freeze in some runs; fixed: every car stays within ~3500 ft. Use your own `--data` folder (the default is
+shared with other sessions' runs). `race_watch.py --peek` stops the run's own samples; watch values with
+RUSH2_RAM_WATCH (drone 1's +0x808 / +0x814: 800F6494:4,800F64A0:4) instead.

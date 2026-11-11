@@ -627,6 +627,25 @@ namespace {
     constexpr uint32_t menu_track = 0x8010C3F0;    // s8: the track select's (and attract demo's) track
     constexpr uint32_t circuit_races = 0x800D3A60; // 4 bytes a race: track, direction bits, fog, wind
     constexpr int32_t block_places = 0x8;          // 3 bits a race (low bit first), 11 bytes a car, player 1 first
+// The computer cars' skill on courses Rush 2's circuits never had (GitHub issue 60). In a circuit, rubber_band
+// (func_800A1A98, 0x800A2314-0x800A2378) scales each drone's pace by its skill on the course: f20 *= skill / 3 + 0.75,
+// skill = s16 at the standings 0x800D3B28 + car x 0x58 + 0x3C + 2 x (track + 7 x backward). Those are 14 entries a car
+// (courses 0-6 forward, then backward), filled from 0x800BD42C (values 0-6) by func_800A7DCC. HALFPIPE to MIDWAY
+// (7-10, which the Circuit Courses option can add) raced backward come to entries 14-17, past the car's own: the next
+// car's place and points (CRASH: its points, a u16 that grows over the circuit, so the drones' pace targets +0x808 /
+// +0x814 head far out of range and slide there 0.01 a frame: the drones stall, are flung ~1e11 ft off the course, and
+// drone_driver_80074990's lane walk never ends for such a drone, freezing the game; docs/npc_cars.md#circuit-skill).
+// The hook keeps the entry within the car's 14: forward races of 7-10 already read entries 7-10
+// (in range, left as they are), backward ones wrap to entries 0-3.
+// rubber_band at 0x800A2358: $t9 = 0x800D0000 + the entry's offset, about to load it; $a1 = the track, $v0 = 0 or 7.
+extern "C" void rush2_circuit_skill_entry(uint8_t* rdram, recomp_context* ctx) {
+    int32_t entry = (int32_t)ctx->r5 + (int32_t)ctx->r2;
+    int32_t kept = entry % 14;
+    if (kept != entry) {
+        ctx->r25 = (gpr)(int32_t)((int32_t)ctx->r25 + (kept - entry) * 2);
+    }
+}
+
     constexpr uint32_t car_table = 0x800D9C10;     // 9 bytes a car slot: +1 type, +2..+5 paint, +8 driver (8 = player 1)
     // u8 [row][types]: TIRE RIMS, row 0 drones, row player + 1
     constexpr uint32_t rim_table = rush2::car_types::table(rush2::car_types::rims);
