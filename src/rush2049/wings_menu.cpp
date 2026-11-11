@@ -66,7 +66,7 @@ namespace {
     // Strings for the row, after the track select's (src/rush2049/track2049_menu.cpp, 0x80300000-0x80300D7F).
     constexpr uint32_t wings_label = 0x80300D80;      // "WINGS"
     constexpr uint32_t wings_label_ptr = 0x80300D90;  // char* to it, read in place of the label table's entry
-    constexpr uint32_t style_names = 0x80300DA0;      // "STYLE 1" .. "STYLE 3", 16 bytes each
+    constexpr uint32_t style_names = 0x80300DA0;      // "SMALL", "LARGE", "STUNT", 16 bytes each
     // The 2049 cars' rows.
     constexpr uint32_t style_label = 0x80300E00;      // "STYLE"
     constexpr uint32_t tertiary_label = 0x80300E10;   // "TERTIARY COLOR"
@@ -85,8 +85,12 @@ namespace {
     void write_strings(uint8_t* rdram) {
         write_string(rdram, wings_label, "WINGS");
         MEM_W(0, (int32_t)wings_label_ptr) = (int32_t)wings_label;
+        // Rush 2049's wing styles: small (gravity x1.0), large (x0.8, more drag) and stunt (x0.5; 2049 allows it in
+        // stunt arenas only, docs/rush2049_research/cars.md). src/rush2049/wings_state.cpp has their numbers.
+        static const char* const wing_names[] = {"SMALL", "LARGE", "STUNT"};
+        static_assert(sizeof(wing_names) / sizeof(wing_names[0]) == styles);
         for (int s = 0; s < styles; s++) {
-            write_string(rdram, style_names + s * 16, "STYLE " + std::to_string(s + 1));
+            write_string(rdram, style_names + s * 16, wing_names[s]);
         }
         write_string(rdram, style_label, "STYLE");
         write_string(rdram, tertiary_label, "TERTIARY COLOR");
