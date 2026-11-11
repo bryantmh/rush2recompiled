@@ -485,21 +485,34 @@ namespace {
             out.push_back({ "GOLD", { "GOLDCOING_COIN" }, bits(m & gold_bits), coins_per_kind });
             out.push_back({ "SILVER", { "SILVERCOINS_COI" }, bits(m & silver_bits), coins_per_kind });
         };
+        // A key course's keys on the versions the player has (the PS1's among them, docs/sfrush_ps1.md#keys). Looked
+        // up once per course and raced track: this runs every frame of the pause, and the enabled mods can't change
+        // during a race.
+        auto course_keys = [](int course) {
+            static int cached_course = -1, cached_track = -2;
+            static uint16_t cached = 0;
+            if (course != cached_course || rush2::track_mod::race_track() != cached_track) {
+                cached = key_bits(course, true);
+                cached_course = course;
+                cached_track = rush2::track_mod::race_track();
+            }
+            return cached;
+        };
         int k = rush2::track2049::race_track();
         int arcade = host ? race_arcade_course() : -1;
         if (arcade >= 0) {
             // An arcade version of a course (src/arcade2049/arcade_collectibles.cpp): what was found of the course's
             // coins or keys that this version has, out of those, then the course's total. None placed: no box.
             uint16_t here = race_pickups();
-            uint16_t m = arcade < sfrush_courses ? p.sfrush[size_t(arcade)] : p.rush2049[size_t(arcade - sfrush_courses)];
+            uint16_t m = course_mask(p, arcade);
             auto add = [&](const char* label, std::vector<const char*> models, uint16_t kind, int total) {
                 if ((here & kind) == 0) return;
                 int available = bits(here & kind);
                 out.push_back({ label, std::move(models), bits(m & here & kind), available, available < total ? total : 0 });
             };
-            if (arcade < sfrush_courses) {
-                int keys = sfrush_keys[size_t(arcade)];
-                add("KEYS", { "KEYL1", "R1KEYL1" }, uint16_t((1u << keys) - 1), keys);
+            if (key_course(arcade)) {
+                uint16_t keys = course_keys(arcade);
+                add("KEYS", { "KEYL1", "R1KEYL1" }, keys, bits(keys));
             }
             else {
                 add("GOLD", { "GOLDCOING_COIN" }, gold_bits, coins_per_kind);
@@ -530,9 +543,16 @@ namespace {
         }
         else if (host && rush2::track1::race_track() > 0) {
             // Rush 1's key model, renamed if its name is one of Rush 2's classes (src/rush1/track1_convert.cpp).
+            // Some courses have some of the PS1's keys too (src/rush1/ps1_keys.inc): found of those placed here (all
+            // of the course's when none are, racing with more players), then the course's total if other versions
+            // have more.
             int s = rush2::track1::race_track();
             if (s <= sfrush_courses) {
-                out.push_back({ "KEYS", { "KEYL1", "R1KEYL1" }, bits(p.sfrush[s - 1]), sfrush_keys[s - 1] });
+                uint16_t all = course_keys(s - 1);
+                uint16_t here = race_pickups() != 0 ? race_pickups() : all;
+                int total = bits(here), course_total = bits(all);
+                out.push_back({ "KEYS", { "KEYL1", "R1KEYL1" }, bits(p.sfrush[s - 1] & here), total,
+                                course_total > total ? course_total : 0 });
             }
         }
         else if (t >= 0 && t < rush2_courses) {

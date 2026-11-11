@@ -427,3 +427,5 @@ namespace rush2::track2049 {
 }
 
 #endif
+    // The track select id of a mod's custom track (its folder), or -1 while it isn't installed. Any thread.
+    int mod_track_id(const std::string& mod_id, const std::string& folder);

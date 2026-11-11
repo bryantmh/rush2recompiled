@@ -317,7 +317,7 @@ namespace {
         const Item* car = selected_car();
         if (car != nullptr) {
             MEM_B(0, (int32_t)carousel_index) = (int8_t)shop.index[0];
-            MEM_B(0, (int32_t)carousel_type) = (int8_t)car->value;
+            MEM_B(0, (int32_t)carousel_type) = (int8_t)rush2::unlocks::value_of(*car);
         }
     }
 
@@ -359,7 +359,7 @@ namespace {
         if (item.kind == Kind::Track) {
             rush2::track2049::prepare_menu_art(rdram);
             call(rdram, ctx, asset_load_80086A60, menu_art_asset, 0);
-            name = str(rdram, rush2::track2049::shop_diorama_name(rdram, item.value));
+            name = str(rdram, rush2::track2049::shop_diorama_name(rdram, rush2::unlocks::shown_track(item)));
         }
         else {
             call(rdram, ctx, asset_load_80086A60, rush2::car2049::parts_asset, 0);
@@ -434,7 +434,7 @@ namespace {
             return;
         }
         // Turned about Y, then tipped towards the camera so a diorama is seen from above.
-        float scale = item.kind == Kind::Track ? rush2::track2049::diorama_scale(rdram, item.value) * diorama_size
+        float scale = item.kind == Kind::Track ? rush2::track2049::diorama_scale(rdram, rush2::unlocks::shown_track(item)) * diorama_size
                                                : part_size;
         float tilt = item.kind == Kind::Track ? diorama_tilt : part_tilt;
         if (item.kind == Kind::Part) {
@@ -819,7 +819,7 @@ extern "C" int rush2_unlocks_shop_frame(uint8_t* rdram, recomp_context* ctx) {
     const Item* car = selected_car();
     bool built = MEM_BU(0, (int32_t)setup_built) != 0;
     if (!built) {
-        shop.setup_car = car != nullptr ? car->value : 0;
+        shop.setup_car = car != nullptr ? rush2::unlocks::value_of(*car) : 0;
         set_record_car(rdram, shop.setup_car);
     }
     bool show_model = category_kinds[shop.category] != Kind::Car && item != nullptr;

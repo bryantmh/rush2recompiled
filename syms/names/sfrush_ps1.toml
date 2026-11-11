@@ -22,7 +22,8 @@ ref = "docs/sfrush_ps1.md#textures"
 vram = 0x800155F8
 name = "props_place"
 sig = "void props_place(void)"
-desc = "Fills the prop array 0x80108810 (0x2C each: state, kind, position, rotation, model, texture table) from 16-byte records (x, y, height in 0.1 ft, kind; -1 ends): 0x800A55B4 for track 2, 0x800A58B4 for track 4 (kind 0 cone gp+0xD60, 1 tram gp+0xD64, 2 T2K003 gp+0xD6C), plus 0x800A59C4's records for the current track (gp+0xE28) when gp+0x3C is set (the hidden pickups, kind 8)."
+desc = "Fills the prop array 0x80108810 (0x2C each: state, kind, position, rotation, model, texture table) from 16-byte records (x, y, height in 0.1 ft, kind; -1 ends): 0x800A55B4 for track 2, 0x800A58B4 for track 4 (kind 0 cone gp+0xD60, 1 tram gp+0xD64, 2 T2K003 gp+0xD6C), then, when gp+0x3C is set, the pickups of the current track (gp+0xE28; records x, y, height, track 0-3): 0x800A59C4 (kind 8, extra/time.psv at gp+0xCF0) and 0x800A5E44 at 0x80015A90 (kind 9, the 4 keys per track, extra/key.psv at gp+0xB6C)."
+consts = "0x800A5E44 = the keys table (docs/sfrush_ps1.md#keys); 8 / 9 = time / key pickup kinds"
 status = "verified"
 area = "track"
 ref = "docs/sfrush_ps1.md#props"
@@ -85,7 +86,7 @@ ref = "docs/sfrush_ps1.md#track-geometry"
 [[func]]
 vram = 0x80036C40
 name = "track_load_geometry"
-desc = "Loads the track's road (T<n>ROAD2) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup."
+desc = "Loads the track's road (T<n>ROAD2) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup; also the pickups' models extra/time.psv (0x800B33C0) and extra/key.psv (0x800B323C, at 0x800378BC; docs/sfrush_ps1.md#keys)."
 status = "inferred"
 area = "track"
 ref = "docs/sfrush_ps1.md#track-geometry"
@@ -201,7 +202,7 @@ ref = "docs/sfrush_ps1.md#sky"
 vram = 0x80041244
 name = "props_update"
 sig = "void props_update(s32 car)"
-desc = "Draws and runs the props for a car's view: knocks a cone away when the car hits it; on track 4 runs each tram back and forth along x between 6397 and 22115 at 24 a frame (state 1 up, 2 down) and wrecks (car +0x352 |= 0x8000) any car within 0xE8 along and 0x60 across it; spins the pickups."
+desc = "Draws and runs the props for a car's view: knocks a cone away when the car hits it; on track 4 runs each tram back and forth along x between 6397 and 22115 at 24 a frame (state 1 up, 2 down) and wrecks (car +0x352 |= 0x8000) any car within 0xE8 along and 0x60 across it; spins the pickups. Taking a key (kind 9, 0x80041640) counts it in 0x800B353C and the 4th of a race sets the track's unlock flag 0x800B2838 + 4 x track (docs/sfrush_ps1.md#unlocks)."
 consts = "0x18FD/0x5663 = tram ends (x, 0.1 ft); 0x18 = tram step a frame; 0xE8/0x60 = tram's wreck box half sizes"
 status = "verified"
 area = "track"
@@ -458,6 +459,15 @@ desc = "Picks the gear 0x800B3230[car]: automatic against 0x800AA8A8.. threshold
 status = "inferred"
 area = "car"
 ref = "docs/sfrush_ps1.md#car-physics"
+
+[[func]]
+vram = 0x800719EC
+name = "special_car_menu"
+desc = "Front-end 5-slot special car picker: cycles gp+0x50C (1-5, 0 none), skipping a slot whose unlock flag 0x800B2848 + slot - 1 is clear, and sets the special car 0x800B26F8: 1 STARSKY (Golden Gate's keys), 2 BBUS (Embarcadero's), 3 JETCAR (Market's), 4 PIGGY (0x800B284B), 5 TAXI (0x800B284C)."
+consts = "0x80012120 = slot jump table"
+status = "verified"
+area = "race"
+ref = "docs/sfrush_ps1.md#unlocks"
 
 [[func]]
 vram = 0x8008C038

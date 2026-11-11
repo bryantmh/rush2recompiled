@@ -214,7 +214,8 @@ on the profile path (its unchanged bytes get rewritten to the pak); harmless.
 - With more than 19 distinct guest names in one session, a 2049 or HAWAII guest entry that was swapped out while the
   game reused its name entry shows a blank name (the game blanks such entries the same way).
 - 2049 first places don't count toward Rush 2's unlocks (`func_80094F1C` reads the pak image directly), which matches
-  "HAWAII's records unaffected". The records screen lists the added courses (§3.5), but not custom tracks.
+  "HAWAII's records unaffected". The records screen lists the added courses (§3.5), but of the custom tracks only
+  the pinned courses.
 - If the 2049 track fails to convert and HAWAII is raced instead while `race_track()` is set, that race's records
   still go to the 2049 course (`track2049.cpp` has no public "applied" flag).
 - Stunt-mode writes during a hosted race are saved to the file the next time the high-score screen or post-race
@@ -260,11 +261,21 @@ does this itself: an SF Rush course shows its own keys (bit n = key n + 1, as ma
 2049 race track its 16 coins, silver bits 0–7 and gold 8–15 (src/collectibles.cpp), with KEYICON and DEWICON
 overwritten by coin pictures (`rush2::track2049::coin_icon`: the face texture of file 68's coin model shrunk to
 16 × 16, its dark frame the opaque texels in the coin's average color at a fifth) and slots 8–11 retargeted to
-DEWICON (`func_80080D40(w, name, 1)`); the obstacle course shows none. The masks are the viewed profile's, or on
+DEWICON (`func_80080D40(w, name, 1)`); the obstacle course shows none. An SF Rush course or Chinatown shows its keys
+on every version installed (`collectibles::key_bits`, the PS1's among them: docs/sfrush_ps1.md#keys), icon n the
+course's n-th key, up to 12 (Market). The masks are the viewed profile's, or on
 TOTALS every pak profile's and the guests' ORed, as `func_803B1B78` ORs Rush 2's.
 
 The shown course's logo is written over container 6 (`rush2::track2049::write_menu_logo`, shared with the circuit
 review), so the screen's own logo widget shows it.
+
+Pinned courses: the stock games' courses that are only custom tracks here, Alcatraz (the Rush 2049 arcade mod,
+listed after the 2049 race tracks) and Chinatown (the SF Rush PlayStation mod, after SF Rush 7), are listed forward
+and backward while their mod is installed (`pinned_courses`, `rush2::track2049::mod_track_id`). They are the custom
+track course (15) with a folder: shown, `sync_mod(folder)` swaps that folder's records into it before the rows are
+swapped in, as a race on it does; the seed is its track.toml best_times. Chinatown's icons are its keys (collectibles
+course 17), Alcatraz has none. Only the day folders: a version's own folder (chinatown_snow, the arcade versions)
+keeps its own records, as custom tracks do.
 
 ### 3.5.1 Stunt arenas [V]
 Rush 2049's stunt arenas 1–4 are hosted by STUNT1 (track 11), which has no lap records, only stats. Its stats page

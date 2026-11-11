@@ -415,11 +415,15 @@ namespace {
             rush2::track1::set_redirects(rdram, cs_track.record_models, cs_track.piece_models);
         }
         else if (int course = is_mod_k(loaded_track) ? rush2::collectibles::raced_arcade_course() : -1;
-                 course >= 0 && course < rush2::collectibles::sfrush_courses) {
-            // An arcade version of an SF Rush course: its keys (src/arcade2049/arcade_collectibles.cpp) draw SF Rush's
-            // key and are taken by SF Rush's hit test, as on the course itself.
+                 rush2::collectibles::key_course(course)) {
+            // An arcade or PS1 version of an SF Rush course, or the PS1's Chinatown: its keys
+            // (src/arcade2049/arcade_collectibles.cpp; KEYP1-4 the PS1's own) draw SF Rush's key and are taken by SF
+            // Rush's hit test, as on the course itself.
             std::map<std::string, std::string> keys;
-            for (int n = 1; n <= rush2::collectibles::sfrush_keys[size_t(course)]; n++) keys["KEY" + std::to_string(n)] = "KEYL1";
+            if (course < rush2::collectibles::sfrush_courses) {
+                for (int n = 1; n <= rush2::collectibles::sfrush_keys[size_t(course)]; n++) keys["KEY" + std::to_string(n)] = "KEYL1";
+            }
+            for (int n = 1; n <= rush2::collectibles::ps1_keys; n++) keys["KEYP" + std::to_string(n)] = "KEYL1";
             rush2::track1::set_redirects(rdram, keys, {}, true);
         }
         else {

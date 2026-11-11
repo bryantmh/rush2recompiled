@@ -1564,6 +1564,9 @@ namespace {
     std::string applied_new_key[new_car_slots]; // mod id, car id and the hash of its files
     // A hash of each slot's key (0 empty), for online races (rush2::car_mods::online_car_checks; any thread).
     std::atomic<uint32_t> online_checks[new_car_slots] = {};
+    // Each slot's mod id and car id ("" empty), for rush2::car_mods::new_car_type (any thread).
+    std::mutex slot_ids_mutex;
+    std::pair<std::string, std::string> slot_ids[new_car_slots];
     uint32_t online_check(const std::string& key) {
         if (key.empty()) return 0;
         uint32_t h = 2166136261u;
@@ -2531,6 +2534,10 @@ namespace {
                    triangles, c.stand_ins.size(), c.spec.schemes, car_bytes / 1024, prefixes[c.spec.base]);
             applied_new_key[n] = c.key;
             online_checks[n] = online_check(c.key);
+            {
+                std::lock_guard lock{ slot_ids_mutex };
+                slot_ids[n] = { c.mod_id, c.id };
+            }
             applied_new[n].mod_id = c.mod_id;
             applied_new[n].glb_hash = c.hash;
             applied_new[n].stand_ins = std::move(c.stand_ins);
@@ -2543,6 +2550,10 @@ namespace {
             printf("[newcar] mod car slot %d emptied\n", n + 1);
             applied_new_key[n].clear();
             online_checks[n] = 0;
+            {
+                std::lock_guard lock{ slot_ids_mutex };
+                slot_ids[n] = {};
+            }
             applied_new[n] = Applied{};
             changed = true;
         }
@@ -2671,6 +2682,14 @@ void rush2::car_mods::check(uint8_t* rdram) {
 
 void rush2::car_mods::reload() {
     reload_requested = true;
+}
+
+int rush2::car_mods::new_car_type(const std::string& mod_id, const std::string& car_id) {
+    std::lock_guard lock{ slot_ids_mutex };
+    for (int n = 0; n < new_car_slots; n++) {
+        if (slot_ids[n].first == mod_id && slot_ids[n].second == car_id) return rush2::car_types::first_mod + n;
+    }
+    return -1;
 }
 
 std::array<uint32_t, rush2::car_types::count_mod> rush2::car_mods::online_car_checks() {

@@ -548,12 +548,14 @@ the Progress tab and unlocks don't change. The arcade's own `coin` score pickups
     KEYL1 (`track1::convert_container`), each with behaviour 8.
   - Records: KEYS0-7 / KEYG0-7, or KEY1-8, at their world position, as children of the nearest opaque section. That
     section's box and radius grow to hold them.
+  - The PS1 SF Rush's keys are in the same table (KEYP1-4, the same tool with `--ps1`): Embarcadero Arcade and Market
+    Arcade get 3 each, and the sfrush_ps1 mod's tracks get theirs the same way ([sfrush_ps1.md](sfrush_ps1.md#keys)).
   - The models and records are in the conversion's cache key. Without the 2049 source (coins) or the SF Rush ROM
     (keys), the version has none.
 - **In the race.** `collectibles.cpp` takes the raced version's course at the race's object setup
   (`rush2_collect_race_reset`) and counts its pickups as that course's. The coin rules are the stock tracks': 9 ft
-  pickup radius, glow, the 2049 sound. On an SF Rush course's version, `track2049.cpp` points KEY1-8 at KEYL1 and
-  turns on SF Rush's key hit test (`track1::set_redirects` with `rush1_hits`), as on the N64 course.
+  pickup radius, glow, the 2049 sound. On an SF Rush course's version, `track2049.cpp` points KEY1-8 and KEYP1-4 at
+  KEYL1 and turns on SF Rush's key hit test (`track1::set_redirects` with `rush1_hits`), as on the N64 course.
 - **Pause box.** It counts only the pickups the race placed (`collectibles::race_pickups`). When the version has
   fewer than the course, the course's total follows in brackets: Haight Arcade shows `0/3 (8)` for its silver coins.
   A kind with none placed has no row; a version with none has no box.

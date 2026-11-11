@@ -1,7 +1,12 @@
-"""Which N64 coins (Rush 2049) and keys (SF Rush) have the same spot on the arcade versions of their courses, written as
-the C++ table src/arcade2049/arcade_collectibles.inc (docs/arcade2049.md#coins-and-keys-on-the-arcade-versions).
+r"""Which N64 coins (Rush 2049) and keys (SF Rush) have the same spot on the arcade versions of their courses, written as
+the C++ table src/arcade2049/arcade_collectibles.inc (docs/arcade2049.md#coins-and-keys-on-the-arcade-versions); and
+where the PS1 SF Rush's keys go (docs/sfrush_ps1.md#keys): on the sfrush_ps1 mod's tracks and the arcade versions (the
+same table) and on the N64 courses (src/rush1/ps1_keys.inc).
 
-    python -I tools/arcade_collectibles.py [--write] [--verbose]
+    python -I tools/arcade_collectibles.py --ps1 OUT/sfrush_ps1 [--write] [--verbose]
+
+--ps1 is the sfrush_ps1 mod folder the PS1 converter writes (cmd //c "tools\sfrush_ps1\cpp_test\build.bat OUT DISC"),
+with SFRUSH_PS1_DISC the PS1 disc (its RUSH.EXE holds the keys). --write needs it, so no table loses the PS1's rows.
 
 The arcade tracks are in the N64 games' world frame (feet, y up), so a pickup keeps its N64 position. It is kept when
 the arcade track has the same place around it:
@@ -27,6 +32,7 @@ from roms import Rush2049
 from r1 import Rush1
 
 OUT = os.path.join(ROOT, 'src', 'arcade2049', 'arcade_collectibles.inc')
+OUT_N64 = os.path.join(ROOT, 'src', 'rush1', 'ps1_keys.inc')
 GROUND_TOLERANCE = 3.0
 RING_RADIUS, RING_POINTS, RING_NEEDED = 30.0, 8, 6
 WALL_REACH = 4.0
@@ -187,9 +193,9 @@ def judge(n64, arc, pos):
     g64 = floor_under(n64[0], x, z, y + 2)
     garc = floor_under(arc[0], x, z, y + 2)
     if garc is None:
-        return False, 'no arcade floor under it'
+        return False, 'no floor under it on this version'
     if g64 is None or abs(g64 - garc) > GROUND_TOLERANCE:
-        return False, 'arcade floor %.0f ft under it, N64 %s' % (y - garc, 'none' if g64 is None else '%.0f' % (y - g64))
+        return False, 'floor %.0f ft under it here, %s on the source' % (y - garc, 'none' if g64 is None else '%.0f' % (y - g64))
     same = 0
     for i in range(RING_POINTS):
         a = 2 * math.pi * i / RING_POINTS
@@ -200,8 +206,232 @@ def judge(n64, arc, pos):
     if same < RING_NEEDED:
         return False, 'surroundings differ (%d of %d points match)' % (same, RING_POINTS)
     if wall_near(arc[1], pos, garc + 1) and not wall_near(n64[1], pos, g64 + 1):
-        return False, 'an arcade wall beside it'
+        return False, 'a wall beside it here'
     return True, 'ground %.0f ft below, %d of %d around match' % (y - garc, same, RING_POINTS)
+
+
+# ---- the PS1 SF Rush's keys (docs/sfrush_ps1.md#keys) ----
+#
+# The PS1 game has 4 keys on each of its tracks (RUSH.EXE 0x800A5E44). Its tracks 1-3 are the N64 courses Golden Gate,
+# Embarcadero and Market in the PS1's own models (their snow, night and stunt versions are the sfrush_ps1 mod's), track
+# 4 is its own course (Chinatown). The PS1 tracks are in the PS1's frame, not the N64's, and their models differ by a
+# few ft here and there, so each spot is compared through a local fit: the PS1 floors within FIT_RADIUS of it, placed by
+# a fit of the whole course (tools/sfrush_ps1/n64_census.py's fit2d), then fitted onto the N64 floors there (a turn
+# about the vertical and a shift).
+#   - A PS1 key is the N64 key within MATCH_RADIUS of it across and MATCH_HEIGHT up or down (the courses' hills differ
+#     by up to about 15 ft: Golden Gate's N64 KEY4 is 17 ft above the PS1 key at its spot), or else a key of its own: record KEYPn (PS1 key n, bit 8 + n - 1 on that course, src/collectibles.cpp).
+#   - Each version of a course gets every key of the course whose spot it has, by judge() against the version the key
+#     is from: the N64's keys against the N64 course, the PS1's own against the PS1 night version. The PS1's snow and
+#     night versions always have the PS1's own keys (the PS1 places them in every condition).
+#   - A key keeps its height above the floor of the version it comes from. The PS1's key model has its origin 1.6 ft
+#     above the ground, SF Rush's KEYL1 (which every version draws) 4 ft (the N64 courses' ground keys), so the PS1's
+#     are raised by PS1_KEY_RAISE.
+PS1_TRACKS = ['golden_gate', 'embarcadero', 'market', 'chinatown']   # PS1 track index 0-3; 0-2 = SF Rush courses 0-2
+PS1_CONDITIONS = ['', '_snow', '_night', '_stunt']
+PS1_COURSE = 7 + 6 + 4      # Chinatown's course in src/collectibles.cpp (after the 2049 race tracks and arenas)
+PS1_KEYS = 0x800A5E44       # 16-byte records: s32 x, y, height (0.1 ft, PS1 frame), track 0-3; ended by x = -1
+FIT_RADIUS, MATCH_RADIUS, MATCH_HEIGHT = 250.0, 40.0, 20.0
+FEET_PER_METER = 3.2808399
+PS1_KEY_RAISE = 2.4
+IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def ps1_keys():
+    """{PS1 track: [world xyz]} of the PS1's keys (raised by PS1_KEY_RAISE), in the sfrush_ps1 mod's Rush 2 world
+    frame: the converter's game frame (PS1 y, height, PS1 x) is written to glTF with x kept (src/sfrush_ps1/ps1_track.cpp gl()), and the track
+    converter reads glTF back with x negated."""
+    sys.path.insert(0, os.path.join(HERE, 'sfrush_ps1'))
+    from ps1 import Disc, EXE_ADDR
+    exe = Disc().exe()
+    out, o = {}, PS1_KEYS - EXE_ADDR
+    while True:
+        x, y, h, t = struct.unpack_from('<4i', exe, o)
+        if x == -1:
+            return out
+        out.setdefault(t, []).append((-y / 10, -h / 10 + PS1_KEY_RAISE, x / 10))
+        o += 16
+
+
+def glb_polys(path):
+    """(flags, [world xyz], normal) of a converted track's COL_ meshes (walls get collision.TYPE_WALL's type 5)."""
+    import glb_view
+    g, b = glb_view.load(path)
+    out = []
+    for n in g['nodes']:
+        name = n.get('name', '')
+        if not name.startswith('COL_') or 'mesh' not in n or name.startswith('COL_KILL'):
+            continue
+        wall = name.startswith('COL_WALL')
+        for prim in g['meshes'][n['mesh']]['primitives']:
+            P = glb_view.accessor(g, b, prim['attributes']['POSITION'])
+            I = glb_view.accessor(g, b, prim['indices']).reshape(-1, 3).astype(int)
+            for tri in I:
+                pts = [(-float(P[i][0]) * FEET_PER_METER, float(P[i][1]) * FEET_PER_METER,
+                        float(P[i][2]) * FEET_PER_METER) for i in tri]
+                out.append((5 if wall else 0, pts, normal_of(pts)))
+    return out
+
+
+class Fit:
+    """PS1 world -> N64 world near one spot: x' = R x + T, R a turn about the vertical."""
+    def __init__(self, R, T):
+        import numpy as np
+        self.R, self.T = np.asarray(R, float), np.asarray(T, float)
+
+    def to_n64(self, p):
+        import numpy as np
+        return tuple(float(v) for v in self.R @ np.asarray(p, float) + self.T)
+
+    def to_ps1(self, p):
+        import numpy as np
+        return tuple(float(v) for v in self.R.T @ (np.asarray(p, float) - self.T))
+
+    def polys(self, polys, around, reach=120.0):
+        """The polygons with a corner within reach (x/z) of the N64 point around, moved to the N64 frame."""
+        c = self.to_ps1(around)
+        out = []
+        for f, pts, n in polys:
+            if min(math.hypot(q[0] - c[0], q[2] - c[2]) for q in pts) > reach and not inside(c[0], c[2], pts):
+                continue
+            out.append((f, [self.to_n64(q) for q in pts], tuple(float(v) for v in self.R @ n)))
+        return out
+
+
+class CourseFit:
+    """The PS1 version of an N64 course placed on it: a whole-course fit, refined around each spot."""
+    def __init__(self, ps1_floors, n64_floors):
+        import numpy as np
+        from scipy.spatial import cKDTree
+        sys.path.insert(0, os.path.join(HERE, 'sfrush_ps1'))
+        import n64_census
+        rng = np.random.default_rng(1)
+        def samples(floors, step):
+            T = np.array([pts[:3] for _, pts, _ in floors], float)
+            return n64_census.sample(T, step, rng)[0]
+        self.A, self.B = samples(ps1_floors, 3.0), samples(n64_floors, 3.0)
+        a = self.A[rng.choice(len(self.A), min(len(self.A), 20000), replace=False)][:, [0, 2]] / FEET_PER_METER
+        b = self.B[rng.choice(len(self.B), min(len(self.B), 8000), replace=False)][:, [0, 2]] / FEET_PER_METER
+        # fit2d takes the N64 onto the PS1 (meters): xz' = s (mirror xz) R^T + t, s = 1.
+        _, mir, R, s, t = n64_census.fit2d(b, a, cKDTree(a))
+        if mir != 1:
+            raise RuntimeError('the PS1 course fits the N64 one mirrored: the PS1 world frame is wrong')
+        R3 = np.eye(3); R3[0, 0], R3[0, 2], R3[2, 0], R3[2, 2] = R[0, 0], R[0, 1], R[1, 0], R[1, 1]
+        Ri = R3.T   # PS1 -> N64
+        T = -Ri @ np.array([t[0] * FEET_PER_METER, 0.0, t[1] * FEET_PER_METER])
+        moved = self.A @ Ri.T + T
+        d, i = cKDTree(self.B[:, [0, 2]]).query(moved[:, [0, 2]])
+        T[1] = float(np.median(self.B[i[d < 3], 1] - moved[d < 3, 1]))
+        self.R, self.T = Ri, T
+        self.tree = cKDTree(self.B)
+
+    def near(self, p_ps1):
+        """The fit around a PS1 world point: the PS1 floors within FIT_RADIUS fitted onto the N64's (trimmed ICP),
+        and its median miss (ft)."""
+        import numpy as np
+        A = self.A[np.hypot(self.A[:, 0] - p_ps1[0], self.A[:, 2] - p_ps1[2]) < FIT_RADIUS]
+        R, T = self.R.copy(), self.T.copy()
+        if len(A) < 50:     # the PS1 course doesn't reach it: the whole-course fit
+            return Fit(R, T), float('inf')
+        for _ in range(30):
+            X = A @ R.T + T
+            d, i = self.tree.query(X)
+            k = d <= np.quantile(d, 0.7)
+            a, b = X[k], self.B[i[k]]
+            ca, cb = a.mean(0), b.mean(0)
+            U, _, Vt = np.linalg.svd((a - ca)[:, [0, 2]].T @ (b - cb)[:, [0, 2]])
+            if np.linalg.det(Vt.T @ U.T) < 0:
+                Vt[1] *= -1
+            r2 = Vt.T @ U.T
+            r3 = np.eye(3); r3[0, 0], r3[0, 2], r3[2, 0], r3[2, 2] = r2[0, 0], r2[0, 1], r2[1, 0], r2[1, 1]
+            R, T = r3 @ R, r3 @ T + cb - r3 @ ca
+        return Fit(R, T), float(np.median(self.tree.query(A @ R.T + T)[0]))
+
+    def near_n64(self, p_n64):
+        """The fit around an N64 world point (found from the whole-course fit's PS1 point there)."""
+        return self.near(Fit(self.R, self.T).to_ps1(p_n64))
+
+
+def lift(pos, src, dst):
+    """pos (a point over the floors src) at the same height above the floors dst, at the same x/z."""
+    g0 = floor_under(src[0], pos[0], pos[2], pos[1] + 2)
+    g1 = floor_under(dst[0], pos[0], pos[2], pos[1] + 2 + GROUND_TOLERANCE)
+    if g0 is None or g1 is None:
+        return tuple(pos)
+    return (pos[0], g1 + pos[1] - g0, pos[2])
+
+
+def ps1_tables(rom1, ps1_dir, data_rk, verbose):
+    """The PS1's keys: (rows for the sfrush_ps1 mod's tracks, PS1 keys for the N64 courses {course: [key]}, rows for
+    the arcade versions)."""
+    keys = ps1_keys()
+    rows, n64_extra, arcade_rows = [], {}, []
+    for t, track in enumerate(PS1_TRACKS):
+        versions = [track + c for c in PS1_CONDITIONS
+                    if os.path.exists(os.path.join(ps1_dir, 'tracks', track + c, 'track.glb'))]
+        own = [('KEYP%d' % (n + 1), 8 + n, IDENTITY, p) for n, p in enumerate(keys.get(t, []))]
+        if t == 3:  # Chinatown: its own course; every version has its keys.
+            for v in versions:
+                rows.append(('sfrush_ps1', v, PS1_COURSE, own))
+                print('%-20s %2d PS1 keys' % (v, len(own)))
+            continue
+        polys = {v: glb_polys(os.path.join(ps1_dir, 'tracks', v, 'track.glb')) for v in versions}
+        ref = track + '_night'
+        n64 = split(n64_rush1_polys(rom1, t))
+        fit = CourseFit(split(polys[ref])[0], n64[0])
+        n64_keys = keys_rush1(rom1, t)
+        arcade_track, arcade_folder = SFRUSH[t]
+        arc = split(arcade.Track(os.path.join(data_rk, 'TRACKS', arcade_folder)).collision())
+        kept = {v: [] for v in versions}
+        print('%s: PS1 keys' % track)
+        for name, bit, m, kp in own:
+            f, err = fit.near(kp)
+            p64 = f.to_n64(kp)
+            ps1_near = split(f.polys(polys[ref], p64))
+            same = None
+            for nn, nb, nm, npos in n64_keys:
+                across = math.hypot(p64[0] - npos[0], p64[2] - npos[2])
+                if across <= MATCH_RADIUS and abs(p64[1] - npos[1]) <= MATCH_HEIGHT:
+                    same = (nn, nb, across)
+            print('  %-6s at (%5.0f %4.0f %5.0f), N64 (%5.0f %4.0f %5.0f), local fit %.1f ft: %s' % (
+                name, *kp, *p64, err, 'the N64 %s (%.0f ft away across)' % (same[0], same[2]) if same else 'a new spot'))
+            if same:
+                for v in versions:
+                    kept[v].append((same[0], same[1], m, kp))     # at the PS1's own spot
+                continue
+            for v in versions:
+                if v in (ref, track + '_snow'):
+                    kept[v].append((name, bit, m, kp))
+                    continue
+                ok, why = judge(split(polys[ref]), split(polys[v]), kp)
+                if ok:
+                    kept[v].append((name, bit, m, lift(kp, split(polys[ref]), split(polys[v]))))
+                print('    %-20s %s: %s' % (v, 'kept' if ok else 'DROP', why))
+            for label, other, out in (('N64', n64, None), (arcade_track, arc, arcade_rows)):
+                ok, why = judge(ps1_near, other, p64)
+                print('    %-20s %s: %s' % (label, 'kept' if ok else 'DROP', why))
+                if not ok:
+                    continue
+                k = (name, bit, m, lift(p64, ps1_near, other))
+                if out is None:
+                    n64_extra.setdefault(t, []).append(k)
+                else:
+                    out.append(('sfrush_arcade', arcade_track, t, [k]))
+        print('%s: N64 keys on the PS1 versions' % track)
+        for name, bit, m, npos in n64_keys:
+            if any(k[0] == name for k in kept[ref]):
+                continue    # the PS1 has it, at its own spot
+            f, err = fit.near_n64(npos)
+            for v in versions:
+                near = split(f.polys(polys[v], npos))
+                ok, why = judge(n64, near, npos)
+                if ok:
+                    kept[v].append((name, bit, m, f.to_ps1(lift(npos, n64, near))))
+                if verbose or not ok or v == ref:
+                    print('  %-6s %-20s %s: %s (local fit %.1f ft)' % (name, v, 'kept' if ok else 'DROP', why, err))
+        for v in versions:
+            rows.append(('sfrush_ps1', v, t, sorted(kept[v], key=lambda k: k[1])))
+            print('%-20s %2d keys' % (v, len(kept[v])))
+    return rows, n64_extra, arcade_rows
 
 
 def course_table(label, course, pickups, n64_polys, arcade_dir, verbose):
@@ -223,6 +453,9 @@ def main():
     verbose = '--verbose' in sys.argv
     data49 = os.environ.get('ARCADE2049_DATA', os.path.join(PROJECTR, 'sf2049se'))
     datark = os.environ.get('SFRUSH_ARCADE_DATA', os.path.join(PROJECTR, 'sfrushrk'))
+    ps1_dir = sys.argv[sys.argv.index('--ps1') + 1] if '--ps1' in sys.argv else None
+    if write and ps1_dir is None:
+        sys.exit('--write needs --ps1 OUT/sfrush_ps1 (the PS1 keys are in the same tables)')
     rom49, rom1 = Rush2049(), Rush1()
     rows = []
     for k, (track, folder) in enumerate(RUSH2049):
@@ -234,11 +467,19 @@ def main():
         kept = course_table(track, t, keys_rush1(rom1, t), n64_rush1_polys(rom1, t),
                             os.path.join(datark, 'TRACKS', folder), verbose)
         rows.append(('sfrush_arcade', track, t, kept))
+    n64_extra = {}
+    if ps1_dir is not None:
+        ps1_rows, n64_extra, arcade_extra = ps1_tables(rom1, ps1_dir, datark, verbose)
+        for mod, track, course, kept in arcade_extra:
+            next(r for r in rows if r[0] == mod and r[1] == track)[3].extend(kept)
+        rows += ps1_rows
     if not write:
         return
     lines = ['// Generated by tools/arcade_collectibles.py (docs/arcade2049.md#coins-and-keys-on-the-arcade-versions): the',
-             '// N64 coins and keys whose spot the arcade version of their course has. Do not edit by hand.',
-             '// { mod id, track folder, course (collectibles.cpp: SF Rush 0-6, Rush 2049 7-12), record, bit, matrix, position }']
+             '// N64 coins and keys whose spot the arcade version of their course has, and the PS1 SF Rush keys of the',
+             "// arcade versions and the sfrush_ps1 mod's tracks (docs/sfrush_ps1.md#keys). Do not edit by hand.",
+             '// { mod id, track folder, course (collectibles.cpp: SF Rush 0-6, Rush 2049 7-12, PS1 17), record, bit, matrix,',
+             '//   position }']
     def lit(v):     # a C++ float literal
         s = '%.9g' % v
         return s + ('f' if '.' in s or 'e' in s else '.0f')
@@ -249,6 +490,15 @@ def main():
     with open(OUT, 'w', newline='\n') as f:
         f.write('\n'.join(lines) + '\n')
     print('wrote', os.path.relpath(OUT, ROOT))
+    lines = ['// Generated by tools/arcade_collectibles.py (docs/sfrush_ps1.md#keys): the PS1 SF Rush keys whose spot the N64',
+             '// course has, placed by src/rush1/track1_convert.cpp. Do not edit by hand.',
+             '// { course (SF Rush 0-6), record, bit, position }']
+    for t in sorted(n64_extra):
+        for name, bit, m, pos in n64_extra[t]:
+            lines.append('{ %d, "%s", %d, { %s } },' % (t, name, bit, ', '.join(lit(v) for v in pos)))
+    with open(OUT_N64, 'w', newline='\n') as f:
+        f.write('\n'.join(lines) + '\n')
+    print('wrote', os.path.relpath(OUT_N64, ROOT))
 
 
 if __name__ == '__main__':

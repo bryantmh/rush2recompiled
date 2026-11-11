@@ -7,7 +7,8 @@
 // players without a profile in the session table 0x800C1DBC. The added tracks race in borrowed slots (HAWAII for the
 // race tracks, STUNT1 for the stunt arenas), so while one of them is hosted:
 // - Creation (func_800BC3F8 at 0x800BC490): the key's bit comes from its record name instead: KEY1-8 = SF Rush key n,
-//   bit n - 1; KEYS0-7 / KEYG0-7 = Rush 2049 silver / gold coin, bit 0-7 / 8-15.
+//   bit n - 1; KEYP1-4 = the PS1 SF Rush's key n (docs/sfrush_ps1.md#keys), bit 8 + n - 1; KEYS0-7 / KEYG0-7 = Rush
+//   2049 silver / gold coin, bit 0-7 / 8-15.
 // - func_8005F00C (has every racer taken the key? Taken keys aren't shown) and func_8005F418 (take it) use this
 //   file's masks, so nothing reaches the host's masks or the Controller Pak.
 // - Coins are drawn with Rush 2049's coin models (merged into the converted geometry with behaviour 8): the placement
@@ -34,7 +35,9 @@
 // What they buy (src/unlocks.cpp) is kept with them: each profile's purchases, by item id, in the same file.
 // The arcade versions of the SF Rush and Rush 2049 courses (custom tracks in the host slot) carry some of their
 // course's keys or coins with the same record names (src/arcade2049/arcade_collectibles.cpp): they count as that
-// course's, so a key or coin taken on either version is taken on both.
+// course's, so a key or coin taken on either version is taken on both. The sfrush_ps1 mod's tracks (the PS1 SF Rush's
+// snow, night and stunt versions of SF Rush tracks 1-3, and its own course Chinatown in three versions) carry keys the
+// same way.
 
 #include <algorithm>
 #include <cstdio>
@@ -97,11 +100,15 @@ namespace {
     constexpr uint32_t cars = 0x801124A0;           // Car state, 0x354 each: position first.
     constexpr uint32_t car_size = 0x354;
 
-    // Courses: SF Rush tracks, then 2049 race tracks, then stunt arenas.
+    // Courses: SF Rush tracks, then 2049 race tracks, then stunt arenas, then the PS1's Chinatown.
     constexpr int first_rush2049 = sfrush_courses;
     constexpr int first_stunt = first_rush2049 + rush2049_courses;
-    constexpr int courses = first_stunt + stunt2049_courses;
+    constexpr int first_ps1 = first_stunt + stunt2049_courses;
+    constexpr int courses = first_ps1 + sfrush_ps1_courses;
+    static_assert(first_ps1 == sfrush_ps1_course);
     using Masks = std::array<uint16_t, courses>;
+    // Whether course c has coins (Rush 2049's tracks and arenas), not keys.
+    bool coin_course(int c) { return c >= first_rush2049 && c < first_ps1; }
 
     std::mutex collect_mutex;
     std::map<std::string, Masks> store;     // By profile name, as in the save file.
@@ -193,13 +200,17 @@ namespace {
         return s;
     }
 
-    // The bit of a key record on course c: KEY1-8 on an SF Rush track, KEYS0-7 / KEYG0-7 on a 2049 one; else -1.
+    // The bit of a key record on course c: KEY1-8 on an SF Rush track, KEYP1-4 (the PS1's keys) on one or Chinatown,
+    // KEYS0-7 / KEYG0-7 on a 2049 one; else -1.
     int bit_of(const std::string& name, int c) {
         if (name.size() < 4 || name.compare(0, 3, "KEY") != 0) {
             return -1;
         }
-        if (c < first_rush2049) {
-            return name.size() == 4 && name[3] >= '1' && name[3] <= '8' ? name[3] - '1' : -1;
+        if (key_course(c)) {
+            if (name.size() == 5 && name[3] == 'P' && name[4] >= '1' && name[4] < '1' + ps1_keys) {
+                return ps1_key_bit + name[4] - '1';
+            }
+            return c < sfrush_courses && name.size() == 4 && name[3] >= '1' && name[3] <= '8' ? name[3] - '1' : -1;
         }
         if (name.size() == 5 && (name[3] == 'S' || name[3] == 'G') && name[4] >= '0' && name[4] < '0' + coins_per_kind) {
             return (name[3] == 'G' ? coins_per_kind : 0) + name[4] - '0';
@@ -248,15 +259,17 @@ namespace {
     }
 
     // The section: { "version": 1, "profiles": [ { "name": "BOB", "key": "424f42", "sfrush": [7 masks],
-    // "rush2049": [6 masks], "stunt2049": [4 masks], "unlocks": [item ids] } ] }. key is the name's bytes (the game's
-    // character set isn't always ASCII); name is only for reading.
+    // "rush2049": [6 masks], "stunt2049": [4 masks], "sfrush_ps1": [1 mask], "unlocks": [item ids] } ] }. key is the
+    // name's bytes (the game's character set isn't always ASCII); name is only for reading. A section a save doesn't
+    // have (sfrush_ps1 before Chinatown's keys) reads as nothing found.
     struct Section {
         const char* key;
         int first;
         int count;
     };
     constexpr Section sections[] = { { "sfrush", 0, sfrush_courses }, { "rush2049", first_rush2049, rush2049_courses },
-                                     { "stunt2049", first_stunt, stunt2049_courses } };
+                                     { "stunt2049", first_stunt, stunt2049_courses },
+                                     { "sfrush_ps1", first_ps1, sfrush_ps1_courses } };
 
     void load_store() {
         if (store_loaded) {
@@ -377,17 +390,16 @@ namespace {
         return n;
     }
 
-    // Points: 1 per key and silver coin, 2 per Dew can and gold coin.
-    int points_of(const Rush2Masks& r2, const Masks& m) {
+    // Points: 1 per key and silver coin, 2 per Dew can and gold coin. A key found counts whether or not the version it
+    // was found on is still installed; installed limits the keys to those of versions the player has (max_points()).
+    int points_of(const Rush2Masks& r2, const Masks& m, bool installed = false) {
         int p = 0;
         for (uint16_t mask : r2) {
             p += bits(mask & rush2_key_bits) + 2 * bits(mask & rush2_can_bits);
         }
-        for (int c = 0; c < first_rush2049; c++) {
-            p += bits(m[c] & ((1u << sfrush_keys[c]) - 1));
-        }
-        for (int c = first_rush2049; c < courses; c++) {
-            p += bits(m[c] & silver_bits) + 2 * bits(m[c] & gold_bits);
+        for (int c = 0; c < courses; c++) {
+            p += key_course(c) ? bits(m[c] & rush2::collectibles::key_bits(c, installed))
+                               : bits(m[c] & silver_bits) + 2 * bits(m[c] & gold_bits);
         }
         return p;
     }
@@ -419,9 +431,19 @@ namespace {
         p.rush2 = r2;
         std::copy(m.begin(), m.begin() + sfrush_courses, p.sfrush.begin());
         std::copy(m.begin() + first_rush2049, m.begin() + first_stunt, p.rush2049.begin());
-        std::copy(m.begin() + first_stunt, m.end(), p.stunt2049.begin());
+        std::copy(m.begin() + first_stunt, m.begin() + first_ps1, p.stunt2049.begin());
+        std::copy(m.begin() + first_ps1, m.end(), p.sfrush_ps1.begin());
         return p;
     }
+}
+
+uint16_t rush2::collectibles::course_mask(const Progress& p, int course) {
+    if (course < 0) return 0;
+    if (course < first_rush2049) return p.sfrush[size_t(course)];
+    if (course < first_stunt) return p.rush2049[size_t(course - first_rush2049)];
+    if (course < first_ps1) return p.stunt2049[size_t(course - first_stunt)];
+    if (course < courses) return p.sfrush_ps1[size_t(course - first_ps1)];
+    return 0;
 }
 
 std::vector<Progress> rush2::collectibles::progress() {
@@ -483,7 +505,7 @@ int rush2::collectibles::max_points() {
     r2.fill(0xFFFF);
     Masks m;
     m.fill(0xFFFF);
-    return points_of(r2, m);
+    return points_of(r2, m, true);
 }
 
 std::set<std::string> rush2::collectibles::purchases(const std::string& name) {
@@ -565,7 +587,7 @@ extern "C" void rush2_collect_frame(uint8_t* rdram, recomp_context* ctx) {
     rush2_snapshot = std::move(snap);
     int state = MEM_W(0, (int32_t)race_state);
     bool racing = (state >= 3 && state <= 5) || state == 0xA;
-    if (!coins.empty() && hosted_course(rdram) >= first_rush2049 && racing) {
+    if (!coins.empty() && coin_course(hosted_course(rdram)) && racing) {
         static const float axes[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
         for (const auto& [breakable, coin] : coins) {
             if (coin.glow < 0) {
@@ -629,7 +651,7 @@ extern "C" void rush2_collect_number(uint8_t* rdram, recomp_context* ctx) {
         std::lock_guard lock{ collect_mutex };
         race_bits |= (uint16_t)(1u << bit);
     }
-    if (c >= first_rush2049) {
+    if (coin_course(c)) {
         // The radius of the hit test's first, sphere check (func_8008B95C).
         uint32_t radius;
         std::memcpy(&radius, &coin_radius, sizeof(radius));
@@ -709,7 +731,7 @@ extern "C" int rush2_collect_take(uint8_t* rdram, recomp_context* ctx) {
             save_store();
         }
     }
-    if (taken && c >= first_rush2049 && rush2::audio2049::loaded()) {
+    if (taken && coin_course(c) && rush2::audio2049::loaded()) {
         rush2::audio2049::sfx_start(coin_sound);
     }
     return 1;
@@ -745,7 +767,7 @@ extern "C" int rush2_collect_hit(uint8_t* rdram, recomp_context* ctx) {
 // draws Rush 2049's coin model.
 extern "C" void rush2_collect_record_model(uint8_t* rdram, recomp_context* ctx) {
     int c = hosted_course(rdram);
-    if (c < first_rush2049) {
+    if (!coin_course(c)) {
         return;
     }
     int bit = bit_of(read_name(rdram, (uint32_t)MEM_W(0, (int32_t)current_record), 16), c);

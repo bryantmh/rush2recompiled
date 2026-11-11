@@ -938,6 +938,44 @@ namespace {
             sections.push_back(std::move(sec));
         }
         // Pre-order: the section chain, then each section's children.
+        // The PS1 SF Rush's keys whose spot this course has (ps1_keys.inc, from tools/arcade_collectibles.py;
+        // docs/sfrush_ps1.md#keys): KEYP1-4, made from one of the course's own keys with the PS1 key's record name and
+        // world position, each a child of the section whose origin is nearest it (the game culls it with that section).
+        struct Ps1Key {
+            int course;
+            const char* record;
+            int bit;
+            float pos[3];
+        };
+        static const Ps1Key ps1_keys[] = {
+#include "ps1_keys.inc"
+        };
+        const Bytes* key_template = nullptr;
+        for (const Section& s : sections) {
+            for (const Bytes& k : s.kids) {
+                std::string n = cname(k, 0);
+                if (key_template == nullptr && n.size() == 4 && n.compare(0, 3, "KEY") == 0 && n[3] >= '1' && n[3] <= '8') {
+                    key_template = &k;
+                }
+            }
+        }
+        std::vector<std::pair<size_t, Bytes>> ps1_kids;
+        for (const Ps1Key& pk : ps1_keys) {
+            if (pk.course != t || key_template == nullptr || sections.empty()) continue;
+            size_t best = 0;
+            double best_d = -1.0;
+            for (size_t i = 0; i < sections.size(); i++) {
+                double dx = f32(sections[i].rec, 0x34) - pk.pos[0], dz = f32(sections[i].rec, 0x3C) - pk.pos[2];
+                if (best_d < 0.0 || dx * dx + dz * dz < best_d) { best = i; best_d = dx * dx + dz * dz; }
+            }
+            Bytes k = *key_template;
+            put_name(k, 0, pk.record);
+            for (int a = 0; a < 9; a++) putf(k, 0x10 + a * 4, a % 4 == 0 ? 1.0 : 0.0);
+            for (int a = 0; a < 3; a++) putf(k, 0x34 + a * 4, double(pk.pos[a]));
+            record_models[pk.record] = names.at(r1_key_model);
+            ps1_kids.emplace_back(best, std::move(k));
+        }
+        for (auto& [i, k] : ps1_kids) sections[i].kids.push_back(std::move(k));
         size_t n_top = sections.size();
         std::vector<int> first_child;
         size_t at = n_top;

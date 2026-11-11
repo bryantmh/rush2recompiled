@@ -31,6 +31,8 @@ namespace rush2::car_mods {
     // Online races (docs/online.md#mod-cars): each mod car slot's car as a hash of its mod, car id and files (0 an empty
     // slot). Two machines with the same value have the same car, whatever slot it is in. Any thread.
     std::array<uint32_t, rush2::car_types::count_mod> online_car_checks();
+    // The car type of a mod's new car (rush2/new_cars/<car_id>), or -1 while it isn't installed. Any thread.
+    int new_car_type(const std::string& mod_id, const std::string& car_id);
 
     // Liveries (docs/car_mods.md#liveries): a mod's rush2/liveries/<ID>.json gives an existing car (a Rush 2 or Rush
     // 2049 car) more looks, each a whole mesh drawn as authored, picked with the car select's STYLE row. STYLE 1 is the

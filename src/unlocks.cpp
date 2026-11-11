@@ -8,6 +8,9 @@
 // With the unlock system on (the Progress tab's option, on by default):
 // - Car select lists cars 0-15, the Rush 2049 cars 1-6 and whatever the player's profile bought, on every track. Rush
 //   2's rules (mystery cars for keys found on the current track, the Rocket for winning a circuit) don't apply.
+// - The PlayStation SF Rush mod's STARSKY, CITY BUS, JET CAR and UFO and its Golden Gate stunt road are sold too, while
+//   the mod is installed (their car type and track select id are looked up then, value_of); its other cars are open.
+//   With the unlock system off they are all open (the PS1's own rules, docs/sfrush_ps1.md#unlocks, aren't kept).
 // - Track select offers PIPE, MIDWAY and the locked SF Rush and Rush 2049 tracks once any player in the game bought
 //   them.
 // - A Rush 2049 car's ENGINE row offers the three engines Rush 2049 starts with (3.2L HP V6, TURBO 350, 6.2L V8)
@@ -35,7 +38,9 @@
 #include "rush2.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "car_mods.h"
 #include "collectibles.h"
+#include "sfrush_ps1.h"
 #include "track1.h"
 #include "track2049.h"
 #include "unlocks.h"
@@ -65,9 +70,19 @@ namespace {
         { "car_crusher",   "CRUSHER",      "RUSH 2049", Kind::Car,   car2049_type + 10, 10 },
         { "car_eurolx",    "EURO LX",      "RUSH 2049", Kind::Car,   car2049_type + 11, 10 },
         { "car_panther",   "PANTHER",      "RUSH 2049", Kind::Car,   car2049_type + 12, 25 },
+        // The PS1 SF Rush's special cars its keys unlock (docs/sfrush_ps1.md#unlocks; STARSKY, BBUS and JETCAR for all
+        // four keys of PS1 tracks 1-3) and its UFO, a button-held secret there.
+        { "car_ps1_starsky", "STARSKY",    "SF RUSH",   Kind::Car,   -1, 5, rush2::sfrush_ps1::mod_id, "PS1STARSKY" },
+        { "car_ps1_bus",   "CITY BUS",     "SF RUSH",   Kind::Car,   -1, 5, rush2::sfrush_ps1::mod_id, "PS1BUS" },
+        { "car_ps1_jetcar", "JET CAR",     "SF RUSH",   Kind::Car,   -1, 5, rush2::sfrush_ps1::mod_id, "PS1JETCAR" },
+        { "car_ps1_ufo",   "UFO",          "SF RUSH",   Kind::Car,   -1, 5, rush2::sfrush_ps1::mod_id, "PS1UFO" },
         { "track_midway",  "MIDWAY",       "RUSH 2",    Kind::Track, midway_track, 10 },
         { "track_pipe",    "PIPE",         "RUSH 2",    Kind::Track, pipe_track, 20 },
         { "track_sf7",     "THE ROCK",     "SF RUSH",   Kind::Track, sfrush_track7, 10 },
+        // Golden Gate's stunt road (docs/sfrush_ps1.md#stunt-track), which the PS1 unlocks with Chinatown's four keys:
+        // shown with Golden Gate's diorama.
+        { "track_gg_stunt", "GG STUNT",    "SF RUSH",   Kind::Track, -1, 5, rush2::sfrush_ps1::mod_id, "golden_gate_stunt",
+          rush2::track1::first_menu_id },
         { "track_49_4",    "METRO",        "RUSH 2049", Kind::Track, rush2::track2049::first_menu_id + 3, 5 },
         { "track_49_5",    "MISSION",      "RUSH 2049", Kind::Track, rush2::track2049::first_menu_id + 4, 5 },
         { "track_49_6",    "PRESIDIO",     "RUSH 2049", Kind::Track, rush2::track2049::first_menu_id + 5, 10 },
@@ -96,8 +111,11 @@ namespace {
     constexpr int rush2_base_cars = 16;
 
     const Item* find(Kind kind, int value) {
+        if (value < 0) {
+            return nullptr;
+        }
         for (const Item& item : catalog) {
-            if (item.kind == kind && item.value == value) {
+            if (item.kind == kind && rush2::unlocks::value_of(item) == value) {
                 return &item;
             }
         }
@@ -166,7 +184,23 @@ const std::vector<Item>& rush2::unlocks::items() {
     return catalog;
 }
 
+int rush2::unlocks::value_of(const Item& item) {
+    if (item.mod == nullptr) {
+        return item.value;
+    }
+    return item.kind == Kind::Car ? rush2::car_mods::new_car_type(item.mod, item.mod_item)
+                                  : rush2::track2049::mod_track_id(item.mod, item.mod_item);
+}
+
+int rush2::unlocks::shown_track(const Item& item) {
+    return item.shown_track >= 0 ? item.shown_track : value_of(item);
+}
+
 bool rush2::unlocks::item_available(const Item& item) {
+    if (item.mod != nullptr) {
+        int v = value_of(item);
+        return v >= 0 && (item.kind != Kind::Car || rush2::car2049::type_available(v));
+    }
     if (item.kind == Kind::Car) {
         return rush2::car2049::type_available(item.value);
     }
@@ -207,7 +241,7 @@ void rush2::unlocks::filter_car_list(uint8_t* rdram, int player) {
         std::vector<int> types;
         for (const Item& item : catalog) {
             if (item.kind == Kind::Car && item_available(item)) {
-                types.push_back(item.value);
+                types.push_back(value_of(item));
             }
         }
         set_list(rdram, player, types);

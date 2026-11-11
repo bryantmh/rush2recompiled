@@ -237,6 +237,17 @@ namespace {
     bool is_mod_track(int t) {
         return is_mod_id(t);
     }
+    // Each custom track's mod id and folder, by index (rush2::track2049::mod_track_id): set with the custom tracks'
+    // list, or read once from the enabled mods before the track select first made it.
+    std::mutex mod_keys_mutex;
+    std::vector<std::pair<std::string, std::string>> mod_keys;
+    bool mod_keys_set = false;
+    void set_mod_keys(const std::vector<rush2::track_mod::Entry>& entries) {
+        std::lock_guard lock{ mod_keys_mutex };
+        mod_keys.clear();
+        for (const auto& e : entries) mod_keys.emplace_back(e.mod_id, e.folder);
+        mod_keys_set = true;
+    }
 
     // Whether added track select entry t (12-254) can be chosen.
     bool entry_available(int t) {
@@ -1049,6 +1060,7 @@ namespace {
             menu_container_built = false;   // the art is built again from the new files
             std::lock_guard lock{ prebuilt_mutex };
             prebuilt.reset();
+        set_mod_keys(entries);
             menu_reloads++;
         }
         mod_signature = signature;
@@ -3364,3 +3376,17 @@ extern "C" void rush2_mode_menu_box(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_mode_menu_bar(uint8_t* rdram, recomp_context* ctx) {
     ctx->r15 += 2 * ctx->r8 * (mode_menu_rows() - stock_rows);
 }
+int rush2::track2049::mod_track_id(const std::string& mod, const std::string& folder) {
+    bool set;
+    {
+        std::lock_guard lock{ mod_keys_mutex };
+        set = mod_keys_set;
+    }
+    if (!set) set_mod_keys(rush2::track_mod::tracks());
+    std::lock_guard lock{ mod_keys_mutex };
+    for (size_t i = 0; i < mod_keys.size() && i < size_t(mod_capacity); i++) {
+        if (mod_keys[i].first == mod && mod_keys[i].second == folder) return mod_id(int(i));
+    }
+    return -1;
+}
+

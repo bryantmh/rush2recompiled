@@ -6,10 +6,16 @@
 // The arcade tracks are in the N64 games' world frame, so each keeps its N64 record name (its bit), matrix and position.
 // They are the course's own: taken on either version, they count for both (src/collectibles.cpp).
 //
+// The PS1 SF Rush's keys (docs/sfrush_ps1.md#keys) are in the same table: on the sfrush_ps1 mod's tracks (the PS1's
+// snow, night and stunt versions of SF Rush tracks 1-3 and its own course Chinatown, in the PS1's frame) and on the
+// arcade versions whose spot matches; tools/arcade_collectibles.py places them, and the N64 courses' share in
+// src/rush1/ps1_keys.inc. A PS1 key at an N64 key's spot is that key (its record and bit); the others are KEYP1-4.
+//
 // The custom track converter (src/track_mod/track_mod_convert.cpp) copies their models in from the N64 games (Rush
 // 2049's GOLDCOING_COIN / SILVERCOINS_COI from file 68, SF Rush's KEYL1 from asset 12, with Rush 2's key behaviour 8)
 // and places the records, as the stock courses' converters do (src/rush2049/track2049_convert.cpp,
-// src/rush1/track1_convert.cpp). Without the ROM a model comes from, the track has none.
+// src/rush1/track1_convert.cpp). Without the ROM a model comes from, the track has none (the PS1's keys too: they are
+// drawn with SF Rush's key).
 
 #include <cstdio>
 #include <cstdlib>
@@ -30,14 +36,24 @@ namespace {
     struct Spot {
         const char* mod_id;
         const char* folder;
-        int course;         // collectibles.cpp's: SF Rush tracks 0-6, then Rush 2049 race tracks 7-12
-        const char* record; // KEY1-8 (SF Rush key n), KEYS0-7 / KEYG0-7 (Rush 2049 silver / gold coin)
+        int course;         // collectibles.cpp's: SF Rush tracks 0-6, Rush 2049 race tracks 7-12, Chinatown 17
+        const char* record; // KEY1-8 (SF Rush key n), KEYP1-4 (PS1 key n), KEYS0-7 / KEYG0-7 (2049 silver / gold coin)
         int bit;
         float m[9];
         float pos[3];
     };
     const Spot spots[] = {
 #include "arcade_collectibles.inc"
+    };
+    // The PS1's keys on the N64 courses (src/rush1/track1_convert.cpp places them).
+    struct N64Key {
+        int course;
+        const char* record;
+        int bit;
+        float pos[3];
+    };
+    const N64Key n64_keys[] = {
+#include "../rush1/ps1_keys.inc"
     };
 
     constexpr uint16_t key_behaviour = 8;   // Rush 2's key (the KEY class's model behaviour)
@@ -63,6 +79,28 @@ int rush2::collectibles::arcade_course(const std::string& mod_id, const std::str
     return -1;
 }
 
+uint16_t rush2::collectibles::key_bits(int course, bool installed) {
+    if (!key_course(course)) return 0;
+    uint16_t base = course < sfrush_courses ? uint16_t((1u << sfrush_keys[size_t(course)]) - 1) : 0;
+    for (const N64Key& k : n64_keys) {
+        if (k.course == course) base |= uint16_t(1u << k.bit);
+    }
+    uint16_t extra = 0;
+    for (const Spot& s : spots) {
+        if (s.course == course) extra |= uint16_t(1u << s.bit);
+    }
+    extra &= uint16_t(~base);
+    if (extra == 0 || !installed) return uint16_t(base | extra);
+    // Only the versions the player has: a key only on another version counts once that version is installed.
+    uint16_t have = 0;
+    for (const rush2::track_mod::Entry& e : rush2::track_mod::tracks()) {
+        for (const Spot& s : spots) {
+            if (s.course == course && is_spot_of(s, e.mod_id, e.folder)) have |= uint16_t(1u << s.bit);
+        }
+    }
+    return uint16_t(base | (extra & have));
+}
+
 int rush2::collectibles::raced_arcade_course() {
     int r = rush2::track_mod::race_track();
     if (r < 0) return -1;
@@ -74,7 +112,7 @@ bool rush2::arcade2049::collectible_extras(const std::string& mod_id, const std:
                                            rush2::track_mod::Extras& out) {
     int course = rush2::collectibles::arcade_course(mod_id, folder);
     if (course < 0) return false;
-    bool coins = course >= rush2::collectibles::sfrush_courses;
+    bool coins = !rush2::collectibles::key_course(course);
     std::vector<uint8_t> container;
     {
         std::lock_guard lock{ containers_mutex };

@@ -18,14 +18,23 @@ namespace rush2::unlocks {
         const char* game;
         Kind kind;
         int value;          // Car type, track select id, or a part: ENGINE level (0-8), or tire_part + a Rush 2049
-                            // tire (1 SLICKS, 2 PRO SLICKS).
+                            // tire (1 SLICKS, 2 PRO SLICKS). -1 for a mod's car or track: value_of finds it.
         int cost;
+        // A mod's car (its rush2/new_cars/<id>) or custom track (its folder), whose type or track select id is only
+        // known while the mod is installed (value_of); nullptr for the game's own.
+        const char* mod = nullptr;
+        const char* mod_item = nullptr;
+        int shown_track = -1;   // A mod track: the track select id whose diorama the shop shows (-1: its own).
     };
 
     constexpr int tire_part = 100;
 
     // Every item, in the shop's order.
     const std::vector<Item>& items();
+    // An item's car type or track select id (its value; for a mod's item, as installed now, -1 when it isn't).
+    int value_of(const Item& item);
+    // The track select id whose diorama the shop shows for a track item.
+    int shown_track(const Item& item);
     // Whether an item's game is available (its ROM is present and its option is on).
     bool item_available(const Item& item);
     // The points a profile's purchases cost.

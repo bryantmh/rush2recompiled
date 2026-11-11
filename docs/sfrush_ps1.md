@@ -34,6 +34,8 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Sky](#sky)
 - [Sea](#sea)
 - [Props](#props)
+- [Keys](#keys)
+- [Unlocks](#unlocks)
 - [What the converter makes](#what-the-converter-makes)
 - [Track select diorama](#track-select-diorama)
 - [Snow and night](#snow-and-night)
@@ -618,8 +620,91 @@ cable car) and `T2KNOCK/T2K003.PSV`, into gp+0xD60, 0xD64 and 0xD6C. **[V]**
   conversion implies: [Car physics](#car-physics)), each with a `COL_WALL_` box of its body, which pushes cars (Rush
   2 has no wreck-on-touch surface; a hard hit still wrecks by Rush 2's crash threshold). The models use the track's
   axes (a prop isn't turned), which mirror the cars' mapping, so their faces are wound the other way round.
-- **The second table** 0x800A59C4 (71 records, the fourth field a track 0-3, only when gp+0x3C is set; kinds 8 and 9
-  spin) is the PS1's hidden pickups. **[I]** Not ported: mods carry no collectibles.
+- **The pickups:** two more tables of the same 16-byte records, but with the fourth field a track 0-3 (gp+0xE28),
+  placed only when gp+0x3C is set (0x800B270C, set by a front-end choice at 0x8001A730), both spinning: 0x800A59C4
+  (71 records, kind 8, model `extra\time.psv` at gp+0xCF0) and 0x800A5E44 (16 records, kind 9, model `extra\key.psv`
+  at gp+0xB6C), the PS1's keys ([Keys](#keys)). **[V]** for the tables and models; what kind 8 does in the race is
+  **[I]** (time pickups, by the model's name). Kind 8 isn't ported.
+
+## Keys
+
+The PS1 has 4 keys on each of its tracks: 0x800A5E44, read by `func_800155F8` (props_place) at 0x80015A90 for the
+current track ([Props](#props)), model `extra\key.psv` (loaded by `func_80036C40` at 0x800378BC into 0x800B323C,
+gp+0xB6C). **[V]** A record's x, y and height are the PS1 track frame's (0.1 ft, height negative up, as the props'),
+the key's origin 1.6 ft above the ground. The table is per track, not per condition: day, snow and night have the same
+keys. The PS1 track index 0-2 is SF Rush course 0-2 (Golden Gate, Embarcadero, Market), 3 is Chinatown.
+
+| PS1 track | key 1 | key 2 | key 3 | key 4 |
+| --- | --- | --- | --- | --- |
+| 1 Golden Gate | new | N64 KEY4 | new | N64 KEY3 |
+| 2 Embarcadero | new | new | new | new |
+| 3 Market | new | new | new | new |
+| 4 Chinatown | own course | own course | own course | own course |
+
+- **Against the N64 keys** (`tools/arcade_collectibles.py --ps1`): the PS1 courses are in the PS1's frame and their
+  models differ from the N64's by a few ft, so each key is placed on the N64 course through a local fit: the PS1
+  floors within 250 ft of it, placed by a fit of the whole course (`tools/sfrush_ps1/n64_census.py`'s `fit2d`), then
+  fitted onto the N64's floors there (trimmed ICP: a turn about the vertical and a shift; median miss 2-4 ft). A PS1
+  key within 40 ft across and 20 ft up or down of an N64 key is that key: Golden Gate's key 2 is 8 ft across from N64
+  KEY4 (17 ft below it: the N64 hill is taller there) and key 4 is 32 ft from KEY3 at the same road narrowing. The
+  other 10 are new spots. **[V]**
+- **Which versions get them:** the arcade versions' rule ([arcade2049.md](arcade2049.md#coins-and-keys-on-the-arcade-versions):
+  the floor under the key within 3 ft, 6 of 8 points 30 ft around it alike, no new wall beside it), run between the
+  version the key is from and each other version:
+  - The PS1's snow and night versions have all of their track's PS1 keys (the PS1 places them in every condition);
+    the stunt version of Golden Gate has the 2 new ones (its ramps leave their spots alone).
+  - New PS1 keys that fit the N64 course and its arcade version: Embarcadero 2, 3, 4 and Market 1, 2, 4. Golden Gate
+    1 and 3 and Embarcadero 1 are on ground the N64 course doesn't have (or not the same around them), Market 3 has
+    no N64 floor under it.
+  - N64 keys on the PS1 versions: Golden Gate KEY3 and KEY4 (at the PS1's own spots), KEY5, KEY6; Embarcadero KEY3;
+    Market KEY1, KEY4, KEY5, KEY6. The rest have no PS1 floor at their spot (the PS1's Embarcadero doesn't reach
+    KEY1 and KEY2) or a wall beside them.
+  - Chinatown: its 4 keys on its day, snow and night versions.
+- **Records and bits:** a PS1 key at an N64 key's spot is that key (its record KEYn and bit, so it counts on every
+  version); a new one is KEYPn (PS1 key n), bit 8 + n - 1 of its course (`src/collectibles.cpp` bit_of), Chinatown's
+  too, in course 17 (`collectibles::sfrush_ps1_course`, the save file's `sfrush_ps1` section). They are drawn with SF
+  Rush's KEYL1 and taken by SF Rush's hit test, as the N64 courses' keys: PS1 keys are raised 2.4 ft, from the PS1
+  model's 1.6 ft origin to the 4 ft the N64's ground keys sit at. Without the N64 ROM there is no key model and the
+  PS1 versions have no keys.
+- **Where they are placed:** the sfrush_ps1 mod's tracks and the arcade versions get theirs from
+  `src/arcade2049/arcade_collectibles.inc` (`collectible_extras`), the N64 courses from `src/rush1/ps1_keys.inc`
+  (`track1_convert.cpp` convert_placement: a copy of one of the course's keys, renamed, a child of the section whose
+  origin is nearest). Both are written by `tools/arcade_collectibles.py --ps1 OUT/sfrush_ps1 --write` from a PS1
+  conversion (`tools/sfrush_ps1/cpp_test/build.bat`) and the disc.
+- **Counts:** a course's keys are its N64 keys plus the PS1 keys on the versions the player has
+  (`collectibles::key_bits`, installed: the N64 course and the enabled mods' tracks), so the Progress tab and pause box
+  only count keys that can be reached. A key found counts for points even after its version is removed. The car
+  rewards for an SF Rush course's keys (`unlocks::added_track_keys`) and the records screen's key icons still count
+  the N64 keys only.
+- **Test:** `RUSH2_TEST_ARCADE_SPOT=<record>,x,y,z` moves one onto the start straight as for the arcade versions
+  ([arcade2049.md](arcade2049.md#coins-and-keys-on-the-arcade-versions)); positions are the track's world feet.
+
+## Unlocks
+
+What the PS1 locks, and how. gp is 0x800B26D0 (gp+0xB6C = 0x800B323C, the key model).
+
+- **Keys:** `func_80041244` (props_update) at 0x80041640, when the player takes a kind 9 pickup: counts it in
+  0x800B353C (gp+0xE6C, cleared by props_place at each race's setup) and at the 4th sets the track's flag,
+  0x800B2838 + 4 x track (0-3). So a track counts only when all 4 of its keys are taken in one race. At race end
+  (0x80014BFC) the flags of tracks 1-3 are copied to gp+0x178-0x17A (0x800B2848-0x800B284A), and track 4's sets
+  0x800B2C64. All are kept on the memory card (func_80025250 loads them, 0x800253E8). **[V]**
+- **Special car menu:** `func_800719EC` cycles a 5-slot menu (gp+0x50C, 1-5, 0 none) that skips a slot whose flag
+  (0x800B2848 + slot - 1) is clear, and sets the special car 0x800B26F8 (gp+0x28, [Cars](#cars)): slot 1 (Golden Gate's
+  keys) STARSKY, 2 (Embarcadero's) BBUS, 3 (Market's) JETCAR, 4 (0x800B284B, from 0x800B2C14) PIGGY, 5 (0x800B284C,
+  gp+0x17C) TAXI; jump table 0x80012120. **[V]**
+- **Held buttons:** the race setup (0x80014918, one player, a pad plugged in) reads the pad (0x800ED732, active low):
+  R1 (0x800) MINI, L1 (0x400) JEEP, Triangle (0x1000) UFO. Never locked. **[V]**
+- **Stunt road:** 0x800B2C64, Chinatown's 4 keys (Golden Gate's stunt road). **[V]**
+- **Snow, night, PIGGY, TAXI:** race-end counters (0x80017498): 0x800B2C60 (snow) when gp+0x10 reaches 10, counted
+  in one player races with gp+0x38 (0x800B2708, set by the front end's mode 3) or gp+0x150; 0x800B2C58 (night) when
+  gp+0xC reaches 3 and 0x800B2C5C with 0x800B2C14 (PIGGY's slot) at 8, counted in gp+8 (0x800B26D8, mode 2) races;
+  TAXI's flag gp+0x17C when gp+0x50 is 1 at a race setup, which the snow unlock leads to (gp+4). **[V]** for the
+  stores; which front-end mode is which ("extreme race", "circuit mode", "gp mode", "explosive mode", "time pickup",
+  menu jump table 0x800102C8, gp+0x1B4) and what a counted race is (car +0x6C, a finish) are **[I]**. Mode 5
+  (0x8001A6FC) sets gp+0x3C, which places the time pickups and keys: likely "time pickup".
+- **Into Rush 2:** the unlock system (`src/unlocks.cpp`) sells STARSKY, CITY BUS (BBUS), JET CAR and UFO and the
+  Golden Gate stunt version for 5 points each while the sfrush_ps1 mod is installed; JEEP, MINI and POLICE are open.
+  With the unlock system off everything is open: the PS1's rules above aren't kept.
 
 ## Snow and night
 ## Sea
@@ -746,5 +831,5 @@ in the game). **[I]**
 
 ## Not ported
 
-- The hidden pickups (0x800A59C4, [Props](#props)): mods carry no collectibles.
+- The kind 8 pickups (0x800A59C4, [Props](#props)). The keys are ported: [Keys](#keys).
 - The second road of track 1 (`T5ROAD2`, `COLLDAT5`): a variant of a course the N64 game has.
