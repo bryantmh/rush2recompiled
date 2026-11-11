@@ -1,7 +1,8 @@
 """PS1 VRAM placement of a track's textures, read from the game's own loaders (docs/sfrush_ps1.md#textures).
 
 Each track has a page loader (T<n>PAGE: LoadImage func_80092C58 of chunk k at a hard-coded RECT) and a CLUT loader
-(T<n>CLUT: func_80014F38(x, y, chunk) puts the chunk's 16-color CLUT at (x, y) and 31 fog-shaded copies under it).
+(T<n>CLUT: func_80014F38(x, y, chunk) puts the chunk's 16-color CLUT at (x, y) and 31 fog-shaded copies under it;
+func_80015090 does the same with copies that always darken, for track 2's tunnel).
 The loaders are straight-line code, so a linear scan that tracks constant registers and the RECT on the stack gives
 the placements in chunk order.
 
@@ -14,7 +15,8 @@ from disps1 import Exe
 from ps1 import Disc
 
 LOAD_IMAGE = 0x80092C58
-LOAD_CLUT = 0x80014F38
+LOAD_CLUT = 0x80014F38       # clut_upload_shaded: fog-shaded copies (lighter by day, darker at night)
+LOAD_CLUT_DARK = 0x80015090  # clut_upload_dark: copies always darker, color 0 not kept (track 2's tunnel)
 PAGE_LOADERS = {1: 0x80037C2C, 2: 0x80038644, 3: 0x80039048, 4: 0x80039A88}
 CLUT_LOADERS = {1: 0x8003A4A0, 2: 0x8003AF18, 3: 0x8003B990, 4: 0x8003C408}
 TEX_TABLE_A = 0x800A7478     # track index 1 (track 2) when 0x800B34F8 == 1 (func_800369B8)
@@ -26,8 +28,8 @@ CLUT_IDS = 0x800A7B08        # face byte 3 -> CLUT id ((y << 6) | (x >> 4))
 def scan(e, start, end):
     """[(kind, args, chunk)] for LoadImage (x, y, w, h) and CLUT (x, y) calls between start and end. chunk is the
     .DAT chunk the call gets: the loaders step their chunk pointer by the .SIZ sizes (lw $v0, 4k($s1) adds chunk
-    k's; the last into $a2), so after the size of chunk k the next call gets chunk k + 1. Track 2's CLUT loader steps over chunks 10
-    and 26 without uploading them, so its calls aren't the chunks in order."""
+    k's; the last into $a2), so after the size of chunk k the next call gets chunk k + 1. Track 2's CLUT loader uploads
+    chunks 10 and 26 (the tunnel's CLUTs) with LOAD_CLUT_DARK, so both functions count."""
     regs = {0: 0}; stack = {}; out = []; chunk = 0
     a = start
     while a < end:
@@ -50,7 +52,7 @@ def scan(e, start, end):
             if dop == 9 and drs in regs: regs[drt] = (regs[drs] + dsimm) & 0xFFFFFFFF
             if t == LOAD_IMAGE:
                 out.append(('image', tuple(stack.get(o, -1) for o in (0x10, 0x12, 0x14, 0x16)), chunk))
-            elif t == LOAD_CLUT:
+            elif t in (LOAD_CLUT, LOAD_CLUT_DARK):
                 out.append(('clut', (regs.get(4, -1), regs.get(5, -1)), chunk))
             for r in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 24, 25):
                 regs.pop(r, None)

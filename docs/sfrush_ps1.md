@@ -26,6 +26,9 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Checkpoints](#checkpoints)
 - [Start and finish banner](#start-and-finish-banner)
 - [Unlisted chunks](#unlisted-chunks)
+- [Far stand-ins](#far-stand-ins)
+- [Embarcadero overpass](#embarcadero-overpass)
+- [Embarcadero upper deck](#embarcadero-upper-deck)
 - [Race times](#race-times)
 - [Run-in](#run-in)
 - [Cars](#cars)
@@ -149,14 +152,19 @@ converter pairs them as the renderer does (`read_chunk`, `uv[k ^ 1]`). PSV model
   (`func_80092C58`) at a RECT hard-coded in the loader. **[V]**
 - `T<n>CLUT/T<n>CLUT.DAT` (+ S, N): 1064-byte chunks whose 16-color CLUT (+8) the CLUT loader (`func_8003A4A0`,
   `8003AF18`, `8003B990`, `8003C408`) puts at a hard-coded (x, y) through `func_80014F38`, which also writes 31
-  copies below it, each a step brighter or darker (distance shading). Row 0 is the original. **[V]**
+  copies below it, each a step brighter or darker (distance shading). Row 0 is the original. **[V]** Track 2's
+  loader also calls `func_80015090` (`clut_upload_dark`) twice, at (992, 384) and (992, 256): the same upload, but
+  every copy a step darker whatever the time of day, and color 0 not kept transparent (the shaded one leaves 0 alone).
+  Those are the CLUTs of the tunnel under the climb to checkpoint 1 (road chunks 58-60, the N64's `TRACK2BT1`-`6`) and
+  of scenery 42-43. **[V]**
 - **Which chunk each call gets:** the loaders read the whole .DAT into one buffer and step a chunk pointer through it
   by the .SIZ sizes (`lw rt, 4k($s1)` adds chunk k's), so a call gets the chunk the pointer is at, not the call's
-  number. Track 2's CLUT loader (`func_8003AF18`) steps over chunks 10 and 26 without uploading them: its 50 calls
-  get chunks 0-9, 11-25 and 27-51. The other CLUT loaders upload all 52 in order, the page loaders all 34. **[V]**
-  The converter first took call k as chunk k, which gave every Embarcadero CLUT from the 11th on the next chunk's
-  (from the 26th the one after): noise on walls, road and trees, grass black, the night CHECKPOINT gantry
-  unreadable and the snow one blue. It (and `vram.py`) now follow the pointer.
+  number. Every CLUT loader uploads all 52 chunks in order, the page loaders all 34; track 2's puts chunks 10 and 26
+  up with `clut_upload_dark` (above). **[V]**
+  The converter first took only `clut_upload_shaded`'s calls, call k as chunk k: every Embarcadero CLUT from the 11th
+  on got a later chunk's colors (noise on walls, road and trees, grass black, the night CHECKPOINT gantry unreadable,
+  the snow one blue), and the tunnel's two CLUTs stayed empty, so the whole tunnel was transparent (a hole in the
+  wall at its mouth, user report). It (and `vram.py`) now follow the pointer and count both functions.
 - The texture table (35 entries of 6 s32: VRAM x, VRAM y, ?, v offset, CLUT x, CLUT y) is static: 0x800A7478 for
   track 2 (when 0x800B34F8 == 1), 0x800A77C0 for tracks 1, 3 and 4, which share one VRAM layout. A face's texel (u, v)
   is at VRAM (x & ~63 + u / 4, (y & 256) + v + v offset), 4-bit, through its CLUT. **[V]** The fixup
@@ -431,6 +439,115 @@ START texture beside FINISH on that page isn't on the gantry. **[V]** (rendered 
 The converter drew every chunk in the file, so Golden Gate showed the four chevrons floating in the sky (user
 report). It now leaves out every unlisted chunk but the finish banners, which [the swap](#start-and-finish-banner)
 handles (`ps1_track.cpp`, `listed`).
+
+## Far stand-ins
+
+The PS1's short draw distance has a few listed chunks stand in for a far model; with everything drawn at full
+distance they sit in front of the real one, so the converter leaves them out:
+
+- Golden Gate's id 91 (SCN2 chunk 90, x 653-824 m, z -94 to 87 m in track.glb): a flat card with the bridge painted
+  on it, 74 m tall, standing over the bay where the N64 has hillside (`TRACK1GG4`). Only sections 33-37 and 52 list it:
+  the cliff road, from where the bridge itself is out of range. **[V]**
+
+`tools/sfrush_ps1/n64_census.py` (align a conversion with the N64 dump, list what either lacks) and `census_shots.py`
+(matching N64 and PS1 renders of a spot) found it. Their renders are mirrored against the game (flip them).
+
+## Embarcadero overpass
+
+With the N64 SF Rush ROM in (Games tab), the front of the PS1 Embarcadero's waterfront freeway overpass is the N64's:
+the install converts the N64 Embarcadero (`track1::convert_track`, then `catalog::read_container` and
+`for_each_placed_triangle`, `ps1_install.cpp` `n64_embarcadero`) and `ps1_track.cpp` (`n64_overpass`) takes every N64
+course triangle over the freeway's footprint (x 1201-1245 m, z -1843 to -1283 m in track.glb) with a corner over 8 m
+(mesh `PS1_N64_OVERPASS`, N64 textures and vertex shades, both sides drawn, at night darkened by the PS1's night light
+`night_light`). The PS1's pieces of that stretch go: roads 26, 27 and 70, scenery 42, and every other face over 9 m in
+the footprint (roads 25 and 28's abutment walls); the curbs and signs at the road stay. **[V]** (offline renders
+against the N64 dump and the PS1-only build, `tools/glb_view.py`)
+
+- **Back end:** the PS1's own back end stays: scenery 43 (z -1989 to -1843), the enclosed stretch with paneled
+  walls, a roof and the DANGER wall, which the N64 doesn't have (its decks open onto the loop there). The N64 copy
+  is clipped at z -1843 (`n64_overpass_end`), triangles crossing it cut in the N64's world. A copy that ran on to
+  -1990 replaced that stretch with the N64's open truss and loop ramps and was dropped.
+- **Placement:** the N64 world (feet, x to the left) to track.glb by the fit `tools/sfrush_ps1/n64_census.py`
+  measured: x = 0.3048 z64 + 384.08, z = 0.3048 x64 - 88.06, y = 0.3048 y64 + 5.28. A translation-only refit on the
+  overpass alone moved nothing sideways.
+- **Heights:** the collision stays the PS1's, so each vertex moves by a table over z to put the driven decks on it
+  (PS1 collision minus N64 surface, measured): the near upper deck (the jump, its road ending at z -1553 in both)
+  1.0 m lower, the far lower deck 0.4 m. At the cut that also puts the lower deck's road (20.4 m) and underside
+  (15.5 m) on scenery 43's. The upper deck's underside is 39.2 m there against scenery 43's 36.5 m, so from z -1700
+  to the cut everything above the lower deck's curbs (21.5 m) is squeezed toward them, by up to 0.847 at the cut.
+- **Two-sided:** the faces keep the N64's winding (it holds in track.glb: road tops face up) but are drawn from
+  both sides. The N64 culls back faces and built the overpass for its own route; the PS1's route also sees it
+  from behind (the far end), where one-sided faces left holes (tried and dropped). A deck's underside is
+  either the girder image (32x64, mirrored in s, under the ramp TRACK2BT1-6) or the road image with s spanning
+  only about 8 texels of its edge (TRACK2C16, 2D1, 2D2, 2PIPE1-4: s span 203-328 against the top's 4096),
+  which shows as plain streaks across the deck. That is the N64's look, not a mistake to repair (a girder
+  retexture of them was tried and dropped).
+- **Mirrored textures:** the road image repeats mirrored in s, and the undersides' strip starts just under
+  s = 0. The custom track converter (`track_mod_convert.cpp`) moves each triangle's coordinates by whole
+  tiles toward zero; an odd move flips a mirrored image, which put the road's yellow line across the
+  undersides. It now moves a mirrored coordinate by even counts only (`DrawMaterial::mirror_s`/`mirror_t`).
+- **PS1 textures:** where the PS1's own overpass has the same surface, the N64 image gives way to the PS1's texels
+  of it, read from the condition's VRAM (snowy, or the night's colors; no night darkening on top), the N64's mapping
+  kept: 880 of the 1305 triangles. An N64 image is known by its size and mean color. The sources (page, CLUT, texel
+  box; the same slots in snow and night, found with the PS1-only build's roads 23-28, 70 and scenery 42, 43):
+  - road (N64 64x32, mirrored in s: edge line x 9.5, dashes 38.5, center line 61.5, two dashes down it) = page
+    (320, 256) CLUT 30781, x 0-157 the other way round (center line x 2, dashes 63.5, edge line 133.5, then the snowy
+    shoulder), 32 of its rows (a dash every 16), its columns resampled through those three anchors;
+  - deck fascia (64x16) = page (320, 256) CLUT 30782, (128, 96)-(256, 128);
+  - ivy wall (64x64) = page (832, 256) CLUT 26684, (184, 0)-(256, 64);
+  - plain concrete (three 64x64 images) = page (320, 256) CLUT 30781, (184, 8)-(232, 52);
+  - dangling rebar (64x64, cut out) = page (576, 0) CLUT 10302, (192, 0)-(256, 64);
+  - undersides = page (896, 256) CLUT 24638, (12, 88)-(72, 108) (scenery 43's deck underside), for the N64's girder
+    image and for the road image's triangles facing down (their s 0-0.12 strip scaled to the whole image).
+  The truss members (three images), the red pillars and two ground-level images have no PS1 surface: they stay the
+  N64's, darkened at night by `night_light`, and not snowy.
+- **Collision:** the PS1's, plus floors under the N64 road it doesn't cover (`ps1_track.cpp` after
+  `read_collision`), so no drawn road lets a car through (user report 2026-11-10: a fall through the lower deck past
+  PS1 key 2):
+  - The PS1's lower deck is broken between scenery 42 and 43: its floor stops at a jagged edge (track.glb meters:
+    (1207.37, -1793.02), (1223.01, -1799.14), (1238.65, -1783.51), at 20.33 m) with a raised wall (a B record) along
+    the last two corners across the right half of the road and a drop past the first two, and starts again at z
+    -1842.91. The N64 deck runs across unbroken, so the gap gets three floor triangles on the PS1's own corners, that
+    wall is removed and the deck's two side walls run on to -1842.91 with its height band.
+  - Every other N64 road triangle (facing up, the road image) whose middle has no floor within 5 ft becomes floor:
+    176 of 236 (the lower deck's front and its ramp, z -1390 to -1640, 13 m over the PS1's street under the
+    overpass, and the far upper deck). These have no side walls.
+  - Checked offline with `tools/sfrush_ps1/overpass_floor_check.py` (a top-down map of drawn road against floors; drawn heights and floor heights
+    agree along the overpass's middle except the far upper deck's first few meters).
+- **Camera under the lower deck:** the PS1's collision has a raised wall (a B record, band 25.6 to 67.3 ft) along
+  the lower deck's front edge, track.glb x 1217-1233 at z -1723 m, hanging over the street under the overpass
+  (18.4 ft). Cars pass under it, but Rush 2's chase camera, 6 ft over the car, stops at any collision polygon
+  within 5 ft (`collision_ground_query_basis_8008BDC0`: a polygon whose plane is -5 to 0.25 ft from the camera
+  and holds its projection pushes it), so the camera was held back there (user report 2026-11-11; with or
+  without the N64 ROM). That one wall now starts 14 ft over the street (`ps1_track.cpp`, the raised wall branch,
+  only inside the overpass's footprint: the same rule everywhere also lifted the Rampage truck's trailer and
+  was narrowed). Found by replaying recorded car positions against the collision with the camera's rule.
+- Without the ROM the PS1's own overpass is patched as below.
+- `tools/sfrush_ps1/n64_scene.py` writes the same N64 scene from a model dump for the offline converter
+  (`SFRUSH_PS1_N64_SCENE`).
+
+## Embarcadero upper deck
+
+The waterfront freeway is a double deck, broken off over the docks in both versions (the upper deck ends at z -1553
+m in track.glb and picks up again with its rebar end at -1653; the N64's `TRACK2C16` / `TRACK2D1` break at about the
+same place). Past the break the N64 has both levels all along (`TRACK2D1`, `D2`: the upper deck at 38-48 m). The PS1
+has the lower deck (road 70) but of the upper one only the broken end (scenery 42, z -1653 to -1698), its west rail
+and truss panels, until scenery 43 (z -1843 to -1989) has it again: no chunk anywhere on the disc, listed or not,
+covers the 145 m between, so the rail and panels hang in the air. **[V]**
+
+The converter fills it from scenery 43's own deck (`ps1_track.cpp`, `upper_deck`, mesh `PS1_UPPER_DECK`): scenery 43
+is drawn from below only (its upper level is an underside, page 704,256, CLUT 28733, at 36.3 m, plus the west rail
+and the truss), and its underside is 146 m long, so it is mapped z-linearly onto the gap from scenery 42's end to
+scenery 43's start, drawn from both sides. The rest of the section is gappy there too (measured part by part: deck
+tops and undersides, each deck's side faces, the truss): the lower deck's last 37 m (z -1806 to -1843), the west
+lower side to -1793, the east one from -1708 to the broken end, the west upper side to -1820 and the truss panels
+(west -1771 to -1843, both sides beside the broken end) are missing, so the sky shows through under and beside the
+deck (user report). Each is filled with scenery 43's faces of the same part, mapped the same way (or shifted to end
+at the broken end's top, -1653, for the parts beside it). Drawn only: the race runs underneath.
+
+The PS1's water class (`FLAGS & 0x18 == 0x18`, the tunnel's channel) becomes the custom surface `COL_CHANNEL`
+(`like = "grass"`, `drag = 0`): Rush 2's `COL_WATER` is deep water that ends the race on touch, while the PS1 only
+notes a splash and drives it as road ([Collision](#collision)).
 
 ## Race times
 
@@ -991,7 +1108,7 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   N64 SF Rush course (`variant_of = "sfrush:golden_gate"` and so on), so the track select shows the course's diorama
   with the version's band. Per track the converter reads its own loaders (page / CLUT: track 1 0x80037C2C /
   0x8003A4A0, track 2 0x80038644 / 0x8003AF18, track 3 0x80039048 / 0x8003B990; track 2's CLUT loader uploads 50 of
-  its 52 chunks, skipping 10 and 26: [Textures](#textures)), texture table (0x800A7478 for track index 1, 0x800A77C0 for the others),
+  its 52 chunks, 10 and 26 with `clut_upload_dark`: [Textures](#textures)), texture table (0x800A7478 for track index 1, 0x800A77C0 for the others),
   banner instructions (track 1 0x80044524 / 0x80044534, track 2 0x8004459C / 0x800445AC, track 3 0x800445DC /
   0x800445EC), gate tables (counts / sectors / first / times: track 1 0x800B2AF8 / 0x800AA388 / 0x800B2B00 /
   0x800B2AD8, track 2 0x800B2B08 / 0x800AA394 / 0x800B2B10 / 0x800B2AE0, track 3 0x800AA3A0 / 0x800AA3BC /

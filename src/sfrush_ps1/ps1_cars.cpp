@@ -447,8 +447,8 @@ bool ps1::build_cars(const Disc& disc, const std::filesystem::path& assets_dir, 
 }
 
 bool ps1::build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
-                    const N64Lanes& n64) {
-    if (!build_track(disc, assets_dir, out, log, n64) || !build_cars(disc, assets_dir, out, log)) return false;
+                    const N64Lanes& n64, const N64Scene& n64_embarcadero) {
+    if (!build_track(disc, assets_dir, out, log, n64, n64_embarcadero) || !build_cars(disc, assets_dir, out, log)) return false;
     // Time Sprint's clock (src/time_sprint.cpp, docs/sfrush_ps1.md#time-sprint): its model, its texture page and the
     // sound a clock plays when taken (sound 3, CHECK, of the race's sound bank), as the disc has them.
     {

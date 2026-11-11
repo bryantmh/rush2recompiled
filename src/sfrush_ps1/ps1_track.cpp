@@ -164,7 +164,9 @@ namespace {
 
     // RUSH.EXE (docs/sfrush_ps1.md#textures).
     constexpr uint32_t exe_base = ps1::Exe::base;
-    constexpr uint32_t load_image = 0x80092C58, load_clut = 0x80014F38;
+    // clut_upload_shaded (0x80014F38) and clut_upload_dark (0x80015090) both put a chunk's 16 colors at (x, y) and 31
+    // shaded copies under it; only row 0 is used here (Rush 2 draws the fog), so both are the same upload.
+    constexpr uint32_t load_image = 0x80092C58, load_clut = 0x80014F38, load_clut_dark = 0x80015090;
     constexpr int tex_entries = 35;
     constexpr uint32_t clut_ids = 0x800A7B08;
     constexpr int clut_id_count = 64;
@@ -178,8 +180,9 @@ namespace {
     // The page loader's LoadImage RECTs and the CLUT loader's (x, y), in call order: the loaders are straight-line
     // code, so a scan that follows constant registers and the RECT on the stack finds them (vram.py scan). Each call
     // gets the .DAT chunk the loader's chunk pointer is at: it steps by the .SIZ sizes (lw rt, 4k($s1) adds chunk k's),
-    // so after chunk k's size the next call gets chunk k + 1. Track 2's CLUT loader (func_8003AF18) steps over chunks
-    // 10 and 26 without uploading them, so its 50 calls aren't the file's first 50 chunks (docs/sfrush_ps1.md#textures).
+    // so after chunk k's size the next call gets chunk k + 1. Track 2's CLUT loader (func_8003AF18) uploads chunks 10
+    // and 26 with clut_upload_dark instead (the tunnel under the climb to checkpoint 1, road chunks 58-60, and scenery
+    // 42-43): missing those two left the tunnel's textures transparent (docs/sfrush_ps1.md#textures).
     struct Calls {
         std::vector<std::array<int, 4>> images;
         std::vector<std::array<int, 2>> cluts;
@@ -219,7 +222,7 @@ namespace {
                     out.images.push_back({ st(0x10), st(0x12), st(0x14), st(0x16) });
                     out.image_chunks.push_back(chunk);
                 }
-                else if (t == load_clut) {
+                else if (t == load_clut || t == load_clut_dark) {
                     out.cluts.push_back({ regs.count(4) ? int(regs[4]) : -1, regs.count(5) ? int(regs[5]) : -1 });
                     out.clut_chunks.push_back(chunk);
                 }
@@ -875,9 +878,31 @@ namespace {
     }
 }
 
+// The PS1's night light: each channel's night / day ratio over the paint ramps (CLUT entries 1-6) of every car texture
+// both sets have (CARSGFX, CARSGFXN), clamped to 1 (1 where a channel can't be measured). Tints the cars at night
+// (car_light) and the N64 overpass Embarcadero borrows (docs/sfrush_ps1.md#embarcadero-overpass).
+static std::array<double, 3> night_light(const ps1::Disc& disc) {
+    std::array<double, 3> day{}, night{};
+    for (const char* f : { "BLACK", "BLUE", "BROWN", "GREEN", "ORANGE", "PURPLE", "RED", "WHITE", "YELLOW", "BMW01", "BMW02",
+                           "BUGETT01", "BUGETT02", "CAM01", "CAM02", "CONCEP01", "CONCEP02", "HUTCH01", "JEP01", "JET01",
+                           "MINI01", "PIGGY14", "SUPRA01", "SUPRA02", "VIPER01", "VIPER02", "VWBUG01", "VWBUG02",
+                           "VWBUS01", "VWBUS02", "BBUS", "TATS12" }) {
+        std::vector<uint8_t> a, b;
+        if (!disc.read(std::string("CARSGFX/") + f + ".GFX", a) || !disc.read(std::string("CARSGFXN/") + f + ".GFX", b) ||
+            a.size() < 40 || b.size() < 40) continue;
+        for (int i = 1; i <= 6; i++) {
+            uint16_t ca = u16(&a[8 + 2 * i]), cb = u16(&b[8 + 2 * i]);
+            for (int k = 0; k < 3; k++) day[size_t(k)] += (ca >> (5 * k)) & 31, night[size_t(k)] += (cb >> (5 * k)) & 31;
+        }
+    }
+    std::array<double, 3> out{};
+    for (size_t k = 0; k < 3; k++) out[k] = day[k] > 0 ? std::clamp(night[k] / day[k], 0.0, 1.0) : 1.0;
+    return out;
+}
+
 static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& assets_dir, ps1::ModFiles& out,
                             std::string& log, const TrackInfo& tr, const ConditionInfo& cond,
-                            const std::vector<uint8_t>* n64_lanes) {
+                            const std::vector<uint8_t>* n64_lanes, const ps1::N64Scene* n64_scene) {
     using ps1::Disc;
     char line[256];
     const bool stunt = cond.condition == Condition::stunt;
@@ -933,9 +958,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             for (int i = 0; i < w; i++) vram.v[size_t(y + r) * 1024 + size_t(x + i)] = u16(&c[2 * (size_t(r) * w + i)]);
         }
     }
-    // Each call's own chunk (Calls): track 2's loader skips chunks 10 and 26. Taking the calls as the chunks in order
-    // gave every Embarcadero CLUT from the 11th on a later chunk's colors (noise on its walls and road, the night
-    // CHECKPOINT gantry unreadable).
+    // Each call's own chunk (Calls), both upload functions counted: track 2's loader puts chunks 10 and 26 up with
+    // clut_upload_dark. Taking only clut_upload_shaded's calls as the chunks in order gave every Embarcadero CLUT from
+    // the 11th on a later chunk's colors, and left the tunnel's two CLUTs empty (transparent).
     for (size_t k = 0; k < cluts.cluts.size(); k++) {
         auto [x, y] = cluts.cluts[k];
         const auto& c = clut_chunks[size_t(cluts.clut_chunks[k])];
@@ -1026,6 +1051,25 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     for (int id : tr.semi) if (id != 0) chunk_flags[id] |= 0x1000;
     bool banner_built = false;
+    // Embarcadero's upper deck (docs/sfrush_ps1.md#embarcadero-upper-deck): past the break over the docks the PS1's
+    // double-deck freeway has its lower deck (road 70) and, of the upper one, only the broken end (scenery 42, z -1653
+    // to -1698), its west rail and truss panels up to it until scenery 43 picks the deck up again at z -1843: those
+    // hang in the air under nothing (the N64 has the deck all along, TRACK2D1/D2). The deck there is scenery 43's own
+    // underside (page 704,256, CLUT 28733, facing down, 36.3 m) mapped onto the gap, drawn from both sides, and every
+    // other part of a section the PS1 lacks there (the lower deck's last 37 m, side faces, truss panels) taken from
+    // scenery 43, the one whole section. Positions are track.glb's (glTF m).
+    // With the N64 ROM the whole overpass is the N64's instead (n64_overpass, below the chunk loop): the PS1's pieces of
+    // it (roads 26, 27 and 70, scenery 42 and 43) are left out and nothing is patched.
+    const bool n64_overpass = tr.n == 2 && !stunt && n64_scene != nullptr && !n64_scene->tris.empty();
+    const bool upper_deck = tr.n == 2 && !stunt && !n64_overpass;
+    // Where the N64 overpass stops (track.glb z): the front edge of the PS1's enclosed back end (scenery 43: paneled
+    // walls, roof and the DANGER wall, z -1989 to -1843), which stays the PS1's.
+    constexpr double n64_overpass_end = -1843.0;
+    // The N64 overpass's road surfaces as drawn (triangles facing up with the road image; track.glb meters), for the
+    // collision: the ones over no PS1 floor get one (below, at read_collision).
+    std::vector<std::array<V3, 3>> n64_road_tops;
+    std::map<int, a49::Glb::Prim> deck_prims;
+    double broken_end_z = 0.0;   // scenery 42's underside, its far end
     for (const char* kind : { "ROAD2", "SCN2" }) {
         std::vector<std::vector<uint8_t>> raw;
         const std::string file = stunt && std::string(kind) == "ROAD2" ? std::string(stunt_road) : "T" + t + "ROAD/T" + t + kind;
@@ -1037,6 +1081,12 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         for (size_t k = 0; k < raw.size(); k++) {
             if (scenery && (banner_built || run_in) && int(k) == finish_banner) continue;   // drawn as the FINISH material
             if (scenery && !listed.empty() && !listed.count(int(k) + 1) && int(k) != finish_banner) continue;   // never drawn
+            // Far stand-ins for the PS1's short draw distance, redundant here where the real model is always drawn:
+            // Golden Gate's id 91, a flat card with the bridge painted on it standing over the bay (x 653-824 m), drawn
+            // from the cliff road (sections 33-37 and 52) where the bridge itself is out of range
+            // (docs/sfrush_ps1.md#far-stand-ins).
+            if (scenery && tr.n == 1 && int(k) + 1 == 91) continue;
+            if (n64_overpass && (scenery ? k == 42 : (k == 26 || k == 27 || k == 70))) continue;
             const uint32_t cflags = scenery ? chunk_flags[int(k) + 1] : 0u;     // ids from 1
             if ((cond.condition == Condition::night && (cflags & 0x4000)) || (cond.condition != Condition::night && (cflags & 0x2000))) continue;
             const bool semi = (cflags & 0x1000) != 0;
@@ -1156,6 +1206,95 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                 for (auto& tri : tris) p.tris.push_back(tri);
                 scenery_tris += ring.size() - 2;
             }
+            if (n64_overpass) {
+                // The rest of the PS1's overpass in other chunks (roads 25 and 28's abutment walls, 28 m tall at z
+                // -1435): every face over 9 m in the N64 overpass's footprint goes; the curbs and signs below stay.
+                for (auto& [m, p] : prims) {
+                    std::vector<std::array<uint32_t, 3>> keep;
+                    for (const auto& tri : p.tris) {
+                        const V3 &a = p.verts[tri[0]], &b = p.verts[tri[1]], &c = p.verts[tri[2]];
+                        double cx = (a[0] + b[0] + c[0]) / 3.0, cz = (a[2] + b[2] + c[2]) / 3.0;
+                        bool inside = cx > 1201.0 && cx < 1245.0 && cz > n64_overpass_end && cz < -1283.0 && std::max({ a[1], b[1], c[1] }) > 9.0;
+                        if (!inside) keep.push_back(tri);
+                    }
+                    p.tris = std::move(keep);
+                }
+            }
+            if (upper_deck && scenery && (k == 42 || k == 43)) {
+                const int under = material(704, 256, 28733);
+                // One triangle's corners, its centroid z, and whether it faces down.
+                auto tri_of = [](const a49::Glb::Prim& p, const std::array<uint32_t, 3>& t) {
+                    std::array<V3, 3> v{ p.verts[t[0]], p.verts[t[1]], p.verts[t[2]] };
+                    return v;
+                };
+                if (k == 42 && prims.count(under)) {
+                    for (const auto& t : prims[under].tris) {
+                        auto v = tri_of(prims[under], t);
+                        for (auto& c : v) if (c[1] > 30.0) broken_end_z = std::min(broken_end_z, c[2]);
+                    }
+                }
+                if (k == 43 && broken_end_z < 0.0 && prims.count(under)) {
+                    // Scenery 43's underside spans [z0, z1]; mapped linearly onto [z1, broken_end_z].
+                    double z0 = 0.0, z1 = -1e9;
+                    for (const auto& t : prims[under].tris) {
+                        for (auto& c : tri_of(prims[under], t)) if (c[1] > 30.0) z0 = std::min(z0, c[2]), z1 = std::max(z1, c[2]);
+                    }
+                    if (z1 > z0 && broken_end_z > z1) {
+                        // Map 0 fits scenery 43 onto [z1, broken_end_z] (its underside fills the deck); map 1 shifts it
+                        // to end at the broken end's top (-1653), for the parts missing beside the rebar.
+                        auto map0 = [&](double z) { return z1 + (z - z0) * (broken_end_z - z1) / (z1 - z0); };
+                        auto map1 = [&](double z) { return z + (-1653.0 - z1); };
+                        // A section's parts: deck tops and undersides (lo = the lower deck), the side faces of each
+                        // deck and the truss between them, west (x < 1223) or east.
+                        auto part_of = [](const std::array<V3, 3>& v) {
+                            V3 c = (v[0] + v[1] + v[2]) * (1.0 / 3.0);
+                            V3 n = a49::unit(a49::cross(v[1] - v[0], v[2] - v[0]));
+                            double ylo = std::min({ v[0][1], v[1][1], v[2][1] }), yhi = std::max({ v[0][1], v[1][1], v[2][1] });
+                            if (std::abs(n[1]) > 0.7) return std::string(n[1] > 0 ? "top" : "under") + (c[1] < 28.0 ? "_lo" : "_up");
+                            if (std::abs(n[0]) > 0.7)
+                                return std::string(c[0] < 1223.0 ? "W" : "E") + (yhi < 24.0 ? "_lo" : ylo > 30.0 ? "_up" : "_truss");
+                            return std::string("end");
+                        };
+                        // Where the PS1 lacks each part between scenery 43 and the broken end (road 70, scenery 42
+                        // and 43 measured by part; docs/sfrush_ps1.md#embarcadero-upper-deck), and the map to use.
+                        struct Gap { const char* part; double a, b; int map; bool both; };
+                        static const Gap gaps[] = {
+                            { "under_up", -1845, -1690, 0, true },
+                            { "top_lo", -1845, -1806, 0, false }, { "under_lo", -1845, -1806, 0, false },
+                            { "W_lo", -1845, -1793, 0, false }, { "E_lo", -1845, -1806, 0, false },
+                            { "W_up", -1845, -1820, 0, false },
+                            { "W_truss", -1845, -1771, 0, false }, { "W_truss", -1725, -1698, 0, false },
+                            { "E_truss", -1845, -1802, 0, false }, { "E_truss", -1725, -1698, 0, false },
+                            { "E_lo", -1708, -1653, 1, false }, { "W_truss", -1698, -1660, 1, false },
+                            { "E_truss", -1698, -1660, 1, false },
+                        };
+                        for (auto& [m, src] : prims) {
+                            for (const auto& t : src.tris) {
+                                const auto v0 = tri_of(src, t);
+                                const std::string part = part_of(v0);
+                                for (const Gap& gp : gaps) {
+                                    if (part != gp.part) continue;
+                                    auto v = v0;
+                                    double cz = 0;
+                                    for (auto& c : v) c[2] = gp.map == 0 ? map0(c[2]) : map1(c[2]), cz += c[2] / 3.0;
+                                    if (cz < gp.a || cz > gp.b) continue;
+                                    a49::Glb::Prim& d = deck_prims[m];
+                                    d.material = src.material;
+                                    for (int side = 0; side < (gp.both ? 2 : 1); side++) {
+                                        uint32_t base = uint32_t(d.verts.size());
+                                        for (int c = 0; c < 3; c++) d.verts.push_back(v[c]), d.uvs.push_back(src.uvs[t[c]]);
+                                        std::array<uint32_t, 3> o = side == 0 ? std::array<uint32_t, 3>{ base, base + 1, base + 2 }
+                                                                               : std::array<uint32_t, 3>{ base, base + 2, base + 1 };
+                                        V3 n = a49::unit(a49::cross(d.verts[o[1]] - d.verts[o[0]], d.verts[o[2]] - d.verts[o[0]]));
+                                        for (int c = 0; c < 3; c++) d.normals.push_back(n);
+                                        d.tris.push_back(o);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             std::vector<a49::Glb::Prim> list;
             for (auto& [m, p] : prims) if (!p.tris.empty()) list.push_back(std::move(p));
             if (list.empty()) continue;
@@ -1172,6 +1311,221 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             g.textured_mesh(line, list);
             chunk_count++;
         }
+    }
+    if (upper_deck && !deck_prims.empty()) {
+        std::vector<a49::Glb::Prim> list;
+        size_t tris = 0;
+        for (auto& [mm, p] : deck_prims) tris += p.tris.size(), list.push_back(std::move(p));
+        g.textured_mesh("PS1_UPPER_DECK", list);
+        report.push_back("Embarcadero upper deck: " + std::to_string(tris) + " triangles from scenery 43, z " +
+                         std::to_string(int(broken_end_z)) + " to scenery 43");
+    }
+    if (n64_overpass) {
+        // The N64 overpass (docs/sfrush_ps1.md#embarcadero-overpass): every N64 course triangle over the freeway's
+        // footprint (x 1201-1245 m, z n64_overpass_end to -1283 m in track.glb) that rises above the ground (a corner
+        // over 8 m), so its decks, ramps, truss and pillars come as one mesh, cut at n64_overpass_end where the PS1's
+        // own back end (scenery 43) takes over. The N64's world (feet, x to the left) goes to track.glb by the fit
+        // tools/sfrush_ps1/n64_census.py measured (a quarter turn, feet to meters), then each vertex moves up or down
+        // by the table below, by z, so the decks the race drives on sit on the PS1's collision (kept): the near upper
+        // deck 1 m lower, the far lower deck 0.4 m. That also puts the far lower deck's road (20.4 m) and underside
+        // (15.5 m) on scenery 43's; the upper deck's underside is 39.2 m there against scenery 43's 36.5 m, so from z
+        // -1700 to the cut everything above the lower deck's curbs (21.5 m) is squeezed toward them, by up to 0.847
+        // at the cut. N64 textures and vertex shades, drawn from both sides; at night darkened by the PS1's night
+        // light (night_light).
+        constexpr double s = 0.30480370641307, tx = 384.08245198647285, tz = -88.0590523960268, ty = 5.283154558536629;
+        static const std::array<std::array<double, 2>, 8> warp = { { { -1865, -0.4 }, { -1640, -0.45 }, { -1590, -1.0 },
+            { -1390, -1.0 }, { -1365, -0.9 }, { -1340, -0.8 }, { -1315, -0.5 }, { -1285, 0.1 } } };
+        auto lift = [&](double z) {
+            if (z <= warp.front()[0]) return warp.front()[1];
+            for (size_t i = 1; i < warp.size(); i++) {
+                if (z <= warp[i][0]) return warp[i - 1][1] + (warp[i][1] - warp[i - 1][1]) * (z - warp[i - 1][0]) / (warp[i][0] - warp[i - 1][0]);
+            }
+            return warp.back()[1];
+        };
+        constexpr double squeeze_from = -1700.0, squeeze_base = 21.5, squeeze_end = (36.5 - 21.5) / (39.2 - 21.5);
+        auto place_xyz = [&](double gx, double gy, double gz) {
+            double z = s * gx + tz, y = s * gy + ty + lift(z);
+            if (z < squeeze_from && y > squeeze_base) {
+                double f = 1.0 + (squeeze_end - 1.0) * std::min(1.0, (squeeze_from - z) / (squeeze_from - n64_overpass_end));
+                y = squeeze_base + (y - squeeze_base) * f;
+            }
+            return V3{ s * gz + tx, y, z };
+        };
+        std::array<double, 3> shade{ 1, 1, 1 };
+        if (cond.condition == Condition::night) shade = night_light(disc);
+        // The triangles kept, with their facing: the N64's winding (a front face counterclockwise) holds in track.glb,
+        // its road tops facing up. They are drawn from both sides all the same: the N64 culls back faces and built
+        // the overpass for its own route, and the PS1's route sees it from behind too, where one-sided faces left
+        // holes. A deck's underside is a strip of the road image's edge stretched across it (plain streaks), not the
+        // road. A triangle crossing the cut is clipped to it (in the N64's world, so the cut edge is straight), its
+        // texture coordinates and shades interpolated.
+        struct Corner { double g[3]; double uv[2]; double col[4]; };
+        struct Kept { int image; std::array<Corner, 3> c; std::array<V3, 3> v; V3 n; };
+        std::vector<Kept> keep;
+        const double cut_gx = (n64_overpass_end - tz) / s;      // the cut in the N64's x (track.glb z = s gx + tz)
+        for (const ps1::N64Scene::Tri& t : n64_scene->tris) {
+            if (t.image < 0 || size_t(t.image) >= n64_scene->images.size()) continue;
+            std::vector<Corner> poly;
+            for (int k = 0; k < 3; k++) {
+                Corner c{};
+                for (int i = 0; i < 3; i++) c.g[i] = t.p[k][i];
+                for (int i = 0; i < 2; i++) c.uv[i] = t.uv[k][i];
+                for (int i = 0; i < 4; i++) c.col[i] = t.color[k][i];
+                poly.push_back(c);
+            }
+            // Keep gx >= cut_gx (z >= the cut).
+            std::vector<Corner> in;
+            for (size_t k = 0; k < poly.size(); k++) {
+                const Corner &a = poly[k], &b = poly[(k + 1) % poly.size()];
+                bool ia = a.g[0] >= cut_gx, ib = b.g[0] >= cut_gx;
+                if (ia) in.push_back(a);
+                if (ia != ib) {
+                    double f = (cut_gx - a.g[0]) / (b.g[0] - a.g[0]);
+                    Corner m{};
+                    for (int i = 0; i < 3; i++) m.g[i] = a.g[i] + (b.g[i] - a.g[i]) * f;
+                    for (int i = 0; i < 2; i++) m.uv[i] = a.uv[i] + (b.uv[i] - a.uv[i]) * f;
+                    for (int i = 0; i < 4; i++) m.col[i] = a.col[i] + (b.col[i] - a.col[i]) * f;
+                    m.g[0] = cut_gx;
+                    in.push_back(m);
+                }
+            }
+            for (size_t k = 1; k + 1 < in.size(); k++) {
+                Kept kt{ t.image, { in[0], in[k], in[k + 1] }, {}, {} };
+                for (size_t i = 0; i < 3; i++) kt.v[i] = place_xyz(kt.c[i].g[0], kt.c[i].g[1], kt.c[i].g[2]);
+                V3 c = (kt.v[0] + kt.v[1] + kt.v[2]) * (1.0 / 3.0);
+                double top = std::max({ kt.v[0][1], kt.v[1][1], kt.v[2][1] });
+                if (c[0] < 1201.0 || c[0] > 1245.0 || c[2] > -1283.0 || top < 8.0) continue;
+                V3 n = a49::cross(kt.v[1] - kt.v[0], kt.v[2] - kt.v[0]);
+                if (n[0] * n[0] + n[1] * n[1] + n[2] * n[2] < 1e-12) continue;
+                kt.n = a49::unit(n);
+                keep.push_back(kt);
+            }
+        }
+        // PS1 textures (docs/sfrush_ps1.md#embarcadero-overpass): where the PS1's own overpass has the same surface,
+        // the N64 image gives way to the PS1's texels of it, read from this condition's VRAM (so snowy, or the
+        // night's colors), with the N64's mapping kept. An N64 image is known by its size and mean color (the same
+        // from the ROM and from a model dump). Each PS1 source is a rectangle of a texture page with a CLUT (the pages
+        // and CLUTs the PS1's roads 23-28 and 70 and scenery 42 and 43 draw these surfaces with, the same slots in
+        // both conditions); `across` maps the N64 image's u (0 to 1) to the rectangle's x through anchors, linear
+        // between them.
+        //   - Road (N64 64x32, half the road, mirrored in s: edge line at x 9.5, lane dashes at 38.5, center line at
+        //     61.5; two dashes down it): the PS1's half road, the other way round (center line at x 2, dashes at 63.5,
+        //     edge line at 133.5, then the snowy shoulder; a dash every 16 rows), 32 rows of it.
+        //   - Deck fascia, the ivy wall, plain concrete (three N64 images) and the dangling rebar: the PS1's.
+        //   - Undersides: the PS1's deck underside strip, for the N64's girder image (under the first ramp) and for
+        //     the road image's triangles facing down (the N64 stretches the road's edge strip, s 0 to 0.12, across
+        //     them: here that strip's u is scaled to the whole underside image).
+        // The truss members, the red pillars and two ground-level images have no PS1 surface and stay the N64's,
+        // darkened at night as before.
+        struct Source {
+            int w, h, r, g, b;              // the N64 image: size and mean color
+            int tx, ty, clut, y0, y1;       // the PS1 page, CLUT and rows
+            std::vector<std::array<double, 2>> across;      // (N64 u, PS1 x)
+        };
+        static const std::vector<Source> sources = {
+            { 64, 32, 81, 71, 60, 320, 256, 30781, 0, 32, { { 0.0, 157.0 }, { 9.5 / 64, 133.5 }, { 38.5 / 64, 63.5 }, { 61.5 / 64, 2.0 }, { 1.0, 0.0 } } },
+            { 64, 16, 111, 93, 87, 320, 256, 30782, 96, 128, { { 0.0, 128.0 }, { 1.0, 256.0 } } },
+            { 64, 64, 86, 111, 75, 832, 256, 26684, 0, 64, { { 0.0, 184.0 }, { 1.0, 256.0 } } },
+            { 64, 64, 180, 173, 169, 320, 256, 30781, 8, 52, { { 0.0, 184.0 }, { 1.0, 232.0 } } },
+            { 64, 64, 118, 123, 124, 320, 256, 30781, 8, 52, { { 0.0, 184.0 }, { 1.0, 232.0 } } },
+            { 64, 64, 128, 132, 133, 320, 256, 30781, 8, 52, { { 0.0, 184.0 }, { 1.0, 232.0 } } },
+            { 64, 64, 30, 29, 29, 576, 0, 10302, 0, 64, { { 0.0, 192.0 }, { 1.0, 256.0 } } },
+            { 32, 64, 46, 40, 25, 896, 256, 24638, 88, 108, { { 0.0, 12.0 }, { 1.0, 72.0 } } },
+        };
+        const size_t road_source = 0, underside_source = sources.size() - 1;
+        std::vector<int> source_of(n64_scene->images.size(), -1);
+        for (size_t i = 0; i < n64_scene->images.size(); i++) {
+            const auto& im = n64_scene->images[i];
+            if (im.rgba.size() < size_t(im.width) * im.height * 4 || im.rgba.empty()) continue;
+            double sum[3] = {};
+            for (size_t q = 0; q + 3 < im.rgba.size(); q += 4) sum[0] += im.rgba[q], sum[1] += im.rgba[q + 1], sum[2] += im.rgba[q + 2];
+            double px = double(im.rgba.size() / 4);
+            for (size_t k = 0; k < sources.size(); k++) {
+                const Source& src = sources[k];
+                if (int(im.width) == src.w && int(im.height) == src.h && std::abs(sum[0] / px - src.r) < 3.0 &&
+                    std::abs(sum[1] / px - src.g) < 3.0 && std::abs(sum[2] / px - src.b) < 3.0) {
+                    source_of[i] = int(k);
+                    break;
+                }
+            }
+        }
+        // A source's image: its rows, its columns resampled along `across` (as wide as the PS1 span).
+        auto source_image = [&](const Source& src, int& w, int& h, bool& clear) {
+            w = std::max(1, int(std::lround(std::abs(src.across.back()[1] - src.across.front()[1]))));
+            h = src.y1 - src.y0;
+            std::vector<uint8_t> rgba(size_t(w) * h * 4);
+            clear = false;
+            for (int x = 0; x < w; x++) {
+                double u = (x + 0.5) / w, px = src.across.back()[1];
+                for (size_t q = 1; q < src.across.size(); q++) {
+                    if (u <= src.across[q][0]) {
+                        const auto &a0 = src.across[q - 1], &a1 = src.across[q];
+                        px = a0[1] + (a1[1] - a0[1]) * (u - a0[0]) / (a1[0] - a0[0]);
+                        break;
+                    }
+                }
+                int sx = std::clamp(int(std::floor(px)), 0, 255);
+                for (int y = 0; y < h; y++) {
+                    auto c = vram.texel(src.tx, src.ty, src.clut, sx, src.y0 + y);
+                    std::memcpy(&rgba[(size_t(y) * w + x) * 4], c.data(), 4);
+                    clear = clear || c[3] == 0;
+                }
+            }
+            return rgba;
+        };
+        std::map<std::array<int, 2>, int> mat_of;      // (N64 image, PS1 source or -1) -> material
+        std::map<int, a49::Glb::Prim> prims;
+        size_t kept = 0, ps1_textured = 0;
+        for (const Kept& k : keep) {
+            int image = k.image;
+            int source = source_of[size_t(image)];
+            double u_scale = 1.0;
+            if (source == int(road_source) && k.n[1] < -0.7) {
+                source = int(underside_source);
+                u_scale = 1.0 / 0.12;
+            }
+            auto it = mat_of.find({ image, source });
+            if (it == mat_of.end()) {
+                const auto& im = n64_scene->images[size_t(image)];
+                int m;
+                if (source >= 0) {
+                    int w = 0, h = 0;
+                    bool clear = false;
+                    std::vector<uint8_t> rgba = source_image(sources[size_t(source)], w, h, clear);
+                    std::string name = "N64_" + std::to_string(image) + "_PS1_" + std::to_string(source);
+                    m = g.material(name, g.image(name, a49::png(rgba, w, h)), clear ? "MASK" : "OPAQUE", true, { im.wrap_s, im.wrap_t });
+                }
+                else {
+                    bool clear = false;
+                    for (size_t i = 3; i < im.rgba.size(); i += 4) clear = clear || im.rgba[i] < 128;
+                    std::string name = "N64_" + std::to_string(image);
+                    m = g.material(name, g.image(name, a49::png(im.rgba, int(im.width), int(im.height))), clear ? "MASK" : "OPAQUE",
+                                   true, { im.wrap_s, im.wrap_t });
+                }
+                it = mat_of.emplace(std::array<int, 2>{ image, source }, m).first;
+            }
+            a49::Glb::Prim& p = prims[it->second];
+            p.material = it->second;
+            uint32_t base = uint32_t(p.verts.size());
+            // The PS1's texels carry the condition's light already; the N64's are darkened at night.
+            const std::array<double, 3> lit = source >= 0 ? std::array<double, 3>{ 1, 1, 1 } : shade;
+            for (size_t c = 0; c < 3; c++) {
+                p.verts.push_back(k.v[c]);
+                p.normals.push_back(k.n);
+                p.uvs.push_back({ k.c[c].uv[0] * u_scale, k.c[c].uv[1] });
+                p.colors.push_back({ k.c[c].col[0] / 255.0 * lit[0], k.c[c].col[1] / 255.0 * lit[1],
+                                     k.c[c].col[2] / 255.0 * lit[2], k.c[c].col[3] / 255.0 });
+            }
+            p.tris.push_back({ base, base + 1, base + 2 });
+            kept++;
+            if (source >= 0) ps1_textured++;
+            if (source == int(road_source) && k.n[1] > 0.7) n64_road_tops.push_back(k.v);
+        }
+        std::vector<a49::Glb::Prim> list;
+        for (auto& [mm, p] : prims) list.push_back(std::move(p));
+        if (!list.empty()) g.textured_mesh("PS1_N64_OVERPASS", list);
+        report.push_back("Embarcadero overpass: " + std::to_string(kept) + " N64 triangles in place of roads 26, 27, 70 and scenery 42 (" + std::to_string(ps1_textured) +
+                         " with PS1 textures); the back end stays the PS1 scenery 43");
     }
 
     // Collision (docs/sfrush_ps1.md#collision).
@@ -1274,6 +1628,113 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     size_t b_records = 0;
     const std::string coll_dir = stunt ? std::string(stunt_collision) : "COLLDAT" + t;
     if (!read_collision(coll_dir, grounds, walls, chunk_of_ground, b_records)) return false;
+    if (n64_overpass) {
+        // The PS1's lower deck is broken between its scenery 42 and 43: its collision stops at a jagged edge (corners
+        // A, B, C below, track.glb meters) with a wall along B-C across the right half of the road and a drop past
+        // A-B, and starts again at z -1842.91 (D, E). The N64's deck, drawn here in its place, runs across unbroken,
+        // so a car fell through the drawn road past the PS1 key (user report 2026-11-10). The gap gets the deck's
+        // floor (the PS1's corners themselves, so no seam), the B-C wall goes and the deck's side walls run on to
+        // the far side (docs/sfrush_ps1.md#embarcadero-overpass).
+        const double ft = 1.0 / 0.3048;
+        auto at = [&](double x, double z) { return V3{ x * ft, 20.33 * ft, z * ft }; };
+        const V3 A = at(1207.37, -1793.02), B = at(1223.01, -1799.14), C = at(1238.65, -1783.51), D = at(1238.65, -1842.91),
+                 E = at(1207.37, -1842.91);
+        auto near = [](const V3& p, const V3& q) { return std::hypot(p[0] - q[0], p[2] - q[2]) < 3.0 && std::abs(p[1] - q[1]) < 3.0; };
+        // The far side's ground polygon (a corner at E) gives the chunk the new floor and walls belong to, and each
+        // corner snaps to the PS1's own where there is one.
+        int chunk = -1;
+        std::array<V3, 5> corner{ A, B, C, D, E };
+        for (size_t i = 0; i < grounds.size(); i++) {
+            for (int c = 0; c < grounds[i].n; c++) {
+                for (V3& q : corner) {
+                    if (near(grounds[i].p[c], q)) q = grounds[i].p[c];
+                }
+                if (near(grounds[i].p[c], E)) chunk = chunk_of_ground[i];
+            }
+        }
+        if (chunk >= 0) {
+            auto floor_tri = [&](const V3& a, const V3& b, const V3& c) {
+                Ground gr{};
+                gr.p = { a, b, c, c };
+                gr.n = 3;
+                gr.flags = 0;
+                gr.tris[0] = { 0, 1, 2 };
+                gr.tri_count = 1;
+                grounds.push_back(gr);
+                chunk_of_ground.push_back(chunk);
+            };
+            floor_tri(corner[0], corner[1], corner[4]);
+            floor_tri(corner[1], corner[3], corner[4]);
+            floor_tri(corner[1], corner[2], corner[3]);
+            // The B-C wall is a raised wall (a B record: its own height band); the new side walls take its band.
+            size_t before = walls.size();
+            double low = 0, high = 0;
+            walls.erase(std::remove_if(walls.begin(), walls.end(), [&](const Wall& w) {
+                auto on = [&](const V2& p, const V3& q) { return std::hypot(p[0] - q[0], p[1] - q[2]) < 3.0; };
+                bool across = (on(w.a, B) && on(w.b, C)) || (on(w.a, C) && on(w.b, B));
+                if (across) low = w.low, high = w.high;
+                return across;
+            }), walls.end());
+            size_t cut = before - walls.size();
+            Wall left{}, right{};
+            left.a = { corner[4][0], -1787.1 * ft };
+            left.b = { corner[4][0], corner[4][2] };
+            left.normal = { 1.0, 0.0 };
+            left.chunk = chunk;
+            right.a = { corner[3][0], corner[2][2] };
+            right.b = { corner[3][0], corner[3][2] };
+            right.normal = { -1.0, 0.0 };
+            right.chunk = chunk;
+            left.low = right.low = low;
+            left.high = right.high = high;
+            walls.push_back(left);
+            walls.push_back(right);
+            report.push_back("Embarcadero overpass: the lower deck's broken gap floored for the N64 deck (3 triangles, " +
+                             std::to_string(cut) + " wall across it removed, 2 side walls added)");
+        }
+        else {
+            report.push_back("Embarcadero overpass: the lower deck's far side wasn't found; its gap has no floor");
+        }
+        // The rest of the N64's road surfaces: the PS1's collision has floors only where its own overpass could be
+        // driven (the near upper deck to its jump, the far lower deck), and the N64's decks reach further (the lower
+        // deck's front and its ramp, the far upper deck). A drawn road triangle whose middle has no floor within 5 ft
+        // of it becomes floor itself, so no drawn road lets a car through.
+        auto floor_at = [&](double x, double z, double y) {
+            for (const Ground& gr : grounds) {
+                for (int k = 0; k < gr.tri_count; k++) {
+                    const V3 &a = gr.p[gr.tris[k][0]], &b = gr.p[gr.tris[k][1]], &c = gr.p[gr.tris[k][2]];
+                    double d0 = (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]);
+                    double d1 = (c[0] - b[0]) * (z - b[2]) - (c[2] - b[2]) * (x - b[0]);
+                    double d2 = (a[0] - c[0]) * (z - c[2]) - (a[2] - c[2]) * (x - c[0]);
+                    if (!((d0 >= 0 && d1 >= 0 && d2 >= 0) || (d0 <= 0 && d1 <= 0 && d2 <= 0))) continue;
+                    double sum = d0 + d1 + d2;
+                    if (std::abs(sum) < 1e-9) continue;
+                    if (std::abs((c[1] * d0 + a[1] * d1 + b[1] * d2) / sum - y) < 5.0) return true;
+                }
+            }
+            return false;
+        };
+        size_t before = grounds.size();
+        std::vector<Ground> added;
+        for (const auto& t : n64_road_tops) {
+            std::array<V3, 3> q{ t[0] * ft, t[1] * ft, t[2] * ft };
+            V3 m = (q[0] + q[1] + q[2]) * (1.0 / 3.0);
+            if (floor_at(m[0], m[2], m[1])) continue;
+            Ground gr{};
+            gr.p = { q[0], q[1], q[2], q[2] };
+            gr.n = 3;
+            gr.flags = 0;
+            gr.tris[0] = { 0, 1, 2 };
+            gr.tri_count = 1;
+            added.push_back(gr);
+        }
+        for (const Ground& gr : added) {
+            grounds.push_back(gr);
+            chunk_of_ground.push_back(-1);
+        }
+        report.push_back("Embarcadero overpass: " + std::to_string(grounds.size() - before) + " of " +
+                         std::to_string(n64_road_tops.size()) + " N64 road triangles had no PS1 floor and are floor now");
+    }
     // The stunt road's ramps: its ground polygons that the day road's map (COLLDAT1) hasn't, corner for corner (they
     // replace 61 of its 859 road polygons with 116). They keep their own flat faces: the spline road below is fitted
     // to the rest and would round off their lips.
@@ -1307,7 +1768,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // Ground by surface (FLAGS & 0x18: road, dirt, grass, water). The grass class (the park's grass and sand shoulders)
     // is the custom surface VERGE (track.toml below): COL_GRASS stores wheel material 2, which is Rush 2's water and
     // throws its splash (docs/calspeed_research.md#wheel-effects), so VERGE drives with grass's drag and takes dirt's
-    // dust and sound.
+    // dust and sound. The water class (Embarcadero's tunnel channel, Chinatown's beside its shortcut) is CHANNEL: on
+    // the PS1 it only sets a splash byte and drives as road, while Rush 2's COL_WATER is deep water that ends the race
+    // on touch (user report 2026-11-10); CHANNEL is grass-like (wheel material 2, Rush 2's water splash), no drag.
     struct Mesh {
         std::vector<V3> verts, normals;
         std::vector<std::array<uint32_t, 3>> tris;
@@ -1316,7 +1779,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     std::map<std::string, Mesh> by_surface;
     for (const Ground& gr : grounds) {
         int s = gr.flags & 0x18;
-        Mesh& m = by_surface[s == 0 ? "ROAD" : s == 0x08 ? "DIRT" : s == 0x10 ? "VERGE" : "WATER"];
+        Mesh& m = by_surface[s == 0 ? "ROAD" : s == 0x08 ? "DIRT" : s == 0x10 ? "VERGE" : "CHANNEL"];
         for (int k = 0; k < gr.tri_count; k++) {
             std::array<V3, 3> p{ gr.p[gr.tris[k][0]], gr.p[gr.tris[k][1]], gr.p[gr.tris[k][2]] };
             V3 n = a49::cross(p[1] - p[0], p[2] - p[0]);
@@ -1336,7 +1799,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     // Walls: the PS1's have no height; each becomes a face from 10 ft under the ground beside it to 40 ft over it, cut
     // short under any other ground above (a street over a tunnel).
-    size_t steps = 0;
+    size_t steps = 0, lifted_walls = 0;
     {
         Mesh& m = by_surface["WALL"];
         for (const Wall& w : walls) {
@@ -1346,7 +1809,49 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             if (w.high > w.low) {
                 // A raised wall: its own band, from 3 ft under its base (where a car's center, 2-3 ft over the deck,
                 // starts to meet it) to its top.
-                V3 q[4] = { { w.a[0], w.low - 3.0, w.a[1] }, { w.b[0], w.low - 3.0, w.b[1] }, { w.b[0], w.high, w.b[1] },
+                double bottom = w.low - 3.0;
+                // Hanging over a road it crosses: Embarcadero's lower freeway deck starts across the street under the
+                // overpass with a wall along its front edge (track.glb x 1217-1233 at z -1723 m), band 25.6 to
+                // 67.3 ft over a street at 18.4 ft. Cars pass under it, but Rush 2's chase camera, 6 ft over the car,
+                // stops at any collision polygon within 5 ft (collision_ground_query_basis_8008BDC0), so it was
+                // held back there (user report 2026-11-11). Where one ground polygon lies under both sides of the
+                // wall's line, 8 ft out, less than 14 ft under the wall, the wall starts 14 ft over that ground
+                // (never less than 5 ft under its top). Only under Embarcadero's overpass (track.glb x 1201-1245, z
+                // -1990 to -1283 m): other raised walls that hang over a road (the Rampage truck's trailer on the same
+                // track) are left as they are.
+                const double mx = (w.a[0] + w.b[0]) * 0.5 * 0.3048, mz = (w.a[1] + w.b[1]) * 0.5 * 0.3048;
+                if (tr.n == 2 && mx > 1201.0 && mx < 1245.0 && mz > -1990.0 && mz < -1283.0) {
+                    double nx = -d[1] / len, nz = d[0] / len, under = -1e18;
+                    int samples = std::max(1, int(len / 4.0));
+                    for (const Ground& gr : grounds) {
+                        auto height = [&](double x, double z) {
+                            for (int k = 0; k < gr.tri_count; k++) {
+                                const V3& p0 = gr.p[gr.tris[k][0]];
+                                const V3& p1 = gr.p[gr.tris[k][1]];
+                                const V3& p2 = gr.p[gr.tris[k][2]];
+                                V3 on = a49::cross(p1 - p0, p2 - p0);
+                                if (std::fabs(on[1]) < 1e-9) continue;
+                                auto side = [&](const V3& a, const V3& b) { return (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]); };
+                                double s0 = side(p0, p1), s1 = side(p1, p2), s2 = side(p2, p0);
+                                if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+                                return p0[1] - (on[0] * (x - p0[0]) + on[2] * (z - p0[2])) / on[1];
+                            }
+                            return std::numeric_limits<double>::quiet_NaN();
+                        };
+                        for (int sm = 0; sm <= samples; sm++) {
+                            double t = double(sm) / samples, x = w.a[0] + d[0] * t, z = w.a[1] + d[1] * t;
+                            double y0 = height(x + nx * 8.0, z + nz * 8.0), y1 = height(x - nx * 8.0, z - nz * 8.0);
+                            if (std::isnan(y0) || std::isnan(y1)) continue;
+                            double y = std::max(y0, y1);
+                            if (y < bottom) under = std::max(under, y);
+                        }
+                    }
+                    if (under > -1e17 && bottom - under < 14.0 && under + 14.0 < w.high - 5.0) {
+                        bottom = under + 14.0;
+                        lifted_walls++;
+                    }
+                }
+                V3 q[4] = { { w.a[0], bottom, w.a[1] }, { w.b[0], bottom, w.b[1] }, { w.b[0], w.high, w.b[1] },
                             { w.a[0], w.high, w.a[1] } };
                 V3 n{ w.normal[0], 0.0, w.normal[1] };
                 if (a49::dot(a49::cross(q[1] - q[0], q[2] - q[0]), n) < 0) std::swap(q[1], q[3]);
@@ -1519,6 +2024,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         }
     }
     if (steps) report.push_back(std::to_string(steps) + " steep ground polygons walled at their foot");
+    if (lifted_walls) report.push_back(std::to_string(lifted_walls) + " raised wall under the Embarcadero overpass starts 14 ft over the street (the chase camera passes)");
     // (The collision meshes are written after the AI path is read: the spline road is fitted along it.)
 
     // The AI path: the drones' two lines (docs/sfrush_ps1.md#ai-paths), 20-byte records of 0.1 ft x, y, speed,
@@ -2923,21 +3429,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         // ramps (CLUT entries 1-6) at about a quarter of the day's; here every car, whatever game it is from, is tinted
         // by that ratio, measured over every car texture both sets have (car_light). The PS1's light glow sprites
         // (light_sprite_draw, docs/sfrush_ps1.md#snow-and-night) aren't ported.
-        std::array<double, 3> day{}, night{};
-        for (const char* f : { "BLACK", "BLUE", "BROWN", "GREEN", "ORANGE", "PURPLE", "RED", "WHITE", "YELLOW", "BMW01", "BMW02",
-                               "BUGETT01", "BUGETT02", "CAM01", "CAM02", "CONCEP01", "CONCEP02", "HUTCH01", "JEP01", "JET01",
-                               "MINI01", "PIGGY14", "SUPRA01", "SUPRA02", "VIPER01", "VIPER02", "VWBUG01", "VWBUG02",
-                               "VWBUS01", "VWBUS02", "BBUS", "TATS12" }) {
-            std::vector<uint8_t> a, b;
-            if (!disc.read(std::string("CARSGFX/") + f + ".GFX", a) || !disc.read(std::string("CARSGFXN/") + f + ".GFX", b) ||
-                a.size() < 40 || b.size() < 40) continue;
-            for (int i = 1; i <= 6; i++) {
-                uint16_t ca = u16(&a[8 + 2 * i]), cb = u16(&b[8 + 2 * i]);
-                for (int k = 0; k < 3; k++) day[k] += (ca >> (5 * k)) & 31, night[k] += (cb >> (5 * k)) & 31;
-            }
-        }
+        const std::array<double, 3> ratio = night_light(disc);
         char light[8];
-        auto channel = [&](int k) { return day[k] > 0 ? int(std::lround(std::clamp(night[k] / day[k], 0.0, 1.0) * 255.0)) : 255; };
+        auto channel = [&](int k) { return int(std::lround(ratio[size_t(k)] * 255.0)); };
         snprintf(light, sizeof(light), "#%02x%02x%02x", channel(0), channel(1), channel(2));
         look_toml = std::string("[look]\nfog_color = \"#080808\"\nsky = \"none\"\ncar_light = \"") + light + "\"\n\n";
         report.push_back(std::string("night: car light ") + light);
@@ -3003,7 +3497,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         "author = \"San Francisco Rush, PlayStation (converted)\"\n"
         "description = \"Track " + t + " of the PlayStation San Francisco Rush" + described + "\"\n\n" + race_toml +
         // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
-        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" + ai_speed_toml(tr.n, cond.condition == Condition::snow) + condition_toml + look_toml +
+        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n"
+        // The water class (COL_CHANNEL, above): Rush 2's water splash, driving as the PS1's does (no drag).
+        "[surfaces.channel]\nlike = \"grass\"\ndrag = 0\n\n" + ai_speed_toml(tr.n, cond.condition == Condition::snow) + condition_toml + look_toml +
         "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + menu_toml + diorama_toml + mover_toml);
     // The track select picture: the PS1's own (TITLETGA/TRK<n>N.TGA, 512 x 168, 15-bit, rows top-down whatever the
     // header says), a map of the course with its districts named, whole: the route preview keeps its 512 x 168 texels
@@ -3059,14 +3555,14 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
 }
 
 bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
-                      const N64Lanes& n64) {
+                      const N64Lanes& n64, const N64Scene& n64_embarcadero) {
     for (const TrackInfo& tr : tracks) {
         for (const ConditionInfo& c : conditions) {
             if (c.condition == Condition::day && !tr.day) continue;
             if (c.condition == Condition::stunt && !tr.stunt) continue;
             const std::vector<uint8_t>* lanes = nullptr;
             if (tr.n >= 1 && tr.n <= 3 && !n64[size_t(tr.n - 1)].empty()) lanes = &n64[size_t(tr.n - 1)];
-            if (!build_condition(disc, assets_dir, out, log, tr, c, lanes)) return false;
+            if (!build_condition(disc, assets_dir, out, log, tr, c, lanes, tr.n == 2 ? &n64_embarcadero : nullptr)) return false;
         }
     }
     return true;

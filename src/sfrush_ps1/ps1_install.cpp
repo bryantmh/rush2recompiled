@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -24,6 +25,7 @@
 #include "track1.h"
 #include "track2049.h"
 #include "track_cache.h"
+#include "asset_catalog.h"
 
 namespace ps1 = rush2::sfrush_ps1;
 
@@ -41,6 +43,48 @@ namespace {
         for (int t = 0; t < 3; t++) {
             if (!rush2::track1::read_asset(*rom, 58 + t, out[size_t(t)])) out[size_t(t)].clear();
         }
+        return out;
+    }
+
+    // The N64 SF Rush's Embarcadero (its track 1) as placed, its TRACK* models only (the course, not its props), for the
+    // PS1 Embarcadero's overpass (ps1_track.cpp); empty without the ROM. The ROM's presence is in the key through
+    // n64_lanes already, and the ROM is checked by its hash, so the scene needs no key of its own.
+    ps1::N64Scene n64_embarcadero() {
+        ps1::N64Scene out;
+        auto rom = rush2::track1::get_rom();
+        if (!rom) return out;
+        rush2::track1::ConvertedTrack track;
+        std::string error;
+        rush2::catalog::Container c;
+        if (!rush2::track1::convert_track(*rom, 1, "HAWAII", track, error) ||
+            !rush2::catalog::read_container(track.geometry, c, error, true)) {
+            printf("[ps1] the N64 Embarcadero couldn't be read: %s\n", error.c_str());
+            return out;
+        }
+        std::vector<int> image_of(c.textures.size(), -1);
+        auto wrap = [](rush2::upscale::Edge e) { return e == rush2::upscale::Edge::Clamp ? 33071 : e == rush2::upscale::Edge::Mirror ? 33648 : 10497; };
+        rush2::catalog::for_each_placed_triangle({ &c }, rush2::catalog::read_placement(track.placement),
+            [&](const rush2::catalog::PlacedTriangle& t) {
+                if (t.model == nullptr || t.model->name.rfind("TRACK", 0) != 0 || t.mesh == nullptr) return;
+                ps1::N64Scene::Tri tri{};
+                for (int v = 0; v < 3; v++) {
+                    // Front faces as drawn: a mirroring placement winds them the other way.
+                    int s = t.mirrored && v > 0 ? 3 - v : v;
+                    std::memcpy(tri.p[v], t.v[s], sizeof(tri.p[v]));
+                    std::memcpy(tri.uv[v], t.source[s]->uv, sizeof(tri.uv[v]));
+                    std::memcpy(tri.color[v], t.source[s]->color, sizeof(tri.color[v]));
+                }
+                int ti = t.mesh->texture;
+                if (ti >= 0 && size_t(ti) < c.textures.size() && !c.textures[size_t(ti)].image.empty()) {
+                    if (image_of[size_t(ti)] < 0) {
+                        const auto& tex = c.textures[size_t(ti)];
+                        image_of[size_t(ti)] = int(out.images.size());
+                        out.images.push_back({ tex.image.width, tex.image.height, tex.image.rgba, wrap(tex.edge_s), wrap(tex.edge_t) });
+                    }
+                    tri.image = image_of[size_t(ti)];
+                }
+                out.tris.push_back(tri);
+            });
         return out;
     }
 
@@ -172,7 +216,8 @@ namespace {
         ps1::Disc disc;
         std::string error, log;
         ps1::ModFiles files;
-        bool ok = disc.open(disc_path, error) && ps1::build_mod(disc, assets_dir(), files, log, n64);
+        ps1::N64Scene embarcadero = n64_embarcadero();
+        bool ok = disc.open(disc_path, error) && ps1::build_mod(disc, assets_dir(), files, log, n64, embarcadero);
         if (!ok || !install(files, key, disc_path, !refresh, error)) {
             if (error.empty()) error = "the disc's files couldn't be converted";
             printf("[ps1] %s\n%s", error.c_str(), log.c_str());

@@ -966,6 +966,9 @@ namespace {
         bool cutout = false;
         bool blend = false;     // translucent (glTF BLEND), drawn in the late pass
         bool wraps = true;      // repeats (not clamped) both ways: coordinates may be shifted by whole repeats
+        // Mirrored repeat (glTF 33648) in s / t: the image repeats every two tiles, so that coordinate shifts by
+        // even counts only (an odd shift draws the tile flipped).
+        bool mirror_s = false, mirror_t = false;
     };
 
     // A list being built: its commands, the vertices they load (offsets into `vertices` in the G_VTX commands listed
@@ -1178,6 +1181,8 @@ namespace {
                 if (dm.wraps) {
                     su = std::floor(std::min({ t.uv[0][0], t.uv[1][0], t.uv[2][0] }));
                     sv = std::floor(std::min({ t.uv[0][1], t.uv[1][1], t.uv[2][1] }));
+                    if (dm.mirror_s) su = 2.0f * std::floor(su / 2.0f);
+                    if (dm.mirror_t) sv = 2.0f * std::floor(sv / 2.0f);
                 }
                 std::array<int, 3> tri;
                 for (int k = 0; k < 3; k++) {
@@ -1302,6 +1307,8 @@ namespace {
             const rush2::gltf::Material* mat = mats[i];
             draw.push_back({ &textures[i], mat && mat->alpha_mode != "OPAQUE",
                              !mat || (mat->wrap_s != 33071 && mat->wrap_t != 33071) });
+            draw.back().mirror_s = mat && mat->wrap_s == 33648;
+            draw.back().mirror_t = mat && mat->wrap_t == 33648;
         }
 
         // Blob: texels, vertices, list.
@@ -3858,6 +3865,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         const Texture& t = out.textures[texture_of[m]];
         const rush2::gltf::Material* mat = m >= 0 && m < (int)scene.materials.size() ? &scene.materials[m] : nullptr;
         draw_materials.push_back({ &t, cutout_of[m], is_blend(m), !mat || (mat->wrap_s != 33071 && mat->wrap_t != 33071) });
+        draw_materials.back().mirror_s = mat && mat->wrap_s == 33648;
+        draw_materials.back().mirror_t = mat && mat->wrap_t == 33648;
         load_lists.push_back(uint32_t(g.size()));
         for (const auto& [w0, w1] : texture_load(t, mat, t.offset)) { add32(g, w0); add32(g, w1); }
         add32(g, 0xDF000000);

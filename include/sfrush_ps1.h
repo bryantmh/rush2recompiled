@@ -118,10 +118,29 @@ namespace rush2::sfrush_ps1 {
     // src/rush1/rush1_rom.cpp read_asset), when the user has the N64 ROM. The PS1's versions of those courses then
     // take the N64's lines (ps1_track.cpp, docs/sfrush_ps1.md#ai-lanes); an empty one keeps the PS1's own.
     using N64Lanes = std::array<std::vector<uint8_t>, 3>;
+    // The N64 SF Rush's Embarcadero as placed (track1::convert_track, then catalog::read_container and
+    // for_each_placed_triangle: the game's world, feet), when the user has the N64 ROM. The PS1's Embarcadero takes its
+    // waterfront freeway overpass from it (ps1_track.cpp, docs/sfrush_ps1.md#embarcadero-overpass); empty keeps the
+    // PS1's own, patched.
+    struct N64Scene {
+        struct Image {
+            uint32_t width = 0, height = 0;
+            std::vector<uint8_t> rgba;
+            int wrap_s = 10497, wrap_t = 10497;     // glTF sampler wrap modes (repeat, mirrored 33648, clamp 33071)
+        };
+        struct Tri {
+            float p[3][3];
+            float uv[3][2];                         // in units of the image's size
+            uint8_t color[3][4];
+            int image = -1;
+        };
+        std::vector<Image> images;
+        std::vector<Tri> tris;
+    };
     bool build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
-                   const N64Lanes& n64 = {});
+                   const N64Lanes& n64 = {}, const N64Scene& n64_embarcadero = N64Scene{});
     bool build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
-                     const N64Lanes& n64 = {});
+                     const N64Lanes& n64 = {}, const N64Scene& n64_embarcadero = N64Scene{});
     bool build_cars(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
     // The track select diorama (src/sfrush_ps1/ps1_diorama.cpp) as a glb: the hand-made layout `spec` (JSON) round
     // the route (the AI path's middle, a closed loop, glTF meters as track.glb has it).
