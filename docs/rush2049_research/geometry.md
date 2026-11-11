@@ -291,6 +291,27 @@ Details:
 - With no region found, a default table at 0x800CA1B8 is used.
 - A non-zero byte at 0x8010C178 hides every section (2049: 0x8014061A).
 - LA (5) has a second 16-byte mask at `0x800C8578` that triggers `func_8007BFBC` on its sections. [I: purpose]
+- The records `func_8007C06C` walks start at `*0x8010C15C` (also the base the record index is taken from): section i
+  is the i-th record of the top-level `next` chain, name at +0x00.
+
+**Stand-ins and copies [V, ROM, 2026-11-10].** A section its own region hides is low-detail scenery drawn only from
+far away. Most are backdrops nothing else draws. Three in Lower Manhattan are copies of real sections the game hides
+wherever it shows them, shifted to look right from afar:
+
+| Copy | Shown from regions | Stands in for (hidden there) |
+|---|---|---|
+| 83 `NYONEFAKE_TT`, two plain 742 ft towers at x -797..-630, z -1407..-1240 | City Hall 3-5, 73-75 | the twin towers in 34 `NYONETRADE2` (908 ft, x -212..3, z -1365..-1122) |
+| 70 `NYONEBB_LOD1`, one bridge tower and cables | finish, docks, Wall St 51-54 | 0 `NYONEBRIDGE1`, 69 `NYONEBROOK`, 87-88 `NYONEBBX1-2` |
+| 71 `NYONEBB_LOD2`, the other tower and cables | 51-55 | 1 `NYONEBRIDGE2`, 88-90 `NYONEBBX2-4` |
+
+Search behind the list: every pair of sections no region draws together (3,742 over the 12 tracks), ranked by detail
+ratio, by direction and distance from the regions that show one, and by panorama silhouette overlap, with about 90
+pairs drawn and checked (`tools/rush2_sections.py exclusive`, `sheet`, `render`). Everything else seen was neighboring
+scenery, a subway under the street, or a backdrop; Upper Manhattan's `NYTWOCC03`, `NYTWOLAKE_W` and `NYTWO42ND#6`
+touch hidden real sections but are the only geometry of their spot. No automatic test separates copies from
+neighbors without a chosen cutoff (silhouette overlap puts adjoining Wall Street blocks at 0.31 and `FAKE_TT` at 0.24),
+so the list is by inspection and the other pairs are unchecked. src/draw_distance.cpp never draws the copies with the
+draw distance extended (issue #61): from those regions the real towers and bridge show instead of both.
 
 **2049: `func_8009EBC0` does the same.**
 - region search over `*0x80149B80`

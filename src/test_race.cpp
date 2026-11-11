@@ -14,7 +14,8 @@
 // - RUSH2_TEST_RACE_BATTLE=1: the race select's BATTLE row on (rush2::battle::set_race_battle; not saved).
 // - RUSH2_TEST_RACE_VIEW_CAR=<car>: the first view follows that car (a drone: 1 and up) for the whole race, as
 //   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course. RUSH2_TEST_RACE_VIEW_LANE=<0-3> keeps that
-//   drone to one AI lane (left to right as you drive).
+//   drone to one AI lane (left to right as you drive). RUSH2_TEST_RACE_VIEW_MODE=<0-3> puts the watched car's camera in
+//   that mode (0 bumper, 1 hood, 2 and 3 chase; docs/camera.md).
 // - RUSH2_TEST_RACE_FINISH_BANNER=1: the finish banner turns to FINISH as the race starts (the last lap's swap).
 // - RUSH2_TEST_RACE_WAIT=<seconds>: the race starts that long after the title screen is first up (a mod rebuilt at
 //   launch finished first, as when a player starts a race after it).
@@ -217,6 +218,16 @@ extern "C" void rush2_test_race_frame(uint8_t* rdram, recomp_context* ctx) {
     if (spec != nullptr && done && view_lane != nullptr && view_car != nullptr && !rush2::race_setup::in_menus(rdram)) {
         uint32_t state = 0x801124A0u + uint32_t(std::atoi(view_car)) * 0x354u + 0x30Cu;
         MEM_H(0x2A, (int32_t)state) = (int16_t)std::atoi(view_lane);
+    }
+    // RUSH2_TEST_RACE_VIEW_MODE=<0-3>: the watched car's camera mode once the race is on (car state +0x348, and +0x349
+    // the copy the wreck camera returns to; docs/camera.md: 0 bumper, 1 hood, 2 and 3 chase), to shoot a spot as a
+    // player sees it in that view.
+    static const char* view_mode = env("RUSH2_TEST_RACE_VIEW_MODE");
+    if (view_mode != nullptr && done && MEM_W(0, (int32_t)0x8010C0D0) == 3) {
+        uint32_t car = view_car != nullptr ? uint32_t(std::atoi(view_car)) : 0;
+        uint32_t state = 0x801124A0u + car * 0x354u;
+        MEM_B(0x348, (int32_t)state) = (int8_t)std::atoi(view_mode);
+        MEM_B(0x349, (int32_t)state) = (int8_t)std::atoi(view_mode);
     }
     // RUSH2_TEST_RACE_FINISH_BANNER=1: turns the finish banner to FINISH once the race is on, as passing the last
     // checkpoint of the last lap does (checkpoint_passed_8008F220 -> track_finish_line_setup_8008F080), so a test

@@ -10525,10 +10525,10 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C15C
 name = "track_placement_state"
 type = "u32"
-desc = "Word reset at heap/scene reset and track load, used by placement find/walk and PVS (low confidence)."
+desc = "Pointer to the track's placement records (0x64 bytes each): the first top-level record, and the base record indices are taken from. pvs_choose_camera_region walks the top-level next chain (+0x44) from it; section i is the i-th record, name at +0x00."
 area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/geometry.md#52-pvs-which-sections-are-drawn"
 
 [[var]]
 vram = 0x8010C160

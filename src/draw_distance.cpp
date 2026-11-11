@@ -24,12 +24,21 @@
 // by src/interpolation.cpp), and every section is drawn but the distant stand-ins.
 //
 // Distant stand-ins: regions and sections are the same top-level placement records (region i is the camera in
-// section i's box, and the region count u8[0x800CA1A8 + track] is the section count), and the city tracks have
-// sections that their own region's mask hides: crude low-detail copies of far scenery that the visibility table
-// shows only from far away, in place of the real sections it hides there (Lower Manhattan 70-92, Las Vegas 16, 34,
-// 57, 68 and 73; every track but the stunt and battle courses has some). Drawing them up close put a flat teal slab
-// over the sky and a skewed building without collision next to the twin towers. So a section that its own region
-// hides keeps the game's choice (drawn only where the region's mask shows it) and every other section is drawn.
+// section i's box, and the region count u8[0x800CA1A8 + track] is the section count), and most tracks have sections
+// that their own region's mask hides: low-detail scenery the visibility table shows only from far away (Lower
+// Manhattan 70, 71, 76-78, 80, 81, 83, 91 and 92; Las Vegas 16, 34, 57, 68 and 73; `tools/rush2_sections.py list`
+// marks them). Drawing them up close put a flat teal slab over the sky and a skewed building without collision next
+// to the twin towers. So a section that its own region hides keeps the game's choice (drawn only where the region's
+// mask shows it) and every other section is drawn.
+//
+// Copies (issue #61): most stand-ins are backdrops nothing else draws, but three in Lower Manhattan are copies of
+// real sections the game hides wherever it shows them, offset to look right from afar: NYONEFAKE_TT (two plain
+// towers about 550 ft west of the real ones in NYONETRADE2, shown from City Hall) and NYONEBB_LOD1/NYONEBB_LOD2 (the
+// Brooklyn Bridge's towers and cables about 200 ft west of the real bridge, shown from the finish, docks and Wall
+// Street). With every real section drawn, the copy and the original both showed. A copy is never drawn: the real
+// section it stands in for is. They were found and checked by rendering every pair of sections no region draws
+// together (tools/rush2_sections.py; docs/rush2049_research/geometry.md#52-pvs-which-sections-are-drawn), matched by
+// the placement record's name.
 
 #include <algorithm>
 #include <atomic>
@@ -43,6 +52,9 @@
 
 namespace {
     constexpr uint32_t all_visible_mask = 0x800CA1B8;
+    constexpr uint32_t placement_base = 0x8010C15C; // Pointer to the placement records (0x64 bytes); first top-level.
+    // Sections that are copies of other sections (see the header): never drawn with the draw distance extended.
+    constexpr const char* copies[] = { "NYONEFAKE_TT", "NYONEBB_LOD1", "NYONEBB_LOD2" };
     constexpr uint32_t pvs_counts = 0x800CA1A8;  // u8 per track slot: region (= section) count.
     constexpr uint32_t track_id = 0x8010C3F0;
     constexpr uint32_t camera_array = 0x800E79D0; // Per-view cameras, 0x40 bytes each; position at +0x24.
@@ -229,10 +241,27 @@ void rush2::draw_distance_pvs(uint8_t* rdram, uint32_t sp, uint32_t table) {
     for (int b = 0; b < 16; b++) {
         MEM_B(0, (int32_t)(widened + b)) = (int8_t)0xFF;
     }
+    // Section i is the i-th record of the top-level chain (next index at +0x44, -1 ends it).
+    uint32_t base = (uint32_t)MEM_W(0, (int32_t)placement_base);
+    uint32_t record = base;
     for (int i = 0; i < count; i++) {
-        if (!mask_bit(rdram, table + i * 16, i) && !mask_bit(rdram, chosen, i)) {
+        bool hide = !mask_bit(rdram, table + i * 16, i) && !mask_bit(rdram, chosen, i);
+        if (!hide && record != 0) {
+            char name[17] = {};
+            for (int c = 0; c < 16; c++) {
+                name[c] = (char)MEM_BU(c, (int32_t)record);
+            }
+            for (const char* copy : copies) {
+                hide = hide || strcmp(name, copy) == 0;
+            }
+        }
+        if (hide) {
             int byte = i < 64 ? 7 - i / 8 : 15 - (i - 64) / 8;
             MEM_B(0, (int32_t)(widened + byte)) = (int8_t)(MEM_BU(0, (int32_t)(widened + byte)) & ~(1 << (i % 8)));
+        }
+        if (record != 0) {
+            int16_t next = (int16_t)MEM_HU(0x44, (int32_t)record);
+            record = next < 0 ? 0 : base + (uint32_t)next * 0x64;
         }
     }
     MEM_W(0, (int32_t)(sp + 0x5C)) = widened;
