@@ -1552,6 +1552,16 @@ namespace {
         std::string prefix;
     };
     ModSlot mod_slots[rush2::car_types::count_mod];
+    // Per player record (side_slot_of), the mod each mod car block was made for (mod_block_key; "" = the slot was
+    // empty, "?" = unknown, a save from before version 11). A block made for another mod, or before its mod loaded,
+    // is made again when the mod fills its slot (reconcile_mod_blocks): blocks made before the PlayStation SF Rush cars
+    // filled their slots kept the empty slot's Pickup TIRE SIZE (1.25), and the car select drew their wheels oversized.
+    std::map<uint32_t, std::array<std::string, rush2::car_types::count_mod>> mod_block_owner;
+    std::string mod_block_key(const ModSlot& m) { return m.loaded ? m.spec.name : std::string(); }
+    bool side_slots_loaded = false;   // load_side_slots ran (side_mutex held)
+    bool reconcile_mod_blocks(uint8_t* rdram, int n);
+    void save_side_slots(uint8_t* rdram);
+    bool mod_slot_lent(int n);        // lent to an online race: its blocks stay made for this machine's own mod
     std::atomic_bool mod_loaded[rush2::car_types::count_mod] = {};
     std::atomic_int mod_game[rush2::car_types::count_mod] = {};        // set_mod_car_game (ModGame)
     std::atomic_bool mod_no_wheels[rush2::car_types::count_mod] = {};  // ModCar::wheels_hidden
@@ -1705,6 +1715,7 @@ void rush2::car2049::set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car
         mod_slots[n].spec = spec;
         mod_slots[n].prefix = prefix;
         mod_slots[n].loaded = true;
+        if (side_slots_loaded && reconcile_mod_blocks(rdram, n)) save_side_slots(rdram);
     }
     mod_schemes[n] = spec.schemes;
     mod_no_wheels[n] = spec.wheels_hidden;
@@ -1803,6 +1814,7 @@ void rush2::car2049::set_stand_in_mod_car(uint8_t* rdram, int n, const ModCar& s
         mod_slots[n].spec = shown;
         mod_slots[n].prefix = prefix;
         mod_slots[n].loaded = true;
+        if (side_slots_loaded && reconcile_mod_blocks(rdram, n)) save_side_slots(rdram);
     }
     mod_schemes[n] = 1;
     mod_loaded[n] = true;
@@ -1821,6 +1833,7 @@ namespace {
         std::map<uint32_t, std::vector<uint8_t>> scuffed;
     };
     LentSlot lent_slots[rush2::car_types::count_mod];
+    bool mod_slot_lent(int n) { return lent_slots[n].lent; }
 
     // The car physics bytes a resync of an online race overwrote with the host's (physics_online_sync), as this machine
     // had them: put back by return_mod_slots, before the slots' own cars, so the machine's own races run on its own data.
@@ -2513,11 +2526,10 @@ namespace {
     const std::string side_section = "cars";
 
     void load_side_slots(uint8_t* rdram) {
-        static bool loaded = false;
-        if (loaded) {
+        if (side_slots_loaded) {
             return;
         }
-        loaded = true;
+        side_slots_loaded = true;
         nlohmann::json j = nlohmann::json::parse(
             rush2::data_files::read(rush2::data_files::File::Saves, side_section), nullptr, false);
         if (!j.is_object() || !j.contains("records") || !j["records"].is_object()) {
@@ -2542,8 +2554,10 @@ namespace {
         // it takes the car's own. Before version 9 they ended at California Speed's types: the mod cars' blocks
         // (57-72) start fresh, as any block past a slot's saved bytes does.
         bool old_calspeed_tires = version < 8;
-        // Version 9 started the mod cars' TIRE SIZE at 0.75 (bytes 0): they take the car's own (set_mod_tire_sizes).
-        bool old_mod_tires = version < 10;
+        // Version 9 started the mod cars' TIRE SIZE at 0.75 (bytes 0), and version 10 gave the blocks of slots not yet
+        // filled the Pickup's 1.25. Before version 11 nothing says which mod a block was made for ("?"): once its mod
+        // loads it takes the car's own TIRE SIZE and keeps its colors (reconcile_mod_blocks).
+        const nlohmann::json* owners = j.contains("mod_owners") && j["mod_owners"].is_object() ? &j["mod_owners"] : nullptr;
         for (auto& [key, value] : j["records"].items()) {
             uint32_t record = (uint32_t)std::strtoul(key.c_str(), nullptr, 16);
             if (!in_save_area(record) || !value.is_string() ||
@@ -2558,13 +2572,18 @@ namespace {
             for (int i = 0; i < (types - rush2_types) * block_size && i * 2 + 1 < (int)hex.size(); i++, bytes++) {
                 MEM_B(0, (int32_t)(base + i)) = (uint8_t)std::stoi(hex.substr(i * 2, 2), nullptr, 16);
             }
+            auto& owner = mod_block_owner[record];
+            owner.fill("?");
+            if (owners && owners->contains(key) && (*owners)[key].is_array()) {
+                const nlohmann::json& a = (*owners)[key];
+                for (size_t n = 0; n < owner.size() && n < a.size(); n++) {
+                    if (a[n].is_string()) owner[n] = a[n].get<std::string>();
+                }
+            }
             for (int t = end_type; t < types; t++) {
                 uint32_t block = base + (t - rush2_types) * block_size;
                 if (bytes < (t - rush2_types + 1) * block_size) {
                     init_block(rdram, block, record, t);
-                }
-                else if (old_mod_tires && rush2::car_types::is_mod(t)) {
-                    set_mod_tire_sizes(rdram, block, mod_slots[t - rush2::car_types::first_mod]);
                 }
                 else if (old_calspeed_tires && rush2::car_types::is_calspeed(t) && MEM_B(0, (int32_t)(block + 11)) == 25 &&
                          MEM_B(0, (int32_t)(block + 12)) == 25) {
@@ -2582,10 +2601,39 @@ namespace {
                 }
             }
         }
+        // The mods already in their slots (those filled later are reconciled by set_mod_car).
+        bool changed = false;
+        for (int n = 0; n < rush2::car_types::count_mod; n++) changed |= reconcile_mod_blocks(rdram, n);
+        if (changed) save_side_slots(rdram);
+    }
+
+    // Mod slot n's block in every player record's side slot, made again for the mod now in it when it was made for
+    // another (or before the mod loaded); a block of unknown origin ("?", a save from before version 11) takes only the
+    // mod's own TIRE SIZE. Returns whether a block changed (side_mutex held, side slots loaded).
+    bool reconcile_mod_blocks(uint8_t* rdram, int n) {
+        const ModSlot& m = mod_slots[n];
+        if (!m.loaded || mod_slot_lent(n)) return false;
+        std::string key = mod_block_key(m);
+        int t = rush2::car_types::first_mod + n;
+        bool changed = false;
+        for (auto& [record, slot] : side_slot_of) {
+            auto& owner = mod_block_owner[record];
+            if (owner[n] == key) continue;
+            uint32_t block = side_slots + slot * side_slot_size + (t - rush2_types) * block_size;
+            if (owner[n] == "?") {
+                set_mod_tire_sizes(rdram, block, m);
+                owner[n] = key;
+            }
+            else {
+                init_block(rdram, block, record, t);   // sets owner[n]
+            }
+            changed = true;
+        }
+        return changed;
     }
 
     void save_side_slots(uint8_t* rdram) {
-        nlohmann::json records = nlohmann::json::object();
+        nlohmann::json records = nlohmann::json::object(), mod_owners = nlohmann::json::object();
         for (auto& [record, slot] : side_slot_of) {
             std::string hex;
             char b[3];
@@ -2596,6 +2644,8 @@ namespace {
             char key[16];
             snprintf(key, sizeof(key), "%08X", record);
             records[key] = hex;
+            auto it = mod_block_owner.find(record);
+            if (it != mod_block_owner.end()) mod_owners[key] = it->second;
         }
         nlohmann::json selected = nlohmann::json::object();
         for (auto& [at, type] : selected_type_of) {
@@ -2604,7 +2654,8 @@ namespace {
             selected[key] = type;
         }
         rush2::data_files::write(rush2::data_files::File::Saves, side_section,
-            nlohmann::json{ { "version", 10 }, { "records", records }, { "selected", selected } }.dump());
+            nlohmann::json{ { "version", 11 }, { "records", records }, { "mod_owners", mod_owners },
+                            { "selected", selected } }.dump());
     }
 }
 
@@ -2631,7 +2682,8 @@ namespace {
             // The record's options on the mod car's base Rush 2 car (the Pickup's when no mod fills the slot yet), with
             // the mod's own colors.
             const ModSlot& m = mod_slots[t - rush2::car_types::first_mod];
-            int base = m.loaded ? m.spec.base : 0;
+            if (side_slot_of.count(record)) mod_block_owner[record][t - rush2::car_types::first_mod] = mod_block_key(m);
+            int base = m.loaded ? std::clamp(m.spec.base, 0, rush2_types - 1) : 0;
             for (int i = 0; i < block_size; i++) {
                 MEM_B(0, (int32_t)(block + i)) = MEM_B(0, (int32_t)(record + record_block + base * block_size + i));
             }
@@ -2750,6 +2802,7 @@ void rush2::car2049::forget_record(uint8_t* rdram, uint32_t record) {
     std::lock_guard lock{ side_mutex };
     load_side_slots(rdram);
     bool changed = side_slot_of.erase(record) != 0;
+    mod_block_owner.erase(record);
     changed |= std::erase_if(selected_type_of, [record](const auto& e) {
         return e.first >= record && e.first < record + record_size;
     }) != 0;
