@@ -1355,7 +1355,7 @@ text = "    if (rush2_track49_battle_rule_value(rdram, ctx)) goto L_803C6908;"
 [[patches.hook]]
 func = "options_text_cb_names_values_803C6268"
 before_vram = 0x803C6770
-text = "    if (rush2_track49_battle_rule_value(rdram, ctx)) goto L_803C6908;"
+text = "    if (rush2_track49_battle_rule_value(rdram, ctx) || rush2_track49_clocks_value(rdram, ctx)) goto L_803C6908;"
 
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
@@ -1387,7 +1387,7 @@ text = "    if (rush2_track49_battle_value(rdram, ctx)) goto L_803C6908;"
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
 before_vram = 0x803AC078
-text = "    if (rush2_track49_battle_step(rdram, ctx)) goto L_803AC410;"
+text = "    if (rush2_track49_battle_step(rdram, ctx) || rush2_track49_deaths_step(rdram, ctx) || rush2_track49_clocks_step(rdram, ctx)) goto L_803AC410;"
 
 # A race with the BATTLE row: the drones' steering leans toward a pickup ahead (src/rush2049/battle.cpp).
 [[patches.hook]]
@@ -14901,7 +14901,7 @@ text = "    if (rush2_ghost_drive(rdram, ctx) || rush2_battle_ai_drive(rdram, ct
 [[patches.hook]]
 func = "physics_tick_80076578"
 before_vram = 0x8007660C
-text = "    rush2_ghost_tick_end(rdram, ctx); rush2_battle_ai_tick_end(rdram, ctx); rush2_race_record_tick(rdram, ctx); rush2_wings_contrails_tick(rdram, ctx);"
+text = "    rush2_ghost_tick_end(rdram, ctx); rush2_battle_ai_tick_end(rdram, ctx); rush2_race_record_tick(rdram, ctx); rush2_explosive_tick(rdram, ctx); rush2_time_sprint_tick(rdram, ctx); rush2_wings_contrails_tick(rdram, ctx);"
 
 [[patches.hook]]
 func = "car_collide_with_cars_8006F3C0"
@@ -15537,3 +15537,33 @@ text = "    { int nd = rush2_cheats_no_damage(rdram, (uint32_t)ctx->r5); if (nd 
 func = "car_race_start_pose_setup_8009A264"
 before_vram = 0x8009AA6C
 text = "    { int nd = rush2_cheats_no_damage(rdram, (uint32_t)ctx->r18); if (nd == 1) goto L_8009AAB0; if (nd == 0) { ctx->r1 = SIGNED(ctx->r3) < 0X2 ? 1 : 0; goto L_8009AA98; } }"
+
+# DEATHS' third value, EXPLOSIVE (src/explosive.cpp, src/rush2049/track2049_menu.cpp): its value text, a circuit's
+# EXPLOSIVE from its record, and the skull blinking while a bomb is armed.
+[[patches.hook]]
+func = "options_text_cb_names_values_803C6268"
+before_vram = 0x803C6840
+text = "    if (rush2_track49_deaths_value(rdram, ctx)) goto L_803C6908;"
+
+[[patches.hook]]
+func = "menu_settings_to_race_globals_80094698"
+before_vram = 0x80094978
+text = "    rush2_explosive_race_deaths(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_widget_cb_deaths_skull_800B9C44"
+before_vram = 0x800B9CA4
+text = "    if (rush2_explosive_skull_hidden(rdram, ctx)) goto L_800B9C74;"
+
+# CHECKPOINTS' third value, CLOCKS (Time Sprint, src/time_sprint.cpp): a checkpoint adds no time in a Time Sprint.
+[[patches.hook]]
+func = "checkpoint_passed_8008F220"
+before_vram = 0x8008F664
+text = "    if (rush2_time_sprint_checkpoint(rdram, ctx)) { ctx->r4 = ctx->r8; goto L_8008F6A8; }"
+
+# Time Sprint: a checkpoint plays no sounds either (the chime 0x4B and $a3 = 0x60; a lap's finish place call, $a3
+# 0x33-0x38, stays). Skips to 0x8008F4C4 with $t8 as the code after the sounds loads it (0x8008F4B0-0x8008F4C0).
+[[patches.hook]]
+func = "checkpoint_passed_8008F220"
+before_vram = 0x8008F418
+text = "    if (rush2_time_sprint_checkpoint_sound(rdram, ctx)) { ctx->r9 = (int32_t)0x8010BCE8; ctx->r24 = MEM_H(0x4, ctx->r9); goto L_8008F4C4; }"

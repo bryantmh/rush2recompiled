@@ -97,6 +97,7 @@ namespace {
         uint32_t loop_start = 0, loop_end = 0; // loop_end 0: no loop
         float level = 1.0f;                     // sample volume x envelope sustain
         float rate = 1.0f;                      // the key map's detune
+        float hz = 0.0f;                        // play_sample's: its own rate (the voice steps hz / the output's)
     };
 
     // The standard N64 VADPCM decoder (9-byte frames of 16 samples, order-2 predictors), as the RSP decodes.
@@ -181,6 +182,7 @@ namespace {
     std::map<int, std::shared_ptr<Sample>> samples; // by sound id (null: unreadable)
     Voice voices[max_cars][2];
     Voice one_shot;                                 // play_calspeed_sound's (not looped, not held by a pause)
+    std::map<std::string, std::shared_ptr<Sample>> named_samples;   // play_sample's, by key
     int handles49[max_cars][2];                     // 2049 cars' sound handles
     int levels49[max_cars];
     std::atomic<int64_t> updated_ms = 0;
@@ -504,6 +506,25 @@ bool rush2::car_engines::play_calspeed_sound(uint8_t* rdram, int id, float pitch
     return true;
 }
 
+bool rush2::car_engines::play_sample(uint8_t* rdram, const std::string& key, const std::vector<int16_t>& pcm, uint32_t hz,
+                                     float volume) {
+    if (pcm.size() < 2 || hz == 0) return false;
+    constexpr uint32_t effects_volume = 0x800D5774;   // s8: 0-40, as play_calspeed_sound
+    float gain = std::clamp((int8_t)MEM_B(0, (int32_t)effects_volume) / 40.0f, 0.0f, 1.0f) * volume *
+                 std::cos(0.25f * 3.14159265f);
+    std::lock_guard lock{ mutex };
+    std::shared_ptr<Sample>& sample = named_samples[key];
+    if (sample == nullptr || sample->pcm.size() != pcm.size() || sample->hz != float(hz)) {
+        sample = std::make_shared<Sample>();
+        sample->pcm = pcm;
+        sample->hz = float(hz);
+    }
+    one_shot = Voice{};
+    one_shot.sample = sample;
+    one_shot.gain[0] = one_shot.gain[1] = one_shot.target[0] = one_shot.target[1] = gain;
+    return true;
+}
+
 void rush2::car_engines::set_enabled(bool enabled) {
     option = enabled;
     if (!enabled) stop();
@@ -590,12 +611,13 @@ void rush2::car_engines::stop() {
     for (int car = 0; car < max_cars; car++) stop_car(car);
 }
 
-void rush2::car_engines::mix(float* out, size_t sample_count, uint32_t, float scale) {
+void rush2::car_engines::mix(float* out, size_t sample_count, uint32_t sample_rate, float scale) {
     size_t frames = sample_count / 2;
     std::lock_guard lock{ mutex };
     // The one-shot sound plays to its end (a race's countdown runs before the cars' engines update).
     if (one_shot.sample != nullptr) {
         const std::vector<int16_t>& pcm = one_shot.sample->pcm;
+        if (one_shot.sample->hz > 0.0f && sample_rate != 0) one_shot.step = one_shot.sample->hz / float(sample_rate);
         for (size_t f = 0; f < frames; f++) {
             size_t i = (size_t)one_shot.pos;
             if (i + 1 >= pcm.size()) {

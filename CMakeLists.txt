@@ -225,6 +225,8 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/linux_devices.cpp
     ${CMAKE_SOURCE_DIR}/src/linux_window.cpp
     ${CMAKE_SOURCE_DIR}/src/circuit.cpp
+    ${CMAKE_SOURCE_DIR}/src/explosive.cpp
+    ${CMAKE_SOURCE_DIR}/src/time_sprint.cpp
     ${CMAKE_SOURCE_DIR}/src/npc_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/paint_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/game_fixes.cpp

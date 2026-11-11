@@ -112,5 +112,7 @@ namespace rush2::track2049 { void movers_online_sync(rush2::online::sync::Walker
 namespace rush2::stunt2049 { void online_sync(rush2::online::sync::Walker& w); }
 namespace rush2::battle { void online_sync(rush2::online::sync::Walker& w); }
 namespace rush2::battle_ai { void online_sync(rush2::online::sync::Walker& w); }
+namespace rush2::explosive { void online_sync(rush2::online::sync::Walker& w); }
+namespace rush2::time_sprint { void online_sync(rush2::online::sync::Walker& w); }
 
 #endif

@@ -589,10 +589,16 @@ namespace rush2::players4 {
             MEM_B(0x20, record(p)) = test_manual[p] == '1' ? 0 : 1;
         }
         // AI-agent test aid: RUSH2_TEST_DEATHS=1 turns on the track select's DEATHS option (0x800D5760 + 0x11), which
-        // the race copies to race_deaths_8010BC98, so a test shows the skull (docs/hud_layout.md#captures).
-        static const bool test_deaths = std::getenv("RUSH2_TEST_DEATHS") != nullptr;
-        if (test_deaths) {
-            MEM_B(0, (int32_t)0x800D5771) = 1;
+        // the race copies to race_deaths_8010BC98, so a test shows the skull (docs/hud_layout.md#captures);
+        // RUSH2_TEST_DEATHS=2 sets it to EXPLOSIVE (src/explosive.cpp).
+        static const char* test_deaths = std::getenv("RUSH2_TEST_DEATHS");
+        if (test_deaths != nullptr) {
+            MEM_B(0, (int32_t)0x800D5771) = (int8_t)(std::atoi(test_deaths) == 2 ? 2 : 1);
+        }
+        // RUSH2_TEST_CHECKPOINTS=0/1/2 sets the track select's CHECKPOINTS (0x800D5760 + 0x19; 2 = CLOCKS, Time
+        // Sprint, src/time_sprint.cpp).
+        if (const char* test_checkpoints = std::getenv("RUSH2_TEST_CHECKPOINTS"); test_checkpoints != nullptr) {
+            MEM_B(0, (int32_t)0x800D5779) = (int8_t)std::clamp(std::atoi(test_checkpoints), 0, 2);
         }
         MEM_H(0, (int32_t)clamped_players) = (int16_t)std::min<int>(shown_players(rdram), 2);
         // Views 2 and 3 draw the scene lists of views 0 and 1.

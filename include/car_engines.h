@@ -3,6 +3,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 // Engine sounds of the cars the local players don't drive (src/car_engines.cpp): computer cars, heard by position.
 namespace rush2::car_engines {
@@ -21,6 +23,10 @@ namespace rush2::car_engines {
     // (pitch from its table, volume from the effects volume 0x800D5774 / 40): the race announcer (src/announcer.cpp)
     // uses it. Replaces the one playing. False without California Speed's ROM or the sound.
     bool play_calspeed_sound(uint8_t* rdram, int id, float pitch);
+    // Plays a mono 16-bit sample once, centered, at its own rate `hz`, at Rush 2's effects volume x `volume`: the
+    // PlayStation SF Rush's sounds (src/time_sprint.cpp). `key` names it, so a sample played again isn't copied again.
+    // Replaces the one-shot sound playing.
+    bool play_sample(uint8_t* rdram, const std::string& key, const std::vector<int16_t>& pcm, uint32_t hz, float volume = 1.0f);
     // Adds the Rush 2 cars' engines to the game's output (audio thread): interleaved stereo at the game's rate, N64
     // sample units times `scale`.
     void mix(float* samples, size_t sample_count, uint32_t sample_rate, float scale);

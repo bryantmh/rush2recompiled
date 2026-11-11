@@ -22,7 +22,7 @@ ref = "docs/sfrush_ps1.md#textures"
 vram = 0x800155F8
 name = "props_place"
 sig = "void props_place(void)"
-desc = "Fills the prop array 0x80108810 (0x2C each: state, kind, position, rotation, model, texture table) from 16-byte records (x, y, height in 0.1 ft, kind; -1 ends): 0x800A55B4 for track 2, 0x800A58B4 for track 4 (kind 0 cone gp+0xD60, 1 tram gp+0xD64, 2 T2K003 gp+0xD6C), then, when gp+0x3C is set, the pickups of the current track (gp+0xE28; records x, y, height, track 0-3): 0x800A59C4 (kind 8, extra/time.psv at gp+0xCF0) and 0x800A5E44 at 0x80015A90 (kind 9, the 4 keys per track, extra/key.psv at gp+0xB6C)."
+desc = "Fills the prop array 0x80108810 (0x2C each: state, kind, position, rotation, model, texture table) from 16-byte records (x, y, height in 0.1 ft, kind; -1 ends): 0x800A55B4 for track 2, 0x800A58B4 for track 4 (kind 0 cone gp+0xD60, 1 tram gp+0xD64, 2 T2K003 gp+0xD6C), then, when gp+0x3C is set, the pickups of the current track (gp+0xE28; records x, y, height, track 0-3): 0x800A59C4 (kind 8, extra/time.psv at gp+0xCF0) and 0x800A5E44 at 0x80015A90 (kind 9, the 4 keys per track, extra/key.psv at gp+0xB6C). | The race loop too (func_80014BF4 calls it once a race; the props are placed at its start): Explosive (0x800B2700) at 0x80015E24 turns Extreme 0x800B26FC on and clears the bomb 0x800B2704; at 0x800161A8 the speedometer mph 0x801106F8 >= 66 arms it, armed and < 60 sets the player's wreck bit 0x8010153A |= 0x8000 unless finished (0x80101254). The clocks (0x800A59C4, kind 8) are placed only in Time Sprint (0x800B270C); the keys always. At a race end (0x80017474) Extreme with gp+0x150 > 0 sets the loss gp+0x58; circuit (gp+0xC, 8 races) and Grand Prix (gp+0x10, 10 races) races are counted."
 consts = "0x800A5E44 = the keys table (docs/sfrush_ps1.md#keys); 8 / 9 = time / key pickup kinds"
 status = "verified"
 area = "track"
@@ -39,6 +39,32 @@ area = "race"
 ref = "docs/sfrush_ps1.md#race-times"
 
 [[func]]
+vram = 0x80019200
+name = "mode_flags_clear"
+desc = "Clears the mode flags (Extreme 0x800B26FC, Explosive 0x800B2700, Time Sprint 0x800B270C, 0x800B33CC, gp+0xAE4, 0xC48, 0x1A8, 0xE60); outside Grand Prix, circuit and 0x800B26E8 restores the laps and drones gp+0x1B8/0x1BC from gp+0x1C0/0x1C4."
+status = "inferred"
+area = "ui"
+ref = "docs/sfrush_ps1.md#game-modes"
+
+[[func]]
+vram = 0x8001A0D8
+name = "mode_menu"
+desc = "One-player mode menu: sets the chosen mode's flag, circuit 0x800B26D8, Grand Prix 0x800B2708 (with 3 laps and 4 drones, gp+0x1B8/0x1BC), Extreme 0x800B26FC, Explosive 0x800B2700 (0x8001A6EC), Time Sprint 0x800B270C (0x8001A730, 3 laps), and gp+0xA90 / gp+0xD48 = 1."
+status = "inferred"
+area = "ui"
+ref = "docs/sfrush_ps1.md#game-modes"
+
+[[func]]
+vram = 0x80020750
+name = "sound_play"
+sig = "void sound_play(s32 voice, s32 sound, s32 volume, s32 pan)"
+desc = "Plays a sound of the race's bank (BANKS/GAMESND.BNK: 'BANK', u32 count, then name[8], offset from the table's end, size per sound, sorted by name) on a voice: a1 the sound's index, a2 volume (0x800B28B0), a3 pan (0x7D00 centered), s6 pitch (0x1000 = 44.1 kHz). The Time Sprint clock plays sound 3 (CHECK) at pitch 0x8CA (24224 Hz)."
+consts = "0x7D00 = centered pan; 0x1000 = 44.1 kHz pitch"
+status = "inferred"
+area = "sound"
+ref = "docs/sfrush_ps1.md#time-sprint"
+
+[[func]]
 vram = 0x8002C208
 name = "screen_setup"
 sig = "void screen_setup(s32 w, s32 h, s32 proj, ...)"
@@ -46,6 +72,14 @@ desc = "Sets the screen up: 320 x 240 and the GTE projection distance (SetGeomSc
 status = "inferred"
 area = "render"
 ref = "docs/sfrush_ps1.md#sky"
+
+[[func]]
+vram = 0x8002EBA0
+name = "extreme_icon_draw"
+desc = "Extreme mode's HUD icon (from func_8002F268 while 0x800B26FC is set): u 0x20, or with Explosive (0x800B2700) and the bomb armed (0x800B2704 == 1) u 0x40 / 0x60 by bit 2 of the frame counter 0x800B3384."
+status = "inferred"
+area = "ui"
+ref = "docs/sfrush_ps1.md#game-modes"
 
 [[func]]
 vram = 0x8002FCB0
@@ -86,7 +120,7 @@ ref = "docs/sfrush_ps1.md#track-geometry"
 [[func]]
 vram = 0x80036C40
 name = "track_load_geometry"
-desc = "Loads the track's road (T<n>ROAD2) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup; also the pickups' models extra/time.psv (0x800B33C0) and extra/key.psv (0x800B323C, at 0x800378BC; docs/sfrush_ps1.md#keys)."
+desc = "Loads the track's road (T<n>ROAD2) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup; also the pickups' models extra/time.psv (0x800B33C0) and extra/key.psv (0x800B323C, at 0x800378BC; docs/sfrush_ps1.md#keys). | Loads EXTRA/TIME.PSV (the Time Sprint clock, 0x8003784C, model scale 0x140, into 0x800B33C0) and EXTRA/KEY.PSV (0x800378BC, scale 0x238, 0x800B323C)."
 status = "inferred"
 area = "track"
 ref = "docs/sfrush_ps1.md#track-geometry"
@@ -166,11 +200,11 @@ ref = "docs/sfrush_ps1.md#textures"
 vram = 0x8003CF20
 name = "track_load_extra_pages"
 sig = "void track_load_extra_pages(void)"
-desc = "Runs the track's page loader (func_80037C2C/80038644/80039048/80039A88), loads ART/T<n>P08(N).GFX at (384, 32, 64, 128) while gp+0x3C (hidden pickups) is set, EXTRA/WHEELS.GFX or WHEELSN.GFX at night (CLUT at 0x3F0 via func_80014F38), ART/CLOUD64.GFX and the ART/LIGHT*.GFX light sprites."
+desc = "Runs the track's page loader (func_80037C2C/80038644/80039048/80039A88), uploads ART/PICKUPS.GFX (the clock's and key's texels) to VRAM (832, 64, 64, 64) with its 16-color CLUT at (880, 64) (CLUT id 0x1037), loads ART/T<n>P08(N).GFX at (384, 32, 64, 128) while gp+0x3C (Time Sprint) is set (not the clocks' texture), EXTRA/WHEELS.GFX or WHEELSN.GFX at night (CLUT at 0x3F0 via func_80014F38), ART/CLOUD64.GFX and the ART/LIGHT*.GFX light sprites."
 consts = "0x800B2768 = night flag; 0x800B270C = pickups on"
 status = "verified"
 area = "render"
-ref = "docs/sfrush_ps1.md#snow-and-night"
+ref = "docs/sfrush_ps1.md#time-sprint"
 
 [[func]]
 vram = 0x8003DBCC
@@ -202,7 +236,7 @@ ref = "docs/sfrush_ps1.md#sky"
 vram = 0x80041244
 name = "props_update"
 sig = "void props_update(s32 car)"
-desc = "Draws and runs the props for a car's view: knocks a cone away when the car hits it; on track 4 runs each tram back and forth along x between 6397 and 22115 at 24 a frame (state 1 up, 2 down) and wrecks (car +0x352 |= 0x8000) any car within 0xE8 along and 0x60 across it; spins the pickups. Taking a key (kind 9, 0x80041640) counts it in 0x800B353C and the 4th of a race sets the track's unlock flag 0x800B2838 + 4 x track (docs/sfrush_ps1.md#unlocks)."
+desc = "Draws and runs the props for a car's view: knocks a cone away when the car hits it; on track 4 runs each tram back and forth along x between 6397 and 22115 at 24 a frame (state 1 up, 2 down) and wrecks (car +0x352 |= 0x8000) any car within 0xE8 along and 0x60 across it. The pickups don't turn (their rotation stays 0; the +0x28 angle is kind 0's). A clock (kind 8) is drawn at 0x80041484 by func_80046DD4 with a1 = CLUT id 0x1037 (VRAM 880,64, ART/PICKUPS.GFX's), page gp+0x2F8 = 13 (VRAM 832,0) at v + gp+0x2FC (0x40): the hourglass is PICKUPS.GFX u 64-127. Taking one (0x80041538): state 0 for the race, 20 s added to the clock gp+0x144 (24 at difficulty 0x800B288C 5, 27 at 6) and sound 3 (GAMESND.BNK CHECK) played by func_80020750 centered at pitch 0x8CA. Kind 9 (key, 0x80041628): counted in 0x800B353C, the 4th of a race sets the track's unlock flag 0x800B2838 + 4 x track (docs/sfrush_ps1.md#unlocks)."
 consts = "0x18FD/0x5663 = tram ends (x, 0.1 ft); 0x18 = tram step a frame; 0xE8/0x60 = tram's wreck box half sizes"
 status = "verified"
 area = "track"
@@ -226,6 +260,14 @@ status = "verified"
 ported = true
 area = "render"
 ref = "docs/sfrush_ps1.md#start-and-finish-banner"
+
+[[func]]
+vram = 0x80046DD4
+name = "psv_prop_draw"
+desc = "Draws a prop's PSV model. a1 = the CLUT id (plus the distance-fog row 0x800B2F44); gp+0x2F8 overrides the texture page and gp+0x2FC adds to v; the CLUT override is zeroed for the clocks. props_update draws the Time Sprint clock with a1 0x1037, page 13 and v + 0x40 (ART/PICKUPS.GFX)."
+status = "inferred"
+area = "render"
+ref = "docs/sfrush_ps1.md#time-sprint"
 
 [[func]]
 vram = 0x8004AA58
@@ -291,7 +333,7 @@ ref = "docs/sfrush_ps1.md#run-in"
 vram = 0x80054130
 name = "checkpoint_passed"
 sig = "void checkpoint_passed(s32 car, s32 gate)"
-desc = "A car passed a gate: for the leading human player adds the gate's time (gp+0xC60 table, byte per gate; track 4 0x800B2AE8 = 26, 29, 11, 32) to the clock gp+0x144, +5 on track 4 forward for the first 2 gates (gp+0x424 counts passes), +4/+3 at difficulty 5/6 (0x800B288C), +8 if gp+0x40, -2 if 0x800B3160 = 2; a lap gate with laps left -1 ends the race."
+desc = "A car passed a gate: for the leading human player adds the gate's time (gp+0xC60 table, byte per gate; track 4 0x800B2AE8 = 26, 29, 11, 32) to the clock gp+0x144, +5 on track 4 forward for the first 2 gates (gp+0x424 counts passes), +4/+3 at difficulty 5/6 (0x800B288C), +8 if gp+0x40, -2 if 0x800B3160 = 2; a lap gate with laps left -1 ends the race. | Returns at once in Time Sprint (0x800B270C): the clocks give the time (docs/sfrush_ps1.md#time-sprint)."
 status = "verified"
 area = "race"
 ref = "docs/sfrush_ps1.md#checkpoints"
@@ -461,6 +503,14 @@ area = "car"
 ref = "docs/sfrush_ps1.md#car-physics"
 
 [[func]]
+vram = 0x800702B8
+name = "race_over_screen"
+desc = "Race-over screen: the mode's picture (TITLETGA, 512 x 240 15-bit): NWIN first place, CLOSEN circuit failed (0x800B2724), GPRIXN / BOTTLEN / GPLOSEN Grand Prix (0x800B2708, lost 0x800B2720), EXLOSEN Explosive lost (0x800B2728), CHAMPN circuit champion, DEATHN Extreme won (0x800B26FC), EXPLON Explosive won (0x800B2700), TIMEN Time Sprint won (0x800B270C)."
+status = "verified"
+area = "ui"
+ref = "docs/sfrush_ps1.md#game-modes"
+
+[[func]]
 vram = 0x800719EC
 name = "special_car_menu"
 desc = "Front-end 5-slot special car picker: cycles gp+0x50C (1-5, 0 none), skipping a slot whose unlock flag 0x800B2848 + slot - 1 is clear, and sets the special car 0x800B26F8: 1 STARSKY (Golden Gate's keys), 2 BBUS (Embarcadero's), 3 JETCAR (Market's), 4 PIGGY (0x800B284B), 5 TAXI (0x800B284C)."
@@ -472,7 +522,7 @@ ref = "docs/sfrush_ps1.md#unlocks"
 [[func]]
 vram = 0x8008C038
 name = "car_collision_push"
-desc = "Scales the push between two colliding cars by each one's class: 192, 200, 208, 218 / 128."
+desc = "Scales the push between two colliding cars by each one's class: 192, 200, 208, 218 / 128. | Writes the speedometer's mph to 0x801106F8 at 0x8008C3AC (doubled for special car 0x800B26F8 3, JETCAR, or 7, UFO), which Explosive mode reads."
 status = "inferred"
 area = "car"
 ref = "docs/sfrush_ps1.md#car-physics"

@@ -309,6 +309,18 @@ int rush2_track49_battle_label(uint8_t* rdram, recomp_context* ctx);
 int rush2_track49_battle_arrow_label(uint8_t* rdram, recomp_context* ctx);
 int rush2_track49_battle_value(uint8_t* rdram, recomp_context* ctx);
 int rush2_track49_battle_step(uint8_t* rdram, recomp_context* ctx);
+// DEATHS' third value, EXPLOSIVE (src/explosive.cpp; its row in src/rush2049/track2049_menu.cpp).
+int rush2_track49_deaths_step(uint8_t* rdram, recomp_context* ctx);
+int rush2_track49_deaths_value(uint8_t* rdram, recomp_context* ctx);
+void rush2_explosive_tick(uint8_t* rdram, recomp_context* ctx);
+void rush2_explosive_race_deaths(uint8_t* rdram, recomp_context* ctx);
+int rush2_explosive_skull_hidden(uint8_t* rdram, recomp_context* ctx);
+// CHECKPOINTS' third value, CLOCKS: Time Sprint (src/time_sprint.cpp; its row in src/rush2049/track2049_menu.cpp).
+void rush2_time_sprint_tick(uint8_t* rdram, recomp_context* ctx);
+int rush2_time_sprint_checkpoint(uint8_t* rdram, recomp_context* ctx);
+int rush2_time_sprint_checkpoint_sound(uint8_t* rdram, recomp_context* ctx);
+int rush2_track49_clocks_step(uint8_t* rdram, recomp_context* ctx);
+int rush2_track49_clocks_value(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_option_scroll(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_option_box(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_option_text_rows(uint8_t* rdram, recomp_context* ctx);

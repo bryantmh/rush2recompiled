@@ -448,6 +448,35 @@ bool ps1::build_cars(const Disc& disc, const std::filesystem::path& assets_dir, 
 
 bool ps1::build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log) {
     if (!build_track(disc, assets_dir, out, log) || !build_cars(disc, assets_dir, out, log)) return false;
+    // Time Sprint's clock (src/time_sprint.cpp, docs/sfrush_ps1.md#time-sprint): its model, its texture page and the
+    // sound a clock plays when taken (sound 3, CHECK, of the race's sound bank), as the disc has them.
+    {
+        std::vector<uint8_t> psv, page, bank;
+        if (disc.read("EXTRA/TIME.PSV", psv) && disc.read("ART/PICKUPS.GFX", page) && disc.read("BANKS/GAMESND.BNK", bank)) {
+            out["rush2/time_sprint/time.psv"] = psv;
+            out["rush2/time_sprint/pickups.gfx"] = page;
+            // GAMESND.BNK: "BANK", u32 count, then per sound name[8], u32 offset (from the end of the table), u32 size
+            // of PS1 SPU ADPCM; sorted by name, which is the order func_80020750's sound ids index.
+            constexpr int check_sound = 3;
+            if (bank.size() >= 8 && std::memcmp(bank.data(), "BANK", 4) == 0) {
+                uint32_t count = uint32_t(bank[4]) | uint32_t(bank[5]) << 8 | uint32_t(bank[6]) << 16 | uint32_t(bank[7]) << 24;
+                size_t table_end = 8 + size_t(count) * 16, entry = 8 + size_t(check_sound) * 16;
+                auto u32 = [&](size_t o) {
+                    return uint32_t(bank[o]) | uint32_t(bank[o + 1]) << 8 | uint32_t(bank[o + 2]) << 16 | uint32_t(bank[o + 3]) << 24;
+                };
+                if (count > uint32_t(check_sound) && table_end <= bank.size()) {
+                    size_t at = table_end + u32(entry + 8), size = u32(entry + 12);
+                    if (at + size <= bank.size()) {
+                        out["rush2/time_sprint/check.adpcm"] = std::vector<uint8_t>(bank.begin() + at, bank.begin() + at + size);
+                    }
+                }
+            }
+            log += "Time Sprint: the clock's model, texture and sound\n";
+        }
+        else {
+            log += "Time Sprint: the clock's files couldn't be read\n";
+        }
+    }
     out["mod.json"] = a49::text_bytes(nlohmann::json{
         { "game_id", "rush2" }, { "id", mod_id }, { "display_name", "SF Rush PlayStation" },
         { "description", "The PlayStation San Francisco Rush's own track (Chinatown, its track 4) and cars (Starsky, Jeep, "

@@ -155,6 +155,7 @@ namespace {
         std::set<std::string> mods;    // custom tracks by folder
         std::map<int, Car> cars;
         int battle = -1;    // the race select's BATTLE row for this circuit, -1 not set yet (rush2::circuit::race_battle)
+        int explosive = -1; // DEATHS' EXPLOSIVE value for this circuit, -1 not set yet (rush2::circuit::explosive)
         std::map<int, RaceTrack> tracks;   // by race index (rush2::circuit::recorded_race)
     };
 
@@ -199,6 +200,9 @@ namespace {
                 }
             }
             if (e.contains("battle") && e["battle"].is_number_integer()) s.battle = e["battle"].get<int>() != 0 ? 1 : 0;
+            if (e.contains("explosive") && e["explosive"].is_number_integer()) {
+                s.explosive = e["explosive"].get<int>() != 0 ? 1 : 0;
+            }
             // tracks: [race, track id or custom track folder, direction bits] each.
             if (e.contains("tracks") && e["tracks"].is_array()) {
                 for (const auto& r : e["tracks"]) {
@@ -231,6 +235,7 @@ namespace {
                                  { "mods", nlohmann::json(std::vector<std::string>(s.mods.begin(), s.mods.end())) },
                                  { "cars", cars } };
             if (s.battle >= 0) e["battle"] = s.battle;   // older records have none: set at the next track select
+            if (s.explosive >= 0) e["explosive"] = s.explosive;   // none before EXPLOSIVE: the menu's DEATHS decides
             if (!s.tracks.empty()) {
                 nlohmann::json tracks = nlohmann::json::array();
                 for (const auto& [race, rt] : s.tracks) {
@@ -536,6 +541,23 @@ bool rush2::circuit::set_race_battle(uint8_t* rdram, bool on) {
     Setup& s = setup_of(rdram);
     if (s.battle != (on ? 1 : 0)) {
         s.battle = on ? 1 : 0;
+        save_setups();
+    }
+    return true;
+}
+
+int rush2::circuit::explosive(uint8_t* rdram) {
+    if (!in_circuit(rdram) || rush2::online::game::circuit_length() > 0) return -1;
+    std::lock_guard lock{ setups_mutex };
+    return setup_of(rdram).explosive;
+}
+
+bool rush2::circuit::set_explosive(uint8_t* rdram, bool on) {
+    if (!in_circuit(rdram) || rush2::online::game::circuit_length() > 0) return false;
+    std::lock_guard lock{ setups_mutex };
+    Setup& s = setup_of(rdram);
+    if (s.explosive != (on ? 1 : 0)) {
+        s.explosive = on ? 1 : 0;
         save_setups();
     }
     return true;

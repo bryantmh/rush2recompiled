@@ -679,6 +679,8 @@ namespace {
         { "the Rush 2049 stunt scoring", rush2::stunt2049::online_sync },
         { "the battle", rush2::battle::online_sync },
         { "the battle's computer cars", rush2::battle_ai::online_sync },
+        { "DEATHS' EXPLOSIVE bombs", rush2::explosive::online_sync },
+        { "Time Sprint's clocks", rush2::time_sprint::online_sync },
     };
 
     class Saver : public sync::Walker {

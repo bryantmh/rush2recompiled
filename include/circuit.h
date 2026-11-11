@@ -64,6 +64,12 @@ namespace rush2::circuit {
     int race_battle(uint8_t* rdram);
     bool set_race_battle(uint8_t* rdram, bool on);
 
+    // Game thread. DEATHS' EXPLOSIVE value (rush2::explosive) in a circuit, which keeps DEATHS as one bit of its
+    // block: explosive gives the current circuit's (0 / 1; -1 not set yet, or not in a circuit of this machine's),
+    // set_explosive sets it (false when not in one).
+    int explosive(uint8_t* rdram);
+    bool set_explosive(uint8_t* rdram, bool on);
+
     // Fixed Circuit Difficulty (General tab): a circuit race no longer steps the circuit's difficulty toward the
     // standings. Read at the end of each circuit race.
     void set_fixed_difficulty(bool enabled);

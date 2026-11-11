@@ -36,6 +36,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Props](#props)
 - [Keys](#keys)
 - [Unlocks](#unlocks)
+- [Game modes](#game-modes): [Explosive mode](#explosive-mode), [Time Sprint](#time-sprint)
 - [What the converter makes](#what-the-converter-makes)
 - [Track select diorama](#track-select-diorama)
 - [Snow and night](#snow-and-night)
@@ -631,10 +632,9 @@ cable car) and `T2KNOCK/T2K003.PSV`, into gp+0xD60, 0xD64 and 0xD6C. **[V]**
   2 has no wreck-on-touch surface; a hard hit still wrecks by Rush 2's crash threshold). The models use the track's
   axes (a prop isn't turned), which mirror the cars' mapping, so their faces are wound the other way round.
 - **The pickups:** two more tables of the same 16-byte records, but with the fourth field a track 0-3 (gp+0xE28),
-  placed only when gp+0x3C is set (0x800B270C, set by a front-end choice at 0x8001A730), both spinning: 0x800A59C4
-  (71 records, kind 8, model `extra\time.psv` at gp+0xCF0) and 0x800A5E44 (16 records, kind 9, model `extra\key.psv`
-  at gp+0xB6C), the PS1's keys ([Keys](#keys)). **[V]** for the tables and models; what kind 8 does in the race is
-  **[I]** (time pickups, by the model's name). Kind 8 isn't ported.
+  neither turning (their rotation stays 0; the +0x28 angle turns kind 0 only): 0x800A59C4 (71 records, kind 8, model `extra\time.psv` at gp+0xCF0), placed only when gp+0x3C is set
+  (the Time Sprint clocks: [Time Sprint](#time-sprint)), and 0x800A5E44 (16 records, kind 9, model `extra\key.psv` at
+  gp+0xB6C), the PS1's keys ([Keys](#keys)), placed in every race (0x80015958 branches over the clocks only). **[V]**
 
 ## Keys
 
@@ -709,12 +709,105 @@ What the PS1 locks, and how. gp is 0x800B26D0 (gp+0xB6C = 0x800B323C, the key mo
   in one player races with gp+0x38 (0x800B2708, set by the front end's mode 3) or gp+0x150; 0x800B2C58 (night) when
   gp+0xC reaches 3 and 0x800B2C5C with 0x800B2C14 (PIGGY's slot) at 8, counted in gp+8 (0x800B26D8, mode 2) races;
   TAXI's flag gp+0x17C when gp+0x50 is 1 at a race setup, which the snow unlock leads to (gp+4). **[V]** for the
-  stores; which front-end mode is which ("extreme race", "circuit mode", "gp mode", "explosive mode", "time pickup",
-  menu jump table 0x800102C8, gp+0x1B4) and what a counted race is (car +0x6C, a finish) are **[I]**. Mode 5
-  (0x8001A6FC) sets gp+0x3C, which places the time pickups and keys: likely "time pickup".
+  stores; what a counted race is (car +0x6C, a finish) is **[I]**. Which front-end mode sets which flag:
+  [Game modes](#game-modes).
 - **Into Rush 2:** the unlock system (`src/unlocks.cpp`) sells STARSKY, CITY BUS (BBUS), JET CAR and UFO and the
   Golden Gate stunt version for 5 points each while the sfrush_ps1 mod is installed; JEEP, MINI and POLICE are open.
   With the unlock system off everything is open: the PS1's rules above aren't kept.
+
+## Game modes
+
+The PS1's one-player modes (memory card save names at 0x800A6158: "1 player game", "extreme race", "circuit mode",
+"gp mode", "explosive mode", "time pickup"). The mode menu (`func_8001A0D8`) sets one flag each, `func_80019200`
+clears them all, and the race-over screen (`func_800702B8`) picks the mode's win or loss picture (`TITLETGA/*.TGA`,
+512 x 240, 15-bit), which names it. gp is 0x800B26D0. **[V]** for the flags and their readers below.
+
+| Flag | Mode | Win / loss picture |
+|---|---|---|
+| 0x800B26D8 (gp+8) | Circuit: 8 races (gp+0xC), unlock flags after races 3 and 8; failing a race ends it (gp+0x54) | CHAMPN "You are the CIRCUIT CHAMPION" / CLOSEN "Circuit mode, You have failed" |
+| 0x800B2708 (gp+0x38) | Grand Prix: 10 races (gp+0x10; 3 laps, 4 drones), judged at the end (gp+0x50 from 0x800F8E6C) | GPRIXN "You are Grand Prix WINNER" / GPLOSEN "Grand Prix, You have failed to win" |
+| 0x800B26FC (gp+0x2C) | Extreme: its own HUD icon (`func_8002EBA0`); lost (gp+0x58) when the race ends with 0x8010165C set | DEATHN "You have won the EXTREME race" (a skull) |
+| 0x800B2700 (gp+0x30) | Explosive: [Explosive mode](#explosive-mode) | EXPLON "You are the EXPLOSIVE WINNER" / EXLOSEN "Better luck next time!" (the car burning) |
+| 0x800B270C (gp+0x3C) | Time Sprint ("time pickup"): [Time Sprint](#time-sprint) | TIMEN "You've won the TIME-SPRINT!!" |
+
+Grand Prix plays as Rush 2's circuit (a series judged on the whole) and Extreme's skull as Rush 2's DEATHS (one life),
+so neither is ported. Explosive and Time Sprint are, as third values of two of the race track select's rows.
+
+### Explosive mode
+
+A speed bomb, in the race loop `func_800155F8`. At the race start (0x80015E24) Explosive turns Extreme on (gp+0x2C)
+and clears the bomb (gp+0x34). Each frame (0x800161A8) the speedometer's mph (0x801106F8, written by `func_8008C038`,
+doubled for the JETCAR and UFO) at 66 (0x42) or more arms the bomb; armed, a reading under 60 (0x3C) sets the
+player's wreck bit (0x8010153A, car +0x352 |= 0x8000) unless the car has finished (0x80101254). The bomb never
+disarms, and the wreck loses the race. The Extreme icon (`func_8002EBA0`) swaps frames (u 0x40 / 0x60 by 0x800B3384
+bit 2, every 4 frames) while the bomb is armed, u 0x20 otherwise. **[V]**
+
+**Into Rush 2** (`src/explosive.cpp`, include/explosive.h): the track select's DEATHS row steps OFF, ON, EXPLOSIVE
+(menu +0x11 = 2; `rush2_track49_deaths_step` and `_value` in src/rush2049/track2049_menu.cpp). A circuit keeps it in
+its record (`rush2::circuit::explosive`), since its block holds DEATHS as one bit. The race global 0x8010BC98 holds 2,
+which every one of the game's tests reads as DEATHS on (one life), so the wreck puts the car out. Every human player's
+car carries a bomb (drones none), read from the speedometer's own value (car state +0xE0, mph x 4, shown >> 2 by hud_speedometer_800BA2A8) once a physics
+tick: 66 arms it; armed, under 60 sets the car's wreck flag (+0x648) unless it has finished or is out. The DEATHS skull
+blinks four times a second while the player's bomb is armed. The armed flags are online race state (protocol 11).
+Test: `RUSH2_TEST_DEATHS=2` with `tools/test_race.py 0 --drones 0 --script "T5:A:17,T22.5:B:8"` blows up near 58 mph
+("[explosive]" in the log).
+
+### Time Sprint
+
+The clocks: 71 records at 0x800A59C4 (Golden Gate 21, Embarcadero 16, Market 19, Chinatown 15). The model
+`EXTRA/TIME.PSV` is an hourglass (two square pyramids meeting at a neck) 5 ft across and 5.6 ft tall at its load scale
+0x140 (`func_80036C40`, 0x80037850); a record's point is its middle, about 2 ft above the road. Its 16 vertices make
+13 quads (no bottom), all on texture 1, z up. **[V]**
+
+- **Texture:** props_update draws a clock (0x80041484) with the PSV prop renderer `func_80046DD4`, a1 = CLUT id 0x1037
+  (VRAM (880, 64), plus the distance-fog row 0x800B2F44), texture page gp+0x2F8 = 13 (VRAM (832, 0)) at v + gp+0x2FC
+  (0x40), its CLUT override zeroed. That is `ART/PICKUPS.GFX`, which `func_8003CF20` uploads to (832, 64, 64, 64) with
+  its CLUT at (880, 64), in every race: an 8-byte header, 16 PS1 BGR555 colors at +8, then 256 x 64 4-bit texels at
+  +0x28 (128 bytes a row, the low nibble the left texel). The hourglass is u 64-127 (the key u 0-63); it uses no
+  transparent color. **[V]**
+- **Sound:** a clock taken plays sound 3 of the race's bank (`func_80020750(voice, 3, volume 0x800B28B0, pan 0x7D00,
+  pitch 0x8CA)`: centered, 0x8CA / 0x1000 x 44.1 kHz = 24224 Hz). `BANKS/GAMESND.BNK` is "BANK", a u32 count (29), then
+  per sound name[8], offset (from the table's end, 8 + count x 16), size; sorted by name, sound 3 is CHECK (10192
+  bytes of SPU ADPCM). **[V]**
+
+- **Mode:** the menu (0x8001A730) sets gp+0x3C and 3 laps (gp+0x1B8). props_place (0x80015950) places the raced
+  track's clocks as kind 8. `checkpoint_passed` (0x80054130) returns at once, so a gate adds no time. The race starts
+  with the usual clock ([Race times](#race-times)). **[V]**
+- **Taking one** (`func_80041244`, 0x80041538): a clock the car reaches goes (state 0, for the rest of the race) and
+  adds 20 s to the clock gp+0x144 (24 at difficulty 0x800B288C 5, 27 at 6). The clocks don't come back on later laps,
+  so lap 1's banked time has to last. Many lie off the drones' line, on the courses' other routes. **[V]**
+
+**Into Rush 2** (`src/time_sprint.cpp`, include/time_sprint.h): the track select's CHECKPOINTS row steps OFF, ON,
+CLOCKS (menu +0x19 = 2; `rush2_track49_clocks_step` and `_value`) on an entry whose version has clocks. The race global
+0x8010C17B holds 2, which the game reads as CHECKPOINTS on (a time limit). In such a race `checkpoint_passed_8008F220`
+skips its time bonus and BONUS TIME banner (hook at 0x8008F664) and, as the PS1's gates are silent, its checkpoint
+sounds (hook at 0x8008F418: the chime 0x4B and sound 0x60, skipped while $a3 is 0x60; a finish place call 0x33-0x38
+still plays). Each clock a human player's car comes within 8 ft of
+(10 ft up or down) adds 20 s to the time allowed (race_time_float 0x8010C204), raises the BONUS TIME banner
+(bonus_time_banner_end 0x8010C3C4), plays the PS1's CHECK sound at its pitch (`rush2::car_engines::play_sample`, at
+the effects volume) and is gone for the race. The 20 s is scaled by difficulty as Rush 2 scales a checkpoint's time
+(1 + (5 - 0x8010C211) x [0x800CFBEC], as the PS1 courses' checkpoint times are), in place of the PS1's difficulty
+bonus. The hourglass is TIME.PSV with its PICKUPS.GFX texels and CLUT (CI4 with a 16-color TLUT, RDRAM
+0x80E14040-0x80E14FA0), standing still as on the PS1, drawn by rush2::battle_render (slots 202-223). ps1_cars.cpp's
+build_mod copies TIME.PSV, PICKUPS.GFX and CHECK (out of GAMESND.BNK) into the sfrush_ps1 mod
+(`rush2/time_sprint/`), and `rush2::time_sprint::available` reads them once on a worker: without the mod the row has
+no CLOCKS. The menu's laps and Rush 2's start time are kept. Online, the clocks taken are race state (protocol 11). A
+CLOCKS left from another track races as ON on a track without clocks.
+
+- **Which versions:** `tools/sfrush_ps1/time_sprint_clocks.py --ps1 <sfrush_ps1 mod folder> --write` writes
+  `src/sfrush_ps1/time_sprint_clocks.inc` per version, with the local fit and ground tests the PS1 keys use
+  ([Keys](#keys)) but looser: the floor within 6 ft, 4 of 8 ring points alike, and a clock may move up to 16 ft to a
+  spot that passes. It keeps the PS1's height above the floor, but its middle at least 4 ft up: the PS1 records put
+  it 1-3 ft up (props_place 0x80015950 and the draw 0x800413C4-0x80041400 / func_80046DD4 add no offset), which with
+  2.8 ft to the hourglass's foot sinks it into the road, and 4 ft is the height the SF Rush keys hang at
+  ([Keys](#keys)). The PS1 versions (snow, night,
+  stunt, and Chinatown's three) have all their track's clocks. The N64 and arcade versions have Golden Gate 19 of 21,
+  Embarcadero 15 of 16 and Market 17 of 19; the rest are on ground those versions don't have. N64 tracks 4-7 and The
+  Rock have none (the PS1 has no such courses), so their CHECKPOINTS row keeps two values.
+- **Test:** `RUSH2_TEST_CHECKPOINTS=2` sets the row. `RUSH2_TEST_TIME_SPRINT_DRONES=1` lets drones take clocks,
+  `RUSH2_TEST_TIME_SPRINT_REACH=<ft>` widens the reach, and `RUSH2_TEST_TIME_SPRINT_AHEAD=<ft>` adds a clock in front
+  of player 1, for `tools/test_race.py 18 --drones 1 --env RUSH2_TEST_RACE_VIEW_CAR=1` ("[time_sprint]" lines in the
+  log).
 
 ## Snow and night
 ## Sea
@@ -825,8 +918,9 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   the day's over every car texture both sets have (entries 1-6: #454046). The diorama, logo and picture are the day
   track's. The light glow sprites above aren't ported: a first version drew them as flare cards at the PS1's points
   (or points measured from other cars' bodies), and they didn't sit on the cars' real lights.
-- **Not a texture:** `ART/T<n>P08.GFX` / `P08N.GFX` (VRAM (384, 32), 64 x 128) loads only while gp+0x3C (the hidden
-  pickups) is set: the pickups' page, which mods don't carry. **[V]**
+- **Not a texture:** `ART/T<n>P08.GFX` / `P08N.GFX` (VRAM (384, 32), 64 x 128) loads only while gp+0x3C (Time
+  Sprint) is set, and mods don't carry it. It isn't the clocks' texture (that is `ART/PICKUPS.GFX`,
+  [Time Sprint](#time-sprint)); what draws from it isn't traced. **[V]**
 
 ## Music
 
@@ -841,5 +935,6 @@ in the game). **[I]**
 
 ## Not ported
 
-- The kind 8 pickups (0x800A59C4, [Props](#props)). The keys are ported: [Keys](#keys).
+- Grand Prix and Extreme ([Game modes](#game-modes)): Rush 2's circuit and DEATHS play them. Explosive and Time Sprint
+  are ported: [Explosive mode](#explosive-mode), [Time Sprint](#time-sprint). The keys too: [Keys](#keys).
 - The second road of track 1 (`T5ROAD2`, `COLLDAT5`): a variant of a course the N64 game has.

@@ -72,6 +72,8 @@
 #include "battle.h"
 #include "calspeed.h"
 #include "circuit.h"
+#include "explosive.h"
+#include "time_sprint.h"
 #include "ghost.h"
 #include "track1.h"
 #include "track2049.h"
@@ -166,6 +168,9 @@ namespace {
 
     // The custom tracks' types (rush2::track_mod::RaceType) by custom track index (mod_index), from refresh_mods.
     std::vector<int> mod_types;
+    // Whether each custom track (by mod_index) has Time Sprint's clocks (rush2::time_sprint::has_clocks), from
+    // refresh_mods.
+    std::vector<bool> mod_clocks;
 
     int mod_type(int t) {
         int i = mod_index(t);
@@ -1067,6 +1072,7 @@ namespace {
         mod_ok.clear();
         mod_arts.clear();
         mod_types.clear();
+        mod_clocks.clear();
         for (size_t i = 0; i < size_t(mod_capacity); i++) {
             const std::string id = i < entries.size() ? entries[i].mod_id : std::string();
             // The PlayStation SF Rush mod's track (its track 4, Chinatown) is SF Rush content too.
@@ -1076,6 +1082,7 @@ namespace {
         }
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             mod_types.push_back(rush2::track_mod::type_of(entries[i].settings));
+            mod_clocks.push_back(rush2::time_sprint::has_clocks(entries[i].mod_id, entries[i].folder));
         }
         build_versions(entries);
         build_order(entries);
@@ -3150,6 +3157,100 @@ extern "C" int rush2_track49_battle_step(uint8_t* rdram, recomp_context* ctx) {
             write_selection();
         }
     }
+    return 1;
+}
+
+// DEATHS' third value, EXPLOSIVE (rush2::explosive, src/explosive.cpp): the row steps OFF, ON, EXPLOSIVE. The game's
+// step (case 10 at 0x803AC3D0) flips menu +0x11 (xor 1, or 0 for the default) and in a circuit writes the circuit's
+// DEATHS bit (circuit_set_deaths_800B29DC); func_80094698 then copies it to 0x8010BC98, which the value is drawn from.
+namespace {
+    constexpr uint32_t race_deaths = 0x8010BC98;     // s8: 0, 1, 2 (EXPLOSIVE)
+    constexpr uint32_t menu_deaths = 0x800D5771;     // s8: the track select's DEATHS (0x800D5760 + 0x11)
+    constexpr uint32_t explosive_label = menu_data + 0xF80;   // "EXPLOSIVE" in the menu's language (16 bytes)
+}
+
+extern "C" void circuit_set_deaths_800B29DC(uint8_t* rdram, recomp_context* ctx);
+
+// func_803ABE0C at 0x803AC078 (as rush2_track49_battle_step): DEATHS steps through its three values from the one shown
+// (0x8010BC98: a circuit's comes from its block and record, not menu +0x11), $a1 = -1, 1 or 0 for the default (off).
+// Returns 1 to go on to the case's end (0x803AC410, which copies the settings to the race globals).
+extern "C" int rush2_track49_deaths_step(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r25 != option_deaths) return 0;
+    int step = (int32_t)ctx->r5;
+    int now = std::min<int>(MEM_BU(0, (int32_t)race_deaths), rush2::explosive::deaths_value);
+    int next = step == 0 ? 0 : (now + (step > 0 ? 1 : 2)) % 3;
+    MEM_B(0, (int32_t)menu_deaths) = (int8_t)next;
+    constexpr uint32_t game_mode = 0x8010C3E8;    // s32: 1 = circuit
+    if ((int32_t)MEM_W(0, (int32_t)game_mode) == 1) {
+        call_game(rdram, ctx, circuit_set_deaths_800B29DC, next != 0 ? 1 : 0);
+        rush2::circuit::set_explosive(rdram, next == rush2::explosive::deaths_value);
+    }
+    return 1;
+}
+
+// func_803C6268 at 0x803C6840, DEATHS' value (at y $s2; $s4 -> the track, $s5 the id that greys it): with EXPLOSIVE the
+// one word in the value box (centered where the game centers ON, which puts it in the box's middle), green or grey as
+// the game draws the chosen one. Returns 1 to go on to the next row.
+extern "C" int rush2_track49_deaths_value(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_BU(0, (int32_t)race_deaths) != rush2::explosive::deaths_value) return 0;
+    static const char* const words[] = { "EXPLOSIVE", "EXPLOSIV", "EXPLOSIF" };    // English, German, French
+    int lang = std::clamp((int32_t)MEM_W(0, (int32_t)language), 0, 2);
+    write_string(rdram, explosive_label, words[lang]);
+    int t = MEM_BU(0, (int32_t)ctx->r20);
+    if (option_open(t, option_deaths)) t = 0;
+    bool grey = (int32_t)ctx->r21 == t;
+    int32_t y = (int16_t)ctx->r18;
+    call_game(rdram, ctx, text_select_style_800737E4, grey ? 4 : 0xA);
+    int x = call_game(rdram, ctx, text_center_x_variant_8007347C, (int32_t)explosive_label, 0x124);
+    call_game(rdram, ctx, text_print_string_800734E0, (int16_t)x, y, (int32_t)explosive_label);
+    return 1;
+}
+
+// CHECKPOINTS' third value, CLOCKS (rush2::time_sprint, src/time_sprint.cpp): on a track select entry with Time
+// Sprint's clocks (SF Rush N64 courses 1-3, and the arcade and PS1 versions of them and of Chinatown) the row steps
+// OFF, ON, CLOCKS. The game's step (case 9 at 0x803AC3A4) flips menu +0x19 (xor 1, or 1 for the default);
+// func_80094698 copies it to 0x8010C17B (1 in a circuit), which the value is drawn from. Elsewhere the row is the
+// game's: a CLOCKS kept from another track races as ON there and is drawn as ON.
+namespace {
+    constexpr uint32_t race_checkpoints = 0x8010C17B;   // u8: 0, 1, 2 (CLOCKS)
+    constexpr uint32_t menu_checkpoints = 0x800D5779;   // s8: the track select's CHECKPOINTS (0x800D5760 + 0x19)
+    constexpr uint32_t clocks_label = menu_data + 0xF90;   // "CLOCKS" in the menu's language (16 bytes)
+
+    // Time Sprint draws the PS1's own clock, so it needs the sfrush_ps1 mod (rush2::time_sprint::available).
+    bool clocks_offered(int t) {
+        if (!rush2::time_sprint::available()) return false;
+        if (t >= r1_first && t < r1_end) return rush2::time_sprint::has_clocks_n64(t - r1_first);
+        int i = is_mod_track(t) ? mod_index(t) : -1;
+        return i >= 0 && size_t(i) < mod_clocks.size() && mod_clocks[size_t(i)];
+    }
+}
+
+// func_803ABE0C at 0x803AC078 (as rush2_track49_battle_step): CHECKPOINTS on a track with clocks steps through its
+// three values from the one shown, $a1 = -1, 1 or 0 for the default (on). Returns 1 to go on to the case's end.
+extern "C" int rush2_track49_clocks_step(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)ctx->r25 != option_checkpoints || select_kind != select_race) return 0;
+    if (!clocks_offered(MEM_BU(0, (int32_t)track_id))) return 0;
+    int step = (int32_t)ctx->r5;
+    int now = std::min<int>(MEM_BU(0, (int32_t)race_checkpoints), rush2::time_sprint::clocks_value);
+    int next = step == 0 ? 1 : (now + (step > 0 ? 1 : 2)) % 3;
+    MEM_B(0, (int32_t)menu_checkpoints) = (int8_t)next;
+    return 1;
+}
+
+// func_803C6268 at 0x803C6770, CHECKPOINTS' value (at y $s2; $s4 -> the track, $s5 the id that greys it): with CLOCKS
+// on a track with clocks, the one word in the value box as DEATHS' EXPLOSIVE. Returns 1 to go on to the next row.
+extern "C" int rush2_track49_clocks_value(uint8_t* rdram, recomp_context* ctx) {
+    if (MEM_BU(0, (int32_t)race_checkpoints) != rush2::time_sprint::clocks_value) return 0;
+    int t = MEM_BU(0, (int32_t)ctx->r20);
+    if (!clocks_offered(t)) return 0;
+    static const char* const words[] = { "CLOCKS", "UHREN", "HORLOGES" };    // English, German, French
+    int lang = std::clamp((int32_t)MEM_W(0, (int32_t)language), 0, 2);
+    write_string(rdram, clocks_label, words[lang]);
+    bool grey = (int32_t)ctx->r21 == t;
+    int32_t y = (int16_t)ctx->r18;
+    call_game(rdram, ctx, text_select_style_800737E4, grey ? 4 : 0xA);
+    int x = call_game(rdram, ctx, text_center_x_variant_8007347C, (int32_t)clocks_label, 0x124);
+    call_game(rdram, ctx, text_print_string_800734E0, (int16_t)x, y, (int32_t)clocks_label);
     return 1;
 }
 
