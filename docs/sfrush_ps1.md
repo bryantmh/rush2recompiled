@@ -43,6 +43,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Music](#music)
 - [Not ported](#not-ported)
 
+- [Stunt track](#stunt-track)
 ## Disc
 
 - **Supported disc:** San Francisco Rush - Extreme Racing (USA), SLUS-00505. A .cue with one MODE2/2352 data track
@@ -69,8 +70,8 @@ Compared with the N64 game (docs/rush1_research.md) by the AI paths and the car 
 - **Tracks.** PS1 tracks 1-3 are N64 tracks 1-3 (Golden Gate, Embarcadero, Market): their AI paths match the N64
   lanes once scaled and mirrored ([Units and axes](#units-and-axes)). **PS1 track 4 is its own course** (Presidio,
   MacArthur Tunnel, Chinatown, the Financial District with the Transamerica Pyramid, the Bay Bridge approach); its path
-  matches none of N64 tracks 4-7 nor the arcade's. `T1ROAD/T5ROAD2.DAT` + `COLLDAT5` are a second road for track 1
-  (track 1's scenery and textures), not a separate course. **[V]**
+  matches none of N64 tracks 4-7 nor the arcade's. `T1ROAD/T5ROAD2.DAT` + `COLLDAT5` are Golden Gate's stunt road
+  (track 1's scenery and textures with ramps on the road), not a separate course: [Stunt track](#stunt-track). **[V]**
 - **Cars.** The car table in RUSH.EXE (`cars\*.psv` from 0x800113D8) has 16 entries: BMW, BUS, CAM, VIPER, SUPRA,
   BUG, BUGETTI, CONCEPT, STARSKY, JEEP, JETCAR, MINI, BBUS, TAXI, PIGGY and the UFO (`extra\ufo.psv`). The N64 cars
   are BMW, Camaro, Supra, Bugatti, VW Bus, Viper, VW Bug, Concept, Taxi, Hot Rod and Formula 1, so the PS1's own are
@@ -324,7 +325,8 @@ What the converter writes as `AIPATH_main` and `AIPATH_lane1-4` (`build_conditio
   After them every lane keeps 3 ft from every wall but 10 ft of Market at 2.7 ft. They replaced an automatic nudge
   (any lane point within 5 ft of a wall, 8 in snow, pushed away from it): it moved the lines everywhere near a wall,
   and where a lane was already past one it pushed it further out or not at all.
-  `lane_walls` (the PS1's walls and the converter's step walls) and `nearest_wall` remain for the smoothing above.
+  `lane_walls` (the PS1's walls and the converter's step walls) and `nearest_wall` remain for the smoothing above and
+  the stunt road's lanes ([Stunt lanes](#stunt-lanes)).
 - **`AIPATH_main`** is the middle of the four final lanes, since the converter takes the target speeds from it alone
   (`target_speeds` in track_mod_convert.cpp). It is as wide as the PS1's corridor, or wider where the lanes spread
   further.
@@ -464,8 +466,8 @@ the loop at point 29; its end (point 174) comes back beside point 29 (60 ft) ins
 - **The gates:** the finish plane (gate 0) is crossed once, at the toll plaza on the run-in, and the loop never comes
   back through its sector (4): every path point of the loop is in other sectors. Gates 1-3 are on the loop (points 42,
   86, 121). **[V]** How the PS1 counts a second lap there isn't worked out.
-- **Not the run-in:** `T1ROAD/T5ROAD2.DAT` replaces `T1ROAD2` (func_80036C40) while 0x800B2AA0 is set, which
-  0x800147C4 does for menu mode gp+0x48 == 3 (track 1, the clock at 180: 0x80015E1C), another mode's road. **[V]**
+- **Not the run-in:** `T1ROAD/T5ROAD2.DAT` replaces `T1ROAD2` (func_80036C40) while 0x800B2AA0 is set: the stunt
+  road ([Stunt track](#stunt-track)), which starts on the same grid. **[V]**
 - **Into Rush 2** (`src/sfrush_ps1/ps1_track.cpp`, `run_in_grid`): a run-in circuit (`run_in = true`,
   docs/custom_tracks.md#run-in-circuits). The path is carried back from point 0 along its first chord to 100 ft
   behind the PS1's front car, at the grid's height (the path's own heights run 50 ft under the bridge deck there), so
@@ -807,7 +809,7 @@ What the PS1 locks, and how. gp is 0x800B26D0 (gp+0xB6C = 0x800B323C, the key mo
   gp+0x17C) TAXI; jump table 0x80012120. **[V]**
 - **Held buttons:** the race setup (0x80014918, one player, a pad plugged in) reads the pad (0x800ED732, active low):
   R1 (0x800) MINI, L1 (0x400) JEEP, Triangle (0x1000) UFO. Never locked. **[V]**
-- **Stunt road:** 0x800B2C64, Chinatown's 4 keys (Golden Gate's stunt road). **[V]**
+- **Stunt road:** 0x800B2C64, Chinatown's 4 keys ([Stunt track](#stunt-track)). **[V]**
 - **Snow, night, PIGGY, TAXI:** race-end counters (0x80017498): 0x800B2C60 (snow) when gp+0x10 reaches 10, counted
   in one player races with gp+0x38 (0x800B2708, set by the front end's mode 3) or gp+0x150; 0x800B2C58 (night) when
   gp+0xC reaches 3 and 0x800B2C5C with 0x800B2C14 (PIGGY's slot) at 8, counted in gp+8 (0x800B26D8, mode 2) races;
@@ -1040,4 +1042,89 @@ in the game). **[I]**
 
 - Grand Prix and Extreme ([Game modes](#game-modes)): Rush 2's circuit and DEATHS play them. Explosive and Time Sprint
   are ported: [Explosive mode](#explosive-mode), [Time Sprint](#time-sprint). The keys too: [Keys](#keys).
-- The second road of track 1 (`T5ROAD2`, `COLLDAT5`): a variant of a course the N64 game has.
+## Stunt track
+
+Golden Gate has a second road, a stunt course: the same course, scenery and textures with ramps built onto the road
+(split lanes with a divider, DANGER / CONSTRUCTION ZONE boards, chevrons). **[V]**
+
+- **Picked by:** the race setup in `special_car_setup` (0x800142C4) sets 0x800B2AA0 (gp+0x3D0) to 1, the track index
+  gp+0x70 and gp+0xE28 to 0 (track 1), when the menu's variant value gp+0x48 is 3 while 0x800B2C64 is set (loaded from
+  the memory card with the other unlock bytes 0x800B2C58-0x800B2C60 by func_80025250 **[I]**: an unlock) and
+  0x800B2B4D is clear; mirror mode (0x800B3468) clears it again. Snow needs gp+0x48 == 2 and night gp+0x48 == 0, so
+  the stunt road is day only. **[V]**
+- **What it changes (only these three readers):** `track_load_geometry` (func_80036C40) loads `T1ROAD/T5ROAD2.DAT`
+  (+ `.SIZ`) for `T1ROAD2` (0x80036C80); `track1_load_tables` (func_8004F9C0) loads `COLLDAT5`'s `BOUNDS.DAT`,
+  `COLLMAP.SIZ`/`.DAT` and `FLAGS.DAT` for `COLLDAT1`'s (0x8004F9CC, 0x8004FA30, 0x8004FA94), still with `TRACK1.CPF`;
+  the race setup (func_800155F8) starts the clock at 180 s (0x80015E1C) in place of 38. Track 1's AI paths, gates, gate
+  times, scenery (T1SCN2), pages and CLUTs are kept. **[V]**
+- **The road:** 55 chunks as T1ROAD2's, 16 reshaped (1, 3, 5, 10, 14, 16, 20, 24, 30, 31, 33-37, 39; chunk 5 from 124 to
+  138 faces). **Collision:** 52 chunks, 29 changed: 914 ground polygons against 859 (116 of them the stunt road's own,
+  61 of Golden Gate's gone), 743 walls against 671 and 146 raised walls (B records) against 80, the ramps' sides. **[V]**
+- **Into Rush 2** (`src/sfrush_ps1/ps1_track.cpp`, `Condition::stunt`): custom track `golden_gate_stunt`, a STUNT
+  version of the N64 Golden Gate (`variant_of = "sfrush:golden_gate"`, green version band `version_ring_stunt`),
+  built from the day pages and CLUTs, T5ROAD2 and COLLDAT5, a run-in circuit like the other Golden Gate versions, start
+  time 180 and track 1's gate times. The spline road (Golden Gate's smoothed floor, [Collision](#collision)) is fitted
+  to the floor without the ramps (ground polygons whose corners COLLDAT1 has no polygon with) and they keep their own
+  flat faces, so their lips stay sharp. Fill Scenery Gaps' sea under it takes the day water texel (24, 49, 99).
+- **Air gravity:** the PS1 pulls a car in the air with 600 a frame^2 (descriptor +0x18, `func_8005E0CC`), about 4.5 x
+  Rush 2's gravity at the conversion's frames per second; a jump's length goes as v^2 / g, so on Rush 2's gravity the
+  kickers threw cars about 550 ft (a drone at 115 mph flew 3 s and wrecked nose-first). The track sets
+  `[handling] air_gravity = 2`: Rush 2's gravity x 2 while all four wheels are off the road, eased in over the first
+  foot (`air_gravity` in `src/calspeed/calspeed_rom.cpp`, from `rush2_calspeed_road_hold` after `car_force_sum`), so
+  jumps fly about half as far as on Rush 2's gravity and on the road the cars drive as on any other track. x 4 (near
+  the PS1's) felt too heavy in play.
+- **AI paths:** the disc has no stunt path (only `COLLDAT2/PATHDAT1-4`, `EXTDAT1-4`, `REVPATH1-4`, `EXTRDAT1-4`;
+  COLLDAT5 holds only BOUNDS, COLLMAP and FLAGS), and the stunt flag's three readers don't touch the path loader
+  (`func_80055678`), so the PS1's stunt race reads Golden Gate's PATHDAT1/EXTDAT1. It has drones: their count
+  gp+0x1BC is the options menu's DRONES row (0x8001C210 steps it up while below 6, 0x8001C444 down while 3 or more), set
+  apart from the variant value gp+0x48 that picks the stunt road, and nothing that reads the stunt flag (0x80015E10,
+  0x80036C80, 0x8004F9CC/FA30/FA94) touches it. **[V]** Golden Gate's lanes (the N64's, [AI lanes](#ai-lanes)) know
+  nothing of the stunt road: on them the drones hit the bridge's divider wedge (-3780, 148, -1635), the park's blocks
+  (175, 129, -1062) and drove into the pit at (1530, 22, -3245), 12-16 wrecks in a 64-78 s race; the conversion plans
+  its own ([Stunt lanes](#stunt-lanes)).
+- **Stunt scoring:** the track scores stunts and shows the stunt panel in its races, as Rush 2's Stunts on All Tracks
+  cheat does, without the cheat being set: `[track] stunts = true` (docs/custom_tracks.md#tracktoml). The cheat byte
+  0x8010C200 has two readers in a race, the stunt panel's visibility `hud_stunt_box_visible_80060E34` and its text
+  `hud_widget_text_cb_player_stats_800B7654`; `rush2_track_mod_stunts` (src/rush2049/track2049.cpp) hooks each right
+  after its load into $a1 (0x80060E7C, 0x800B76B0) and reads it as set; the HUD layout's `stunts_all_tracks` takes it
+  too (src/hud.cpp). Stunt scoring itself (`car_stunt_scoring_update_80065588`) runs on every track. **[V]**
+
+### Stunt lanes
+
+`build_condition` in `src/sfrush_ps1/ps1_track.cpp` (the `if (stunt)` block after the lanes are built) re-plans each
+of the four lanes over the stunt road; Golden Gate's other versions keep theirs.
+
+- **Stations and offsets:** at each AI path station, offsets every 1 ft across, 60 ft either side of the path's middle.
+  The ground is sampled out from the middle, each sample taking the layer nearest the one before (the first, the
+  layer nearest the path's own height: carried on from station to station, it locked onto the water under the bridge).
+- **Open:** ground under the car's body (+-4 ft) with no step over 1.5 ft between 1 ft samples (a step over 4 ft, a pit's
+  or a ledge's side, by 4 ft more), no ground steeper than 25 degrees that isn't a stunt ramp (the cliffs on the park's
+  grass shoulder), not straddling a stunt ramp's edge, 6 ft from every wall at that ground's height. A move between
+  stations mustn't cut a wall.
+- **Dead ends:** an open offset only counts when the path's end can be reached from it (worked back from the end;
+  a station nothing gets past starts it again). The pit at (1500, -3250) is open stunt ramp down to a 20 ft face.
+- **Cost** (dynamic programming over the whole path, at most 3 ft across a station): the old line's distance squared
+  (x 0.05, capped at 12 ft); dirt 25 and the park's grass 30 a station, more than straying or crowding can cost (at 1.5
+  the lanes kept the N64's line over the stunt road's dirt before the tunnel and the drones lost seconds a lap there);
+  0.15 x (16 - distance)^2 within 16 ft of a closed offset at this station or the next 3 (drones aim ahead and cut a
+  bend's inside); 0.1 x (8 - gap)^2 within 8 ft of a lane planned before it (alone they met on one line and drones
+  bunched there swung out to pass); 2 x step^2; and on a ramp (a stunt polygon over 12 degrees, its fall line within 20
+  of the road's) and 4 stations before it 10 x step^2 more, so the lane crosses it straight. Following each ramp's own
+  fall line instead (with every stunt polygon over 3 degrees a ramp) walked the lanes 20 ft sideways onto the dirt
+  before the tunnel and round the pit's bypass.
+- **Smoothing:** the 1 ft steps [1 2 1] twice, then in the world twice (the stations' middle line has kinks of its own),
+  each where the result is still open and off a ramp's line.
+- **Grid:** the run-in's first 20 stations keep the old lanes, blended into the new over 10 (planned lanes met at one
+  point there and the cars started on top of each other).
+- **Speeds:** where a lane left the old line by more than 6 ft (and 10 stations either side), its N64 speed is dropped
+  and the converter's own, from the new line's corners, takes over.
+- **Result** (`tools/drone_pace.py --race golden_gate_stunt --laps 1 --mod-dir OUT --wrecks --sections 1500`, headless):
+  a 103-107 s lap against base Golden Gate's 90 (night, the N64's lanes). From the bridge through the tunnel the
+  stretches run within a second of base's. The rest is the start (about 4 s: the cars from the back of the grid land
+  off the big ramp at the foot of the bridge onto the shoulders) and the park round the pit (about 11 s: the stunt road
+  puts the pit where Golden Gate's road ran, and its only way round is the park's dirt). Checks: the converter's report
+  line `stunt lanes: ...`; SFRUSH_PS1_LANE_DEBUG=x,z[,n] (converter frame, x mirrored from the game's) prints n
+  stations' offsets (X closed, D a dead end, r on a ramp's line, R the same on dirt, d dirt) and where each lane is;
+  `tools/lane_surfaces.py --rush2 OUT --plot X Z RADIUS PNG [--trail motion.jsonl] [--steep DEG]` maps the ground,
+  walls, lanes and a car's line round a spot, and without --plot lists each lane's runs off the road.
+

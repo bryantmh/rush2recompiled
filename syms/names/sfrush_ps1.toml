@@ -3,7 +3,7 @@
 [[func]]
 vram = 0x800142C4
 name = "special_car_setup"
-desc = "Sets the car type 0x800B2BEC for the special car gp+0x28: STARSKY 6, JEEP 5, JETCAR 3, MINI 4, BBUS 1, TAXI 0, PIGGY 2 (and white paint), UFO 7."
+desc = "Race setup from the menu choices: sets the car type 0x800B2BEC for the special car gp+0x28 (STARSKY 6, JEEP 5, JETCAR 3, MINI 4, BBUS 1, TAXI 0, PIGGY 2 and white paint, UFO 7), snow gp+0x40, night gp+0x98, and the stunt road 0x800B2AA0 (track 1, when the variant value gp+0x48 is 3 and 0x800B2C64 is set)."
 status = "verified"
 area = "car"
 ref = "docs/sfrush_ps1.md#cars"
@@ -120,7 +120,7 @@ ref = "docs/sfrush_ps1.md#track-geometry"
 [[func]]
 vram = 0x80036C40
 name = "track_load_geometry"
-desc = "Loads the track's road (T<n>ROAD2) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup; also the pickups' models extra/time.psv (0x800B33C0) and extra/key.psv (0x800B323C, at 0x800378BC; docs/sfrush_ps1.md#keys). | Loads EXTRA/TIME.PSV (the Time Sprint clock, 0x8003784C, model scale 0x140, into 0x800B33C0) and EXTRA/KEY.PSV (0x800378BC, scale 0x238, 0x800B323C)."
+desc = "Loads the track's road (T<n>ROAD2; T1ROAD/T5ROAD2, the stunt road, while 0x800B2AA0 is 1) and scenery (T<n>SCN2) chunks per track (0x800B34F8 = track index) and its knock-over models (t2knock, t4knock), fixing each chunk with track_chunk_fixup; also the pickups' models extra/time.psv (0x800B33C0) and extra/key.psv (0x800B323C, at 0x800378BC; docs/sfrush_ps1.md#keys). | Loads EXTRA/TIME.PSV (the Time Sprint clock, 0x8003784C, model scale 0x140, into 0x800B33C0) and EXTRA/KEY.PSV (0x800378BC, scale 0x238, 0x800B323C)."
 status = "inferred"
 area = "track"
 ref = "docs/sfrush_ps1.md#track-geometry"
@@ -314,6 +314,15 @@ area = "track"
 ref = "docs/sfrush_ps1.md#collision"
 
 [[func]]
+[[func]]
+vram = 0x8004F9C0
+name = "track1_load_tables"
+sig = "void track1_load_tables(void)"
+desc = "Loads track 1's tables: BOUNDS.DAT (0x340 bytes) to 0x800D8168, TRACK1.CPF to 0x80113490, then COLLMAP.SIZ, FLAGS.DAT and COLLMAP.DAT; from COLLDAT5 in place of COLLDAT1 (but TRACK1.CPF) while gp+0x3D0 (0x800B2AA0, the stunt road) is 1."
+status = "verified"
+area = "track"
+ref = "docs/sfrush_ps1.md#stunt-track"
+
 vram = 0x8004FD98
 name = "race_frame"
 sig = "void race_frame(void)"

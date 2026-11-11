@@ -4,8 +4,11 @@ against its PS1 night and snow versions, docs/sfrush_ps1.md#ai-lanes).
 
     python tools/drone_pace.py --race 19 embarcadero_night embarcadero_snow [--laps 3] [--catch-up] [--mod-dir DIR]
     python tools/drone_pace.py RUN [RUN ...]      (a race recording .r2rc, or a test_race.py / race_watch.py folder)
+    [--wrecks]        (recordings) every computer car's wrecks: race time and place
     [--hits]          (recordings) where the computer cars hit walls: sudden sideways or backward jolts (over 8 g in
                       the ground plane between two of a car's steps, not braking or wrecked; one a second a car), grouped within 40 ft
+    [--sections FT]   (recordings) the cars' mean time over each FT of their own distance driven, and where that stretch
+                      starts (the median car's place): two versions of a course side by side show where one loses time
 
 --race races each TRACK (a track select id or a custom track's folder name) headless, as the trackview runner does
 (docs/custom_tracks.md#race-replays): a simulation run (RUSH2_SIM=1, src/sim_run.cpp: hidden, silent, about 50 times
@@ -140,7 +143,7 @@ def from_recording(path):
             continue
         base = 2 + c * len(fields)
         s = {'dist': 0.0, 'time': 0.0, 'wrecks': 0, 'brake_fast': 0.0, 'top': 0.0, 'finished': False,
-             'hits': []}
+             'wreck_at': [], 'trace': [], 'hits': []}
         was_wreck = False
         # The drones are stepped round robin (their `step`: the physics clock of the car's last step), so a car moves
         # only on some ticks: distances and times run from one of its steps to the next.
@@ -153,6 +156,8 @@ def from_recording(path):
                 break
             wreck = vals[row + fi['wreck']] != 0
             s['wrecks'] += wreck and not was_wreck
+            if wreck and not was_wreck:
+                s['wreck_at'].append((r / 60.0, c, vals[row + fi['x']], vals[row + fi['y']], vals[row + fi['z']]))
             was_wreck = wreck
             step, x, z = vals[row + fi['step']], vals[row + fi['x']], vals[row + fi['z']]
             if last is not None and step == last[0]:
@@ -179,11 +184,17 @@ def from_recording(path):
                         if vals[row + fi['brake']] > 0.5 and v / 1.4667 > 100:
                             s['brake_fast'] += dt
                     s['time'] += dt
+                    s['trace'].append((s['dist'], s['time'], x, z))
             last = (step, x, z)
         cars.append(s)
     out = summary(cars, rows / 60.0, head.get('laps'))
     out['cars'] = cars
     return out
+
+
+def show_wrecks(s):
+    for t, c, x, y, z in sorted(w for car in s['cars'] for w in car['wreck_at']):
+        print('  %6.1f s  car %d  wrecked at (%.0f, %.0f, %.0f)' % (t, c, x, y, z))
 
 
 def show_hits(s):
@@ -203,6 +214,28 @@ def show_hits(s):
             continue
         print('  %3d hits  %d cars  at (%.0f, %.0f, %.0f)  up to %.0f g' %
               (grp['n'], len(grp['cars']), grp['x'], grp['y'], grp['z'], grp['g']))
+
+
+def show_sections(s, ft):
+    """Each car's time over each `ft` of its own distance, averaged over the cars, and the median car's place at
+    the stretch's start."""
+    import bisect
+    n = int(max((car['dist'] for car in s['cars']), default=0) // ft)
+    for k in range(n):
+        times, xs, zs = [], [], []
+        for car in s['cars']:
+            tr = car['trace']
+            d = [p[0] for p in tr]
+            i0, i1 = bisect.bisect_left(d, k * ft), bisect.bisect_left(d, (k + 1) * ft)
+            if i1 >= len(tr) or i0 >= len(tr):
+                continue
+            times.append(tr[i1][1] - tr[i0][1])
+            xs.append(tr[i0][2])
+            zs.append(tr[i0][3])
+        if times:
+            xs.sort(), zs.sort()
+            print('  %6.0f ft  from (%6.0f, %6.0f)  %5.1f s' % (k * ft, xs[len(xs) // 2], zs[len(zs) // 2],
+                                                             sum(times) / len(times)))
 
 
 def from_samples(d):
@@ -264,7 +297,9 @@ def main():
     ap.add_argument('--laps', type=int, default=3)
     ap.add_argument('--catch-up', action='store_true', help='keep Drone Cheating on')
     ap.add_argument('--mod-dir', help='a mod folder raced in place of the installed mod of its id')
+    ap.add_argument('--wrecks', action='store_true', help='list every wreck (recordings)')
     ap.add_argument('--hits', action='store_true', help='where the cars hit walls (recordings)')
+    ap.add_argument('--sections', type=float, help='mean time over each this many ft driven (recordings)')
     a = ap.parse_args()
     for r in a.runs:
         s = None
@@ -280,8 +315,12 @@ def main():
             show(r, from_samples(r))
             continue
         show(r, s)
+        if s and a.wrecks:
+            show_wrecks(s)
         if s and a.hits:
             show_hits(s)
+        if s and a.sections:
+            show_sections(s, a.sections)
         sys.stdout.flush()
 
 

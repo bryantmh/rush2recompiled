@@ -465,12 +465,13 @@ namespace {
     }
 
     // Air gravity: extra gravity only while the car is in the air, so on the road every car drives as on any other
-    // track. It reaches California Speed's airborne pull (weight x 3.6 more, 4.6 g in all: its jumps' heights) as the
-    // car's lowest wheel goes from 0.25 to 1.25 ft above the road, so a wheel lifting in a corner or over a crest
-    // adds nothing and a landing doesn't jolt.
+    // track. It reaches `extra` x the weight more (California Speed's airborne pull: 3.6 more, 4.6 g in all, its
+    // jumps' heights; a custom track's [handling] air_gravity: that multiple less one) as the car's lowest wheel goes
+    // from 0.25 to 1.25 ft above the road, so a wheel lifting in a corner or over a crest adds nothing and a landing
+    // doesn't jolt.
     constexpr float air_extra = 3.6f;
     constexpr float air_start = 0.25f, air_full = 1.25f;
-    void air_gravity(uint8_t* rdram, uint32_t car) {
+    void air_gravity(uint8_t* rdram, uint32_t car, float extra = air_extra) {
         float lowest = 1e9f; // the lowest wheel's height above the road
         for (int i = 0; i < 4; i++) {
             lowest = std::min(lowest, -f32(rdram, car + car_compression + 4 * i));
@@ -481,7 +482,7 @@ namespace {
                        f32(rdram, car + car_gravity + 8) };
         float len = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
         if (len <= 0.0f) return;
-        float push = f32(rdram, car + car_weight) * air_extra * ramp;
+        float push = f32(rdram, car + car_weight) * extra * ramp;
         for (int k = 0; k < 3; k++) {
             put_f32(rdram, car + car_force + 4 * k, f32(rdram, car + car_force + 4 * k) + g[k] / len * push);
         }
@@ -933,7 +934,14 @@ namespace {
 
 extern "C" void rush2_calspeed_road_hold(uint8_t* rdram, recomp_context* ctx) {
     uint32_t car = (uint32_t)ctx->r16;
-    if (rush2::calspeed::physics::force_sum(rdram, car) || !road_hold_track(rdram)) {
+    if (rush2::calspeed::physics::force_sum(rdram, car)) {
+        return;
+    }
+    // A custom track's [handling] air_gravity (the PS1 SF Rush's stunt road, src/sfrush_ps1/ps1_track.cpp).
+    if (float air = rush2::track2049::mod_air_gravity(rdram); air > 1.0f) {
+        air_gravity(rdram, car, air - 1.0f);
+    }
+    if (!road_hold_track(rdram)) {
         return;
     }
     if (hold == Hold::Heavy) {

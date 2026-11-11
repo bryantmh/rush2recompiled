@@ -753,8 +753,8 @@ func = "menu_controller_setup_rows_text_800B6134"
 before_vram = 0x800B65E8
 text = "    rush2_controls_menu_draw(rdram, ctx);"
 
-# California Speed's road hold on its tracks (src/calspeed/calspeed_rom.cpp): after car_force_sum, before the
-# steering terms and torque.
+# California Speed's road hold on its tracks, and a custom track's [handling] air_gravity
+# (src/calspeed/calspeed_rom.cpp): after car_force_sum, before the steering terms and torque.
 [[patches.hook]]
 func = "car_physics_forces_800706D0"
 before_vram = 0x800706F4
@@ -1124,6 +1124,18 @@ text = "    rush2_track49_obstacle_settings(rdram, ctx);"
 func = "race_start_timer_800AE670"
 before_vram = 0x800AEB20
 text = "    rush2_track49_obstacle_clock(rdram, ctx);"
+
+# A custom track's [track] stunts (src/rush2049/track2049.cpp): the stunt panel's tests of the Stunts on All Tracks
+# cheat byte read it as set, right after it is loaded into $a1.
+[[patches.hook]]
+func = "hud_stunt_box_visible_80060E34"
+before_vram = 0x80060E7C
+text = "    rush2_track_mod_stunts(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_widget_text_cb_player_stats_800B7654"
+before_vram = 0x800B76B0
+text = "    rush2_track_mod_stunts(rdram, ctx);"
 
 # Rush 2049 Stunt HUD (src/rush2049/stunt2049.cpp): Rush 2's stunt boxes are hidden under it, and whether they would
 # show is kept for it.

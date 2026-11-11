@@ -216,6 +216,10 @@ namespace rush2::track2049 {
     uint32_t mod_car_light(uint8_t* rdram);
     // The factor the raced custom track's [handling] traction gives a car going `mph`, 1 without one.
     float mod_traction(uint8_t* rdram, float mph);
+    // The raced custom track's [handling] air_gravity (gravity's multiple with all four wheels off the road), 1 without one.
+    float mod_air_gravity(uint8_t* rdram);
+    // Whether the raced custom track's [track] stunts asks for the stunt panel and scores (as Stunts on All Tracks).
+    bool mod_stunts(uint8_t* rdram);
     // Whether the race is on the obstacle course.
     bool obstacle_race(uint8_t* rdram);
     // Whether the race is in a battle arena (also true at race setup, before the menu id becomes the host slot's).
@@ -267,6 +271,7 @@ namespace rush2::track2049 {
     constexpr uint32_t version_ring_arcade = 0xE51E2A;    // red
     constexpr uint32_t version_ring_snow = 0xE6F0FF;      // ice white: the PlayStation SF Rush's SNOW versions
     constexpr uint32_t version_ring_night = 0x7C4DFF;     // violet: its NIGHT versions
+    constexpr uint32_t version_ring_stunt = 0x3CC85A;     // green: its STUNT version (Golden Gate's ramps)
     // The ring's commands sit between G_NOOPs with these words, so the track select can branch over them: it shows
     // the ring only when the course has another version (the X prompt names the version).
     constexpr uint32_t version_ring_start = 0x52494E47;   // "RING"

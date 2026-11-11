@@ -321,6 +321,8 @@ gravity     = "rush2"                 # "rush2" (the default) or "rush2049": Rus
 road_hold   = false                   # true: California Speed's road hold keeps cars on crests: see Road hold
 point_to_point = false                # true: raced once from START to FINISH: see Point to point
 run_in      = false                   # true: starts on a run-in into the loop: see Run-in circuits
+stunts      = false                   # true: its races score stunts and show the stunt panel, as the Stunts on
+                                      # All Tracks cheat does (the cheat itself isn't touched)
 
 [race]
 # Timer (with checkpoints on). Leave these out and the game works it out from the AI path, as stock Rush 2 does.
@@ -338,6 +340,7 @@ sky_parallax = 0.0         # how much the sky shifts as the camera moves (the cl
 
 # [handling]
 # traction = [[32, 0.5], [64, 0.25]]   # a slippery track (snow, ice): see Handling
+# air_gravity = 2                      # shorter jumps: see Handling
 
 [movers.lift]              # a moving object's settings (and start, open, close...): see Moving objects
 mode  = "ride"
@@ -425,6 +428,15 @@ Without `[race]` times of its own, the race clock comes from the race time model
 car's acceleration, cornering and braking times the factor), so a slippery track grants the time it costs. The SF
 Rush PlayStation mod's SNOW versions of Golden Gate, Embarcadero, Market and Chinatown use `[[32.1, 0.5]]`: the
 PlayStation's first halving (its second, a quarter from 64 mph, played too slowly) and no times of their own.
+
+`[handling] air_gravity` makes jumps shorter: gravity is multiplied by it while all four wheels are off the road
+(eased in as the lowest wheel rises from a quarter of a foot to a foot and a quarter, so a wheel lifting in a corner
+changes nothing). On the road the cars drive as on any other track. From 1 (the default, Rush 2's) to 10.
+
+```toml
+[handling]
+air_gravity = 2   # the SF Rush PlayStation mod's Golden Gate STUNT: its kickers' jumps half as long
+```
 
 ### AI speeds
 
@@ -951,10 +963,10 @@ Attributes (tick Data > Mesh > Attributes when you export).
 
 | Section | Settings | See |
 |---|---|---|
-| `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `smooth_collision`, `smooth_fold`, `smooth_height` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
+| `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `stunts`, `smooth_collision`, `smooth_fold`, `smooth_height` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
 | `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
 | `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light` | [Sky](#sky), [Night](#night) |
-| `[handling]` | `traction` | [Handling](#handling) |
+| `[handling]` | `traction`, `air_gravity` | [Handling](#handling) |
 | `[ai]` | `speed_quantiles`, `traction_margin`, `speed_scale` | [AI speeds](#ai-speeds) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
 | `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |

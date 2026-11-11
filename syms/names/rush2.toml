@@ -5164,7 +5164,7 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 vram = 0x80060E34
 name = "hud_stunt_box_visible"
 sig = "s32 hud_stunt_box_visible(HudElement *e)"
-desc = "Visibility callback of the stunt panel's boxes (func_80093B38 elements): hides the box unless the panel shows (track 11 or the 0x8010C200 cheat byte), the player (param >> 4) is under the player count, and for the trick name's box (param & 0xF == 1) while the player's 0x8010C070 flag is clear. The Rush 2049 Stunt HUD hooks its first test (0x80060E98) to hide the boxes and keep whether they would show (src/rush2049/stunt2049.cpp)."
+desc = "Visibility callback of the stunt panel's boxes (func_80093B38 elements): hides the box unless the panel shows (track 11 or the 0x8010C200 cheat byte), the player (param >> 4) is under the player count, and for the trick name's box (param & 0xF == 1) while the player's 0x8010C070 flag is clear. The Rush 2049 Stunt HUD hooks its first test (0x80060E98) to hide the boxes and keep whether they would show (src/rush2049/stunt2049.cpp). / A custom track's [track] stunts reads the cheat byte as set: rush2_track_mod_stunts hooked at 0x80060E7C, after its load into $a1 (src/rush2049/track2049.cpp, docs/sfrush_ps1.md#stunt-track)."
 consts = "e+0x2C = (player << 4) | box (0 BEST/TOTAL scores, 1 trick name); 0xB = STUNT1 track id"
 status = "verified"
 area = "ui"
@@ -13257,7 +13257,7 @@ ref = "docs/functions/rush2_ui.md#rush-2-ui-functions"
 vram = 0x800B7654
 name = "hud_widget_text_cb_player_stats"
 sig = "s32 hud_widget_text_cb_player_stats(HudWidget *w)"
-desc = "Stunt panel text callback (HUD layout entry 111): for every player ($s6) prints the trick name and multiplier while 0x8010C070[player] is set, and BEST (0x8010C068) / TOTAL (0x8010C074) with their values; sets the text scale 0x800BEF48 to 0 so the text draws at once. Rush 2049 stunt scoring (src/rush2049/stunt2049.cpp): hooks at 0x800B7838/0x800B78C0 (the trick name's table slot points at the combo's name), 0x800B78F4 (points line), 0x800B7974 (BEST) and 0x800B79F8 (TOTAL) rewrite its text with Rush 2049's scores."
+desc = "Stunt panel text callback (HUD layout entry 111): for every player ($s6) prints the trick name and multiplier while 0x8010C070[player] is set, and BEST (0x8010C068) / TOTAL (0x8010C074) with their values; sets the text scale 0x800BEF48 to 0 so the text draws at once. Rush 2049 stunt scoring (src/rush2049/stunt2049.cpp): hooks at 0x800B7838/0x800B78C0 (the trick name's table slot points at the combo's name), 0x800B78F4 (points line), 0x800B7974 (BEST) and 0x800B79F8 (TOTAL) rewrite its text with Rush 2049's scores. / A custom track's [track] stunts reads the cheat byte (0x8010C200, loaded at 0x800B76AC) as set: rush2_track_mod_stunts hooked at 0x800B76B0 (src/rush2049/track2049.cpp, docs/sfrush_ps1.md#stunt-track)."
 consts = "0x78/0xE6 = panel y (player 1 of 2 / others); 0x4A = trick name center x; 0x102 = labels' right edge; 0x10C = values' x"
 status = "verified"
 ported = true

@@ -5,7 +5,7 @@ Names and signatures marked inferred are educated guesses from the code.
 
 | Address | Symbol | Signature | Description | Constants | Status |
 |---|---|---|---|---|---|
-| 800142C4 | `special_car_setup_800142C4` |  | Sets the car type 0x800B2BEC for the special car gp+0x28: STARSKY 6, JEEP 5, JETCAR 3, MINI 4, BBUS 1, TAXI 0, PIGGY 2 (and white paint), UFO 7. |  | verified |
+| 800142C4 | `special_car_setup_800142C4` |  | Race setup from the menu choices: sets the car type 0x800B2BEC for the special car gp+0x28 (STARSKY 6, JEEP 5, JETCAR 3, MINI 4, BBUS 1, TAXI 0, PIGGY 2 and white paint, UFO 7), snow gp+0x40, night gp+0x98, and the stunt road 0x800B2AA0 (track 1, when the variant value gp+0x48 is 3 and 0x800B2C64 is set). |  | verified |
 | 80030930 | `car_paint_load_80030930` | `void car_paint_load(s32 color)` | Loads the paint page CARSGFX/<color>.GFX (0 blue, 1 green, 2 red, 3 yellow, 4 white, 5 purple, 6 orange, ...; CARSGFXN at night). |  | inferred |
 | 80030C18 | `car_load_80030C18` |  | Loads the cars: the wreck model (cars/dead.psv or ufodead), the paint page, each car's PSV and GFX textures at hard-coded RECTs per player slot. |  | inferred |
 | 8004B120 | `wheel_model_load_8004B120` |  | Loads COLLDAT3/WHEEL.PSV (the wheel model, gp+0xCB0) and clears the per-car wheel tables 0x80110330 / 0x800E9938. |  | inferred |

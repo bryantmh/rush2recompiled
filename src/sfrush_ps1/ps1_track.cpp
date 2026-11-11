@@ -35,7 +35,9 @@ namespace {
     // its own (docs/custom_tracks.md#versions): track 4, the PS1's own course, by day (Chinatown) with its snow and night
     // versions; tracks 1-3, the N64 game's first three courses in the PS1's own models, as snow and night versions of
     // the N64 courses (their day is the N64 version's).
-    enum class Condition { day, snow, night };
+    // Golden Gate also has a stunt road (docs/sfrush_ps1.md#stunt-track): the day track with ramps, its own road
+    // (T1ROAD/T5ROAD2) and collision (COLLDAT5), a version of its own here.
+    enum class Condition { day, snow, night, stunt };
     struct ConditionInfo {
         Condition condition;
         const char* suffix;      // T<n>PAGE<suffix>.DAT, T<n>CLUT<suffix>.DAT, the folder's _snow / _night
@@ -45,7 +47,14 @@ namespace {
         { Condition::day, "", "DAY" },
         { Condition::snow, "S", "SNOW" },
         { Condition::night, "N", "NIGHT" },
+        { Condition::stunt, "", "STUNT" },
     };
+    // The stunt road (func_80036C40 loads T1ROAD/T5ROAD2 for T1ROAD2, func_8004F9C0 COLLDAT5's BOUNDS, COLLMAP and
+    // FLAGS for COLLDAT1's while 0x800B2AA0 / gp+0x3D0 is set; TRACK1.CPF and the AI paths stay track 1's), and the
+    // race setup's start time for it (0x80015E1C: addiu $v0, 180).
+    constexpr const char* stunt_road = "T1ROAD/T5ROAD2";
+    constexpr const char* stunt_collision = "COLLDAT5";
+    constexpr uint32_t stunt_start_insn = 0x80015E1C;
 
     // What differs between the PS1's four tracks in RUSH.EXE, by track index (0x800B34F8 / gp+0x70: 0-3).
     struct TrackInfo {
@@ -66,11 +75,12 @@ namespace {
         // A run-in circuit's grid (docs/sfrush_ps1.md#run-in): the race setup's forward grid instruction (ori, the back
         // car's PS1 y in 0.1 ft) for a track whose AI path is open, its race starting on a run-in to the loop; 0: a loop.
         uint32_t run_in_grid;
+        bool stunt = false;         // a stunt version too (track 1: stunt_road, stunt_collision)
     };
     constexpr TrackInfo tracks[] = {
         { 1, "golden_gate", "Golden Gate", "sfrush:golden_gate", false, 0x80037C2C, 0x8003A4A0, 0x800A77C0, 0x80044524,
           0x80044534, 0x800B2AF8, 0x800AA388, 0x800B2B00, 0x800B2AD8, 0x80015DF0, 0, 0x8009DEF4, { 0x70, 0x72 }, 0,
-          0x80051770 },
+          0x80051770, true },
         { 2, "embarcadero", "Embarcadero", "sfrush:embarcadero", false, 0x80038644, 0x8003AF18, 0x800A7478, 0x8004459C,
           0x800445AC, 0x800B2B08, 0x800AA394, 0x800B2B10, 0x800B2AE0, 0x80015DCC, 0, 0x800A0180, { 0x82, 0x83 }, 0x800A55B4,
           0 },
@@ -870,8 +880,11 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                             const std::vector<uint8_t>* n64_lanes) {
     using ps1::Disc;
     char line[256];
-    const char* folder_suffix = cond.condition == Condition::snow ? "_snow" : cond.condition == Condition::night ? "_night" : "";
-    const char* name_suffix = cond.condition == Condition::snow ? " Snow" : cond.condition == Condition::night ? " Night" : "";
+    const bool stunt = cond.condition == Condition::stunt;
+    const char* folder_suffix = cond.condition == Condition::snow ? "_snow" : cond.condition == Condition::night ? "_night" :
+                                stunt ? "_stunt" : "";
+    const char* name_suffix = cond.condition == Condition::snow ? " Snow" : cond.condition == Condition::night ? " Night" :
+                              stunt ? " Stunt" : "";
     const std::string track_id = tr.id, folder = track_id + folder_suffix, track_name = std::string(tr.name) + name_suffix;
     std::vector<std::string> report;
     Exe exe;
@@ -1015,8 +1028,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     bool banner_built = false;
     for (const char* kind : { "ROAD2", "SCN2" }) {
         std::vector<std::vector<uint8_t>> raw;
-        if (!disc.chunks("T" + t + "ROAD/T" + t + kind, raw)) {
-            log += std::string("T") + t + "ROAD/T" + t + kind + ".DAT couldn't be read\n";
+        const std::string file = stunt && std::string(kind) == "ROAD2" ? std::string(stunt_road) : "T" + t + "ROAD/T" + t + kind;
+        if (!disc.chunks(file, raw)) {
+            log += file + ".DAT couldn't be read\n";
             return false;
         }
         const bool scenery = std::string(kind) == "SCN2";
@@ -1161,96 +1175,133 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
 
     // Collision (docs/sfrush_ps1.md#collision).
-    std::vector<std::vector<uint8_t>> coll;
-    std::vector<uint8_t> flags;
-    if (!disc.chunks("COLLDAT" + t + "/COLLMAP", coll) || !disc.read("COLLDAT" + t + "/FLAGS.DAT", flags)) {
-        log += "the collision map couldn't be read\n";
-        return false;
-    }
+    // read_collision: a COLLDAT<n> folder's map (COLLMAP, FLAGS): its ground polygons (with their chunk) and walls.
+    auto read_collision = [&](const std::string& dir, std::vector<Ground>& grounds, std::vector<Wall>& walls,
+                              std::vector<int>& chunk_of_ground, size_t& b_records) {
+        std::vector<std::vector<uint8_t>> coll;
+        std::vector<uint8_t> flags;
+        if (!disc.chunks(dir + "/COLLMAP", coll) || !disc.read(dir + "/FLAGS.DAT", flags)) {
+            log += "the collision map couldn't be read\n";
+            return false;
+        }
+        size_t fo = 0;
+        for (size_t k = 0; k < coll.size(); k++) {
+            const auto& c = coll[k];
+            if (c.size() < 0x28) return false;
+            uint32_t nv = uint32_t(s32(&c[0x10]));
+            int npol = c[0x14], na = c[0x24], nb = c[0x25];
+            if (fo + size_t(npol) > flags.size() || 0x28 + size_t(nv) * 12 > c.size()) return false;
+            std::vector<V3> V;
+            for (uint32_t i = 0; i < nv; i++) {
+                const uint8_t* p = &c[0x28 + 12 * i];
+                V.push_back(game_coll(s32(p), s32(p + 4), s32(p + 8)));
+            }
+            size_t o = 0x28 + size_t(nv) * 12;
+            auto need = [&](size_t n) { return o + n <= c.size(); };
+            for (int i = 0; i < na; i++, o += 0x18) {
+                if (!need(0x18)) return false;
+                const uint8_t* r = &c[o];
+                double d = s32(r), nx = s16(r + 4), nz = s16(r + 6);
+                // The segment's bounding box (x min, x max, y min, y max); the segment is the diagonal on the wall's plane
+                // (n . p = d, n x 16384).
+                double x0 = s32(r + 8), x1 = s32(r + 12), z0 = s32(r + 16), z1 = s32(r + 20);
+                auto off = [&](double x, double z) { return std::fabs(nx * x + nz * z - d); };
+                if (off(x0, z1) + off(x1, z0) < off(x0, z0) + off(x1, z1)) std::swap(z0, z1);
+                // PS1 (x, y) -> game (z, x).
+                walls.push_back({ { z0 / 10.0, x0 / 10.0 }, { z1 / 10.0, x1 / 10.0 }, { nz / 16384.0, nx / 16384.0 }, int(k) });
+            }
+            // Raised walls (B, 0x20): an A wall's plane and box, then two heights (0.1 ft, y down): func_8005AD28 tests
+            // a car against it only while its center is over the first (car height - 8 < +0x18), up to the second.
+            for (int i = 0; i < nb; i++, o += 0x20) {
+                if (!need(0x20)) return false;
+                const uint8_t* r = &c[o];
+                double d = s32(r), nx = s16(r + 4), nz = s16(r + 6);
+                double x0 = s32(r + 8), x1 = s32(r + 12), z0 = s32(r + 16), z1 = s32(r + 20);
+                auto off = [&](double x, double z) { return std::fabs(nx * x + nz * z - d); };
+                if (off(x0, z1) + off(x1, z0) < off(x0, z0) + off(x1, z1)) std::swap(z0, z1);
+                walls.push_back({ { z0 / 10.0, x0 / 10.0 }, { z1 / 10.0, x1 / 10.0 }, { nz / 16384.0, nx / 16384.0 }, int(k),
+                                  -s32(r + 24) / 10.0, -s32(r + 28) / 10.0 });
+                b_records++;
+            }
+            for (int i = na + nb; i < npol; i++) {
+                uint8_t f = flags[fo + size_t(i)];
+                size_t size = (f & 7) ? 0x28 : 0x20;
+                if (!need(size)) return false;
+                const uint8_t* r = &c[o];
+                const uint8_t* idx = r + (size == 0x28 ? 0x18 : 0x14);
+                Ground gr;
+                gr.flags = f;
+                std::vector<int> ring;
+                for (int q = 0; q < 4; q++) {
+                    if (idx[q] >= V.size()) return false;
+                    if (ring.empty() || idx[q] != idx[ring.back()]) ring.push_back(q);
+                }
+                if (ring.size() == 4 && idx[ring[3]] == idx[ring[0]]) ring.pop_back();
+                o += size;
+                if (ring.size() < 3) continue;
+                gr.n = int(ring.size());
+                for (int q = 0; q < gr.n; q++) gr.p[q] = V[idx[ring[q]]];
+                gr.tri_count = gr.n - 2;
+                gr.tris[0] = { 0, 1, 2 };
+                gr.tris[1] = { 0, 2, 3 };
+                if (gr.n == 4 && size == 0x28) {
+                    // A bent quad: its two planes' normals (y down, 16384 = 1) pick the diagonal.
+                    V3 n0 = game(s16(r + 0x1C) / 16384.0, s16(r + 0x20) / 16384.0, -s16(r + 0x1E) / 16384.0);
+                    auto tn = [&](int a, int b, int c2) { return a49::unit(a49::cross(gr.p[b] - gr.p[a], gr.p[c2] - gr.p[a])); };
+                    double split02 = std::max(std::fabs(a49::dot(tn(0, 1, 2), n0)), std::fabs(a49::dot(tn(0, 2, 3), n0)));
+                    double split13 = std::max(std::fabs(a49::dot(tn(0, 1, 3), n0)), std::fabs(a49::dot(tn(1, 2, 3), n0)));
+                    if (split13 > split02) {
+                        gr.tris[0] = { 0, 1, 3 };
+                        gr.tris[1] = { 1, 2, 3 };
+                    }
+                }
+                grounds.push_back(gr);
+                chunk_of_ground.push_back(int(k));
+            }
+            if (o != c.size()) {
+                snprintf(line, sizeof(line), "collision chunk %zu: %zu of %zu bytes read\n", k, o, c.size());
+                log += line;
+                return false;
+            }
+            fo += size_t(npol);
+        }
+        return true;
+    };
     std::vector<Ground> grounds;
     std::vector<Wall> walls;
     std::vector<Wall> step_walls;   // the walls the converter adds at the foot of steps (below), for the AI lanes' clearance
     std::vector<int> chunk_of_ground;
-    size_t fo = 0, b_records = 0;
-    for (size_t k = 0; k < coll.size(); k++) {
-        const auto& c = coll[k];
-        if (c.size() < 0x28) return false;
-        uint32_t nv = uint32_t(s32(&c[0x10]));
-        int npol = c[0x14], na = c[0x24], nb = c[0x25];
-        if (fo + size_t(npol) > flags.size() || 0x28 + size_t(nv) * 12 > c.size()) return false;
-        std::vector<V3> V;
-        for (uint32_t i = 0; i < nv; i++) {
-            const uint8_t* p = &c[0x28 + 12 * i];
-            V.push_back(game_coll(s32(p), s32(p + 4), s32(p + 8)));
-        }
-        size_t o = 0x28 + size_t(nv) * 12;
-        auto need = [&](size_t n) { return o + n <= c.size(); };
-        for (int i = 0; i < na; i++, o += 0x18) {
-            if (!need(0x18)) return false;
-            const uint8_t* r = &c[o];
-            double d = s32(r), nx = s16(r + 4), nz = s16(r + 6);
-            // The segment's bounding box (x min, x max, y min, y max); the segment is the diagonal on the wall's plane
-            // (n . p = d, n x 16384).
-            double x0 = s32(r + 8), x1 = s32(r + 12), z0 = s32(r + 16), z1 = s32(r + 20);
-            auto off = [&](double x, double z) { return std::fabs(nx * x + nz * z - d); };
-            if (off(x0, z1) + off(x1, z0) < off(x0, z0) + off(x1, z1)) std::swap(z0, z1);
-            // PS1 (x, y) -> game (z, x).
-            walls.push_back({ { z0 / 10.0, x0 / 10.0 }, { z1 / 10.0, x1 / 10.0 }, { nz / 16384.0, nx / 16384.0 }, int(k) });
-        }
-        // Raised walls (B, 0x20): an A wall's plane and box, then two heights (0.1 ft, y down): func_8005AD28 tests
-        // a car against it only while its center is over the first (car height - 8 < +0x18), up to the second.
-        for (int i = 0; i < nb; i++, o += 0x20) {
-            if (!need(0x20)) return false;
-            const uint8_t* r = &c[o];
-            double d = s32(r), nx = s16(r + 4), nz = s16(r + 6);
-            double x0 = s32(r + 8), x1 = s32(r + 12), z0 = s32(r + 16), z1 = s32(r + 20);
-            auto off = [&](double x, double z) { return std::fabs(nx * x + nz * z - d); };
-            if (off(x0, z1) + off(x1, z0) < off(x0, z0) + off(x1, z1)) std::swap(z0, z1);
-            walls.push_back({ { z0 / 10.0, x0 / 10.0 }, { z1 / 10.0, x1 / 10.0 }, { nz / 16384.0, nx / 16384.0 }, int(k),
-                              -s32(r + 24) / 10.0, -s32(r + 28) / 10.0 });
-            b_records++;
-        }
-        for (int i = na + nb; i < npol; i++) {
-            uint8_t f = flags[fo + size_t(i)];
-            size_t size = (f & 7) ? 0x28 : 0x20;
-            if (!need(size)) return false;
-            const uint8_t* r = &c[o];
-            const uint8_t* idx = r + (size == 0x28 ? 0x18 : 0x14);
-            Ground gr;
-            gr.flags = f;
-            std::vector<int> ring;
-            for (int q = 0; q < 4; q++) {
-                if (idx[q] >= V.size()) return false;
-                if (ring.empty() || idx[q] != idx[ring.back()]) ring.push_back(q);
+    size_t b_records = 0;
+    const std::string coll_dir = stunt ? std::string(stunt_collision) : "COLLDAT" + t;
+    if (!read_collision(coll_dir, grounds, walls, chunk_of_ground, b_records)) return false;
+    // The stunt road's ramps: its ground polygons that the day road's map (COLLDAT1) hasn't, corner for corner (they
+    // replace 61 of its 859 road polygons with 116). They keep their own flat faces: the spline road below is fitted
+    // to the rest and would round off their lips.
+    std::vector<bool> ramp(grounds.size(), false);
+    if (stunt) {
+        std::vector<Ground> base;
+        std::vector<Wall> base_walls;
+        std::vector<int> base_chunks;
+        size_t base_b = 0;
+        if (!read_collision("COLLDAT" + t, base, base_walls, base_chunks, base_b)) return false;
+        auto key = [](const Ground& gr) {
+            std::vector<std::array<long, 3>> k;
+            for (int c = 0; c < gr.n; c++) {
+                k.push_back({ std::lround(gr.p[c][0] * 10), std::lround(gr.p[c][1] * 10), std::lround(gr.p[c][2] * 10) });
             }
-            if (ring.size() == 4 && idx[ring[3]] == idx[ring[0]]) ring.pop_back();
-            o += size;
-            if (ring.size() < 3) continue;
-            gr.n = int(ring.size());
-            for (int q = 0; q < gr.n; q++) gr.p[q] = V[idx[ring[q]]];
-            gr.tri_count = gr.n - 2;
-            gr.tris[0] = { 0, 1, 2 };
-            gr.tris[1] = { 0, 2, 3 };
-            if (gr.n == 4 && size == 0x28) {
-                // A bent quad: its two planes' normals (y down, 16384 = 1) pick the diagonal.
-                V3 n0 = game(s16(r + 0x1C) / 16384.0, s16(r + 0x20) / 16384.0, -s16(r + 0x1E) / 16384.0);
-                auto tn = [&](int a, int b, int c2) { return a49::unit(a49::cross(gr.p[b] - gr.p[a], gr.p[c2] - gr.p[a])); };
-                double split02 = std::max(std::fabs(a49::dot(tn(0, 1, 2), n0)), std::fabs(a49::dot(tn(0, 2, 3), n0)));
-                double split13 = std::max(std::fabs(a49::dot(tn(0, 1, 3), n0)), std::fabs(a49::dot(tn(1, 2, 3), n0)));
-                if (split13 > split02) {
-                    gr.tris[0] = { 0, 1, 3 };
-                    gr.tris[1] = { 1, 2, 3 };
-                }
-            }
-            grounds.push_back(gr);
-            chunk_of_ground.push_back(int(k));
+            std::sort(k.begin(), k.end());
+            return k;
+        };
+        std::set<std::vector<std::array<long, 3>>> day_keys;
+        for (const Ground& gr : base) day_keys.insert(key(gr));
+        size_t ramps = 0;
+        for (size_t i = 0; i < grounds.size(); i++) {
+            ramp[i] = !day_keys.count(key(grounds[i]));
+            ramps += ramp[i];
         }
-        if (o != c.size()) {
-            snprintf(line, sizeof(line), "collision chunk %zu: %zu of %zu bytes read\n", k, o, c.size());
-            log += line;
-            return false;
-        }
-        fo += size_t(npol);
+        snprintf(line, sizeof(line), "stunt road: %zu of %zu ground polygons are its own (ramps), %zu walls against %zu",
+                 ramps, grounds.size(), walls.size(), base_walls.size());
+        report.push_back(line);
     }
     if (b_records) report.push_back(std::to_string(b_records) + " raised walls (B records), each over its own height band");
     // Ground by surface (FLAGS & 0x18: road, dirt, grass, water). The grass class (the park's grass and sand shoulders)
@@ -1566,7 +1617,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         const char* const floor_names[3] = { "ROAD", "DIRT", "VERGE" };
         std::vector<GroundTri> floor;
         std::vector<std::pair<std::array<V3, 3>, int>> steep;     // floor too steep to fit (normal y < 0.2), by class
-        for (const Ground& gr : grounds) {
+        std::vector<bool> floor_ramp;                               // per floor triangle: a stunt ramp's
+        for (size_t gi = 0; gi < grounds.size(); gi++) {
+            const Ground& gr = grounds[gi];
             int s = gr.flags & 0x18;
             if (s == 0x18) continue;     // water: as written above
             int cls = s == 0 ? 0 : s == 0x08 ? 1 : 2;
@@ -1577,12 +1630,28 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                 nn = a49::unit(nn);
                 if (nn[1] < 0) nn = nn * -1.0;
                 if (nn[1] < 0.2) steep.push_back({ p, cls });
-                else floor.push_back({ p, nn, cls });
+                else {
+                    floor.push_back({ p, nn, cls });
+                    floor_ramp.push_back(ramp[gi]);
+                }
             }
         }
-        // Golden Gate only (spline_road_track: what was measured on the others).
+        // Golden Gate only (spline_road_track: what was measured on the others). The stunt road's ramps are left out of
+        // the fit and keep their faces.
         RoadSplines rs;
-        if (spline_road_track(tr.n)) rs = road_splines(floor, mid, lp, rp, run_in);
+        if (spline_road_track(tr.n)) {
+            std::vector<GroundTri> fit;
+            std::vector<size_t> fit_at;
+            for (size_t i = 0; i < floor.size(); i++) {
+                if (floor_ramp[i]) continue;
+                fit.push_back(floor[i]);
+                fit_at.push_back(i);
+            }
+            rs = road_splines(fit, mid, lp, rp, run_in);
+            std::vector<int> hint(floor.size(), -1);
+            for (size_t i = 0; i < fit_at.size() && i < rs.hint.size(); i++) hint[fit_at[i]] = rs.hint[i];
+            rs.hint = std::move(hint);
+        }
         else rs.hint.assign(floor.size(), -1);
         std::vector<a49::CollisionPoly> cand;
         for (size_t i = 0; i < floor.size(); i++) {
@@ -1860,7 +1929,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         report.push_back("AI lanes: the PS1's, smoothed");
     }
     // Hand fixes at the spots where the lanes cut into or past a wall (lane_fixes).
-    {
+    if (!stunt) {
         size_t fixed = 0;
         std::string where;
         for (const LaneFix& fx : lane_fixes) {
@@ -1908,7 +1977,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // loop's lanes start part of the way toward the lap end's line instead (lane_fixes).
     if (run_in && m > 120) {
         size_t ease = 30;
-        if (tr.n == 1) {
+        if (tr.n == 1 && !stunt) {
             const V3 tip{ 100.0, 0.0, -985.0 };   // this frame's x is the written track's mirrored
             size_t from = m - ease;
             double best = 1e30;
@@ -1932,6 +2001,419 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                 l[i][2] += (l[j][2] - l[i][2]) * w;
             }
         }
+    }
+    // Stunt road lanes (docs/sfrush_ps1.md#stunt-lanes). The PS1 has no path of its own for the stunt road: its drones
+    // drive Golden Gate's, and so did the conversion's, through the bridge's divider wedge, the park's blocks, half on
+    // the first ramp's side and into the pit at (1500, -3250). Each lane is re-planned across the road, station by
+    // station: its sideways offset u along the station's lat (1 ft steps, +-stunt_reach) is chosen by dynamic
+    // programming over the whole path, where an offset is open when the car's body (+-stunt_body) has ground under
+    // it with no step across it (a rise or drop of more than stunt_step between 1 ft samples: a ramp's or a pit's
+    // side, the road's edge; a step over stunt_drop by drop_margin more) and no ground steeper than stunt_steep under it (the cliffs on the park's grass
+    // shoulder, where the first plan's lanes ran every car into the rock), doesn't straddle a stunt ramp's edge
+    // (lifting one side of the car onto it) and keeps stunt_clear from every wall at that ground's height, and a move
+    // from one station to the next mustn't cut through a wall. On a ramp, and from stunt_lead stations before it, a
+    // sideways step costs ramp_cost x step^2 more, so cars take it straight. (Following each ramp's own fall line
+    // instead, as the first plan did, asked a different step at each of the stunt road's many slightly turned ramps,
+    // and the lanes went round them onto the dirt.)
+    // Otherwise the lane keeps to its old line (the N64's or the PS1's), on the road rather than dirt or grass, and
+    // turns gently: cost dev_cost x (u - old)^2 (no more past dev_cap, so a lane the old line can't hold moves over
+    // early and smoothly instead of hugging it to the last moment: at the pit it swerved 30 ft in 50 ft and three
+    // cars a race slid in) + the surface's cost + turn_cost x step^2. Closed paths
+    // are planned as open ones (the stunt road is Golden Gate's run-in).
+    if (stunt) {
+        constexpr int stunt_reach = 60;        // ft either side of the PS1 path's middle
+        constexpr double stunt_body = 4.0;     // ft, half a car's width and a little
+        constexpr double stunt_clear = 6.0;    // ft from a wall
+        constexpr double stunt_steep = 0.47;   // a slope steeper than this (25 degrees), not a stunt ramp, is closed
+        // A station off the road (dirt, the park's grass), dearer than straying from the old line (dev_cost x
+        // dev_cap^2 = 7.2) or crowding the other lanes (sep_cost x sep_ft^2 = 6.4) can cost: at 1.5 and 3 the lanes kept
+        // the N64's line over the stunt road's dirt and the drones lost seconds a lap there; at 10 the outer lanes
+        // still spread onto the park's dirt round the pit's bypass instead of sharing its road.
+        constexpr double dirt_cost = 25.0, verge_cost = 30.0;
+        constexpr double stunt_step = 1.5;     // ft of height between 1 ft samples that is a step
+        constexpr double stunt_drop = 4.0;     // a step taller than this (a pit's or a ledge's side) is kept further
+        constexpr int drop_margin = 4;         // from: this many ft more than the body
+        constexpr int stunt_max_step = 3;      // ft sideways a station (about 18 ft apart: 9 degrees)
+        constexpr int stunt_lead = 4;          // stations before a ramp that already follow its line
+        constexpr double dev_cap = 12.0;       // ft off the old line past which straying costs no more
+        constexpr double dev_cost = 0.05, turn_cost = 2.0, ramp_cost = 10.0, blocked_cost = 1e5;
+        // A stunt polygon steeper than this (12 degrees: the kickers) with its fall line within 20 degrees of the
+        // road's is a ramp the lanes take straight. At 3 degrees and 37 the re-laid road's slight slopes and banks
+        // before the tunnel counted, and at 6 the sloping bypass round the pit did: the lanes, kept straight there,
+        // turned on the park's dirt beside it instead.
+        constexpr double ramp_min_slope = 0.21;
+        constexpr double ramp_along = 0.94;       // cos(20 degrees)
+        constexpr double ramp_max_aim = 2.0;      // ft sideways a station
+        const int nu = 2 * stunt_reach + 1;
+        struct Tri { V3 a, b, c; size_t g; };
+        std::vector<Tri> gtris;
+        for (size_t gi = 0; gi < grounds.size(); gi++) {
+            const Ground& gr = grounds[gi];
+            for (int k = 0; k < gr.tri_count; k++) {
+                gtris.push_back({ gr.p[size_t(gr.tris[k][0])], gr.p[size_t(gr.tris[k][1])], gr.p[size_t(gr.tris[k][2])], gi });
+            }
+        }
+        constexpr double tcell = 20.0;
+        std::map<std::pair<int, int>, std::vector<size_t>> tri_grid;
+        for (size_t ti = 0; ti < gtris.size(); ti++) {
+            const Tri& tr3 = gtris[ti];
+            double x0 = std::min({ tr3.a[0], tr3.b[0], tr3.c[0] }), x1 = std::max({ tr3.a[0], tr3.b[0], tr3.c[0] });
+            double z0 = std::min({ tr3.a[2], tr3.b[2], tr3.c[2] }), z1 = std::max({ tr3.a[2], tr3.b[2], tr3.c[2] });
+            for (int gx = int(std::floor(x0 / tcell)); gx <= int(std::floor(x1 / tcell)); gx++) {
+                for (int gz = int(std::floor(z0 / tcell)); gz <= int(std::floor(z1 / tcell)); gz++) tri_grid[{ gx, gz }].push_back(ti);
+            }
+        }
+        // The ground layer at (x, z) nearest to height ref: its height and polygon; false where there is none.
+        auto ground_at = [&](double x, double z, double ref, double& y, size_t& g) {
+            auto it = tri_grid.find({ int(std::floor(x / tcell)), int(std::floor(z / tcell)) });
+            if (it == tri_grid.end()) return false;
+            bool found = false;
+            for (size_t ti : it->second) {
+                const Tri& tr3 = gtris[ti];
+                double d = (tr3.b[2] - tr3.c[2]) * (tr3.a[0] - tr3.c[0]) + (tr3.c[0] - tr3.b[0]) * (tr3.a[2] - tr3.c[2]);
+                if (std::fabs(d) < 1e-9) continue;
+                double l0 = ((tr3.b[2] - tr3.c[2]) * (x - tr3.c[0]) + (tr3.c[0] - tr3.b[0]) * (z - tr3.c[2])) / d;
+                double l1 = ((tr3.c[2] - tr3.a[2]) * (x - tr3.c[0]) + (tr3.a[0] - tr3.c[0]) * (z - tr3.c[2])) / d;
+                double l2 = 1.0 - l0 - l1;
+                if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) continue;
+                double h = l0 * tr3.a[1] + l1 * tr3.b[1] + l2 * tr3.c[1];
+                if (!found || std::fabs(h - ref) < std::fabs(y - ref)) y = h, g = tr3.g, found = true;
+            }
+            return found;
+        };
+        // A stunt ramp's fall line in (x, z), or {0, 0} for a flat or old polygon; whether a polygon is too steep to
+        // drive (the cliffs beside the park's road, on its grass shoulder).
+        std::vector<V2> fall(grounds.size(), V2{ 0.0, 0.0 });
+        std::vector<char> steep(grounds.size(), 0);
+        for (size_t gi = 0; gi < grounds.size(); gi++) {
+            if (grounds[gi].tri_count < 1) continue;
+            const Ground& gr = grounds[gi];
+            const V3& a = gr.p[size_t(gr.tris[0][0])];
+            const V3& b = gr.p[size_t(gr.tris[0][1])];
+            const V3& c = gr.p[size_t(gr.tris[0][2])];
+            V3 u1 = b - a, v1 = c - a;
+            V3 n{ u1[1] * v1[2] - u1[2] * v1[1], u1[2] * v1[0] - u1[0] * v1[2], u1[0] * v1[1] - u1[1] * v1[0] };
+            double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len <= 0 || std::fabs(n[1]) < 1e-9) continue;
+            double hx = n[0] / len, hz = n[2] / len, hl = std::hypot(hx, hz);
+            if (!ramp[gi]) {
+                steep[gi] = hl / (std::fabs(n[1]) / len) > stunt_steep;
+                continue;
+            }
+            if (hl / (std::fabs(n[1]) / len) < ramp_min_slope) continue;
+            fall[gi] = { hx / hl, hz / hl };
+        }
+        // Whether the segment p-q (at height y) crosses a wall, as crosses_wall but at the ground's height.
+        auto cuts_wall = [&](const V3& p, const V3& q, double y) {
+            for (const V3& e : { p, q }) {
+                auto it = wall_grid.find({ int(std::floor(e[0] / wall_cell)), int(std::floor(e[2] / wall_cell)) });
+                if (it == wall_grid.end()) continue;
+                for (size_t k : it->second) {
+                    const Wall& w = lane_walls[k];
+                    if (w.high != w.low && (y < w.low - 2.0 || y > w.high)) continue;
+                    auto orient = [](double ax, double az, double bx, double bz, double cx, double cz) {
+                        return (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+                    };
+                    double d1 = orient(w.a[0], w.a[1], w.b[0], w.b[1], p[0], p[2]);
+                    double d2 = orient(w.a[0], w.a[1], w.b[0], w.b[1], q[0], q[2]);
+                    double d3 = orient(p[0], p[2], q[0], q[2], w.a[0], w.a[1]);
+                    double d4 = orient(p[0], p[2], q[0], q[2], w.b[0], w.b[1]);
+                    if (((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0))) return true;
+                }
+            }
+            return false;
+        };
+        // Per station and offset: open, the ground's height, and the sideways step a ramp there asks (NaN: none).
+        std::vector<uint8_t> open(m * size_t(nu), 0);
+        std::vector<double> gy(m * size_t(nu), 0.0);
+        std::vector<double> aim(m * size_t(nu), std::nan(""));
+        std::vector<double> surface_cost(m * size_t(nu), 0.0);
+        size_t open_count = 0;
+        for (size_t i = 0; i < m; i++) {
+            // The ground nearest the path's own height (the deck, not the water under the bridge: carried on from
+            // station to station, the first plan locked onto the water behind the grid and put two cars in it).
+            double y, hc = mid[i][1];
+            size_t g;
+            if (ground_at(mid[i][0], mid[i][2], hc, y, g)) hc = y;
+            std::vector<double> h(size_t(nu), 0.0);
+            std::vector<char> have(size_t(nu), 0), rampy(size_t(nu), 0);
+            std::vector<size_t> gid(size_t(nu), 0);
+            for (int dir : { -1, 1 }) {
+                double ref = hc;
+                for (int k = 0; k <= stunt_reach; k++) {
+                    if (dir > 0 && k == 0) continue;
+                    int ui = stunt_reach + dir * k;
+                    V3 p = mid[i] + lat_of[i] * double(dir * k);
+                    if (ground_at(p[0], p[2], ref, y, g)) {
+                        have[size_t(ui)] = 1, h[size_t(ui)] = y, gid[size_t(ui)] = g, ref = y;
+                        rampy[size_t(ui)] = ramp[g] ? 1 : 0;
+                    }
+                }
+            }
+            double ds = i + 1 < m ? std::hypot(mid[i + 1][0] - mid[i][0], mid[i + 1][2] - mid[i][2]) : 18.0;
+            std::vector<char> bad(size_t(nu), 0);
+            const int body = int(std::ceil(stunt_body));
+            auto mark = [&](int ui, int extra = 0) {
+                for (int d = -body - extra; d <= body + extra; d++) {
+                    int k = ui + d;
+                    if (k >= 0 && k < nu) bad[size_t(k)] = 1;
+                }
+            };
+            for (int ui = 0; ui < nu; ui++) {
+                if (!have[size_t(ui)] || steep[gid[size_t(ui)]]) { mark(ui); continue; }
+                if (ui + 1 < nu && have[size_t(ui + 1)]) {
+                    double rise = std::fabs(h[size_t(ui + 1)] - h[size_t(ui)]);
+                    int extra = rise > stunt_drop ? drop_margin : 0;
+                    if (rise > stunt_step) mark(ui, extra), mark(ui + 1, extra);
+                    if (rampy[size_t(ui + 1)] != rampy[size_t(ui)]) mark(ui), mark(ui + 1);
+                }
+            }
+            for (int ui = 0; ui < nu; ui++) {
+                size_t at = i * size_t(nu) + size_t(ui);
+                gy[at] = have[size_t(ui)] ? h[size_t(ui)] : hc;
+                if (bad[size_t(ui)]) continue;
+                V3 p = mid[i] + lat_of[i] * double(ui - stunt_reach);
+                p[1] = gy[at] + 2.0;
+                V2 q{};
+                if (nearest_wall(p, q) < stunt_clear) continue;
+                open[at] = 1;
+                open_count++;
+                int sf = grounds[gid[size_t(ui)]].flags & 0x18;
+                surface_cost[at] = sf == 0x08 ? dirt_cost : sf == 0x10 ? verge_cost : 0.0;
+                const V2& f = fall[gid[size_t(ui)]];
+                if (rampy[size_t(ui)] && (f[0] != 0.0 || f[1] != 0.0)) {
+                    double along = f[0] * tan_of[i][0] + f[1] * tan_of[i][2];
+                    double across = f[0] * lat_of[i][0] + f[1] * lat_of[i][2];
+                    if (std::fabs(along) > ramp_along) aim[at] = std::clamp(across / along * ds, -ramp_max_aim, ramp_max_aim);
+                }
+            }
+        }
+        // A ramp's line from stunt_lead stations before it, at the same offset.
+        for (size_t i = m; i-- > 0;) {
+            for (int ui = 0; ui < nu; ui++) {
+                size_t at = i * size_t(nu) + size_t(ui);
+                if (!std::isnan(aim[at])) continue;
+                for (int d = 1; d <= stunt_lead && i + size_t(d) < m; d++) {
+                    double a = aim[(i + size_t(d)) * size_t(nu) + size_t(ui)];
+                    if (!std::isnan(a)) { aim[at] = a; break; }
+                }
+            }
+        }
+        // Dead ends: an open offset is only kept when the end of the path can be reached from it through open
+        // offsets without cutting a wall (the pit's floor is open stunt ramp all the way to its face, and a car on it
+        // past where its side wall rises can't get out). Then each kept offset's margin: its distance across to the
+        // nearest closed one at this station or the next margin_ahead (drones aim ahead and cut a bend's inside:
+        // the first plan's dip round the pit led them onto its floor), costing margin_cost x (margin_ft - it)^2.
+        constexpr double margin_ft = 16.0, margin_cost = 0.15;
+        constexpr int margin_ahead = 3;
+        std::vector<uint8_t> ok(m * size_t(nu), 0);
+        for (int ui = 0; ui < nu; ui++) ok[(m - 1) * size_t(nu) + size_t(ui)] = open[(m - 1) * size_t(nu) + size_t(ui)];
+        for (size_t i = m - 1; i-- > 0;) {
+            for (int ui = 0; ui < nu; ui++) {
+                size_t at = i * size_t(nu) + size_t(ui);
+                if (!open[at]) continue;
+                V3 p = mid[i] + lat_of[i] * double(ui - stunt_reach);
+                for (int d = -stunt_max_step; d <= stunt_max_step && !ok[at]; d++) {
+                    int vi = ui + d;
+                    if (vi < 0 || vi >= nu || !ok[(i + 1) * size_t(nu) + size_t(vi)]) continue;
+                    V3 q = mid[i + 1] + lat_of[i + 1] * double(vi - stunt_reach);
+                    if (!cuts_wall(p, q, gy[at] + 2.0)) ok[at] = 1;
+                }
+            }
+            // A station nothing gets past (a few where the road can't be read, cars driving through on no open offset)
+            // starts the test again from its open offsets, or all of them, so it doesn't close the whole road before.
+            bool any = false;
+            for (int ui = 0; ui < nu && !any; ui++) any = ok[i * size_t(nu) + size_t(ui)];
+            if (!any) {
+                bool any_open = false;
+                for (int ui = 0; ui < nu; ui++) any_open = any_open || open[i * size_t(nu) + size_t(ui)];
+                for (int ui = 0; ui < nu; ui++) ok[i * size_t(nu) + size_t(ui)] = any_open ? open[i * size_t(nu) + size_t(ui)] : 1;
+            }
+        }
+        size_t dead = 0;
+        for (size_t k = 0; k < ok.size(); k++) dead += open[k] && !ok[k];
+        std::vector<double> margin(m * size_t(nu), 0.0);
+        {
+            std::vector<double> across(m * size_t(nu), 1e9);   // distance to the nearest closed offset at the station
+            for (size_t i = 0; i < m; i++) {
+                double last = -1e9;
+                for (int ui = 0; ui < nu; ui++) {
+                    if (!ok[i * size_t(nu) + size_t(ui)]) last = ui;
+                    across[i * size_t(nu) + size_t(ui)] = ui - last;
+                }
+                last = 1e9;
+                for (int ui = nu; ui-- > 0;) {
+                    size_t at = i * size_t(nu) + size_t(ui);
+                    if (!ok[at]) last = ui;
+                    across[at] = std::min(across[at], last - ui);
+                }
+            }
+            for (size_t i = 0; i < m; i++) {
+                for (int ui = 0; ui < nu; ui++) {
+                    double dmin = 1e9;
+                    for (int a = 0; a <= margin_ahead && i + size_t(a) < m; a++) {
+                        dmin = std::min(dmin, across[(i + size_t(a)) * size_t(nu) + size_t(ui)]);
+                    }
+                    if (dmin < margin_ft) margin[i * size_t(nu) + size_t(ui)] = margin_cost * (margin_ft - dmin) * (margin_ft - dmin);
+                }
+            }
+        }
+        size_t moved = 0, forced = 0;
+        double worst = 0.0;
+        V3 worst_at{};
+        // SFRUSH_PS1_LANE_DEBUG=x,z[,n] (converter frame): the offsets of the station nearest that point (and the n - 1 after it) (X closed, D a dead end, r on a ramp's line, R the same off the road, d off the road), for
+        // tools/sfrush_ps1/cpp_test runs.
+        size_t debug_station = m;
+        if (const char* dbg = std::getenv("SFRUSH_PS1_LANE_DEBUG")) {
+            double dx = 0, dz = 0;
+            int rows = 1;
+            if (sscanf(dbg, "%lf,%lf,%d", &dx, &dz, &rows) >= 2) {
+                size_t bi = 0;
+                for (size_t i = 0; i < m; i++) {
+                    if (std::hypot(mid[i][0] - dx, mid[i][2] - dz) < std::hypot(mid[bi][0] - dx, mid[bi][2] - dz)) bi = i;
+                }
+                debug_station = bi;
+                for (size_t si = bi; si < std::min(m, bi + size_t(std::max(rows, 1))); si++) {
+                    std::string row;
+                    for (int ui = 0; ui < nu; ui++) {
+                        size_t at = si * size_t(nu) + size_t(ui);
+                        row += !open[at] ? 'X' : !ok[at] ? 'D' : !std::isnan(aim[at]) ? (surface_cost[at] > 0 ? 'R' : 'r') : surface_cost[at] > 0 ? 'd' : '.';
+                    }
+                    snprintf(line, sizeof(line), "stunt lanes debug: station %zu at (%.0f, %.0f), offsets -%d..%d: ", si,
+                             mid[si][0], mid[si][2], stunt_reach, stunt_reach);
+                    report.push_back(line + row);
+                    for (int ui = 0; ui < nu; ui += 8) {
+                        snprintf(line, sizeof(line), " %d:%.0f", ui - stunt_reach, gy[si * size_t(nu) + size_t(ui)]);
+                        report.back() += line;
+                    }
+                }
+            }
+        }
+        // Lanes apart where the road has room: each lane is planned after the ones before it and pays
+        // sep_cost x (sep_ft - gap)^2 for coming within sep_ft of one (planned alone they met on the same best line,
+        // and drones bunched there swung out to pass, onto the first ramp's side at the foot of the bridge).
+        constexpr double sep_ft = 8.0, sep_cost = 0.1;
+        std::vector<std::vector<double>> planned;
+        for (auto& lane : lanes4) {
+            std::vector<double> pref(m);
+            for (size_t i = 0; i < m; i++) {
+                pref[i] = (lane[i][0] - mid[i][0]) * lat_of[i][0] + (lane[i][2] - mid[i][2]) * lat_of[i][2];
+            }
+            std::vector<double> cost(m * size_t(nu), 1e30);
+            std::vector<int> from(m * size_t(nu), -1);
+            auto state_cost = [&](size_t i, int ui) {
+                size_t at = i * size_t(nu) + size_t(ui);
+                double du = (ui - stunt_reach) - pref[i];
+                double sep = 0.0;
+                for (const auto& o : planned) {
+                    double gap = std::fabs((ui - stunt_reach) - o[i]);
+                    if (gap < sep_ft) sep += sep_cost * (sep_ft - gap) * (sep_ft - gap);
+                }
+                return dev_cost * std::min(du * du, dev_cap * dev_cap) + surface_cost[at] + margin[at] + sep +
+                       (ok[at] ? 0.0 : blocked_cost);
+            };
+            for (int ui = 0; ui < nu; ui++) cost[size_t(ui)] = state_cost(0, ui);
+            for (size_t i = 0; i + 1 < m; i++) {
+                for (int ui = 0; ui < nu; ui++) {
+                    size_t at = i * size_t(nu) + size_t(ui);
+                    if (cost[at] >= 1e29) continue;
+                    V3 p = mid[i] + lat_of[i] * double(ui - stunt_reach);
+                    for (int d = -stunt_max_step; d <= stunt_max_step; d++) {
+                        int vi = ui + d;
+                        if (vi < 0 || vi >= nu) continue;
+                        size_t to = (i + 1) * size_t(nu) + size_t(vi);
+                        double c = cost[at] + turn_cost * d * d + state_cost(i + 1, vi);
+                        if (!std::isnan(aim[at])) c += ramp_cost * d * d;
+                        if (c >= cost[to]) continue;
+                        V3 q = mid[i + 1] + lat_of[i + 1] * double(vi - stunt_reach);
+                        if (open[at] && open[to] && cuts_wall(p, q, gy[at] + 2.0)) c += blocked_cost;
+                        if (c < cost[to]) cost[to] = c, from[to] = ui;
+                    }
+                }
+            }
+            int best = 0;
+            for (int ui = 1; ui < nu; ui++) {
+                if (cost[(m - 1) * size_t(nu) + size_t(ui)] < cost[(m - 1) * size_t(nu) + size_t(best)]) best = ui;
+            }
+            std::vector<double> u(m);
+            for (size_t i = m; i-- > 0;) {
+                u[i] = double(best - stunt_reach);
+                forced += !ok[i * size_t(nu) + size_t(best)];
+                if (i > 0) best = from[i * size_t(nu) + size_t(best)];
+                if (best < 0) best = stunt_reach;
+            }
+            // The 1 ft steps smoothed ([1 2 1], twice) where the smoothed offset is open too, and off ramps' lines.
+            for (int pass = 0; pass < 2; pass++) {
+                std::vector<double> sm = u;
+                for (size_t i = 1; i + 1 < m; i++) {
+                    double v = (u[i - 1] + 2.0 * u[i] + u[i + 1]) / 4.0;
+                    size_t at = i * size_t(nu) + size_t(std::clamp(int(std::lround(v)) + stunt_reach, 0, nu - 1));
+                    size_t was = i * size_t(nu) + size_t(std::clamp(int(std::lround(u[i])) + stunt_reach, 0, nu - 1));
+                    if (ok[at] && std::isnan(aim[was])) sm[i] = v;
+                }
+                u = sm;
+            }
+            // Then in the world ([1 2 1], twice), where the smoothed point is still open: the stations' middle line
+            // has kinks of its own (20 ft at (1405, -3265), mirrored), which an offset from it keeps.
+            std::vector<V3> pts(m);
+            for (size_t i = 0; i < m; i++) pts[i] = mid[i] + lat_of[i] * u[i];
+            for (int pass = 0; pass < 2; pass++) {
+                std::vector<V3> sm = pts;
+                for (size_t i = 1; i + 1 < m; i++) {
+                    V3 v = (pts[i - 1] + pts[i] * 2.0 + pts[i + 1]) * 0.25;
+                    double uv = (v[0] - mid[i][0]) * lat_of[i][0] + (v[2] - mid[i][2]) * lat_of[i][2];
+                    int ui = int(std::lround(uv)) + stunt_reach;
+                    if (ui < 0 || ui >= nu || !ok[i * size_t(nu) + size_t(ui)]) continue;
+                    if (!std::isnan(aim[i * size_t(nu) + size_t(ui)])) continue;
+                    sm[i] = v;
+                    u[i] = uv;
+                }
+                pts = sm;
+            }
+            // A run-in's grid keeps the old lanes (its first keep_start stations, blended over blend_start more): the
+            // planned ones meet at one point there, and cars started on top of each other were thrown off the bridge.
+            constexpr size_t keep_start = 20, blend_start = 10;
+            if (run_in && m > keep_start + blend_start) {
+                for (size_t i = 0; i < keep_start + blend_start; i++) {
+                    double t = i < keep_start ? 0.0 : double(i - keep_start + 1) / double(blend_start + 1);
+                    pts[i][0] = lane[i][0] + (pts[i][0] - lane[i][0]) * t;
+                    pts[i][2] = lane[i][2] + (pts[i][2] - lane[i][2]) * t;
+                }
+            }
+            planned.push_back(u);
+            if (debug_station < m) {
+                snprintf(line, sizeof(line), "stunt lanes debug: lane %zu at %.1f (old line %.1f)", planned.size() - 1,
+                         u[debug_station], pref[debug_station]);
+                report.push_back(line);
+            }
+            const size_t s = size_t(&lane - &lanes4[0]);
+            std::vector<double> shift(m, 0.0);
+            for (size_t i = 0; i < m; i++) {
+                V3 p = pts[i];
+                double d = std::hypot(p[0] - lane[i][0], p[2] - lane[i][2]);
+                shift[i] = d;
+                moved += d > 1.0;
+                if (d > worst) worst = d, worst_at = p;
+                lane[i][0] = p[0];
+                lane[i][2] = p[2];
+            }
+            // The old line's target speeds (the N64's) were for that line: where the lane left it by more than
+            // speed_shift (and speed_reach stations either side), the converter's own speeds from the new line's
+            // corners take over (drones kept the N64's 115-158 mph round the bend before the pit and ran wide into it).
+            constexpr double speed_shift = 6.0;
+            constexpr int speed_reach = 10;
+            for (size_t i = 0; i < m; i++) {
+                if (shift[i] <= speed_shift) continue;
+                for (int d = -speed_reach; d <= speed_reach; d++) {
+                    long k = long(i) + d;
+                    if (k >= 0 && k < long(m)) lane_speed[s][size_t(k)] = std::nan("");
+                }
+            }
+        }
+        snprintf(line, sizeof(line), "stunt lanes: %zu of %zu lane points moved (up to %.0f ft, at (%.0f, %.0f)), %zu on no open offset; "
+                 "%zu of %zu offsets open, %zu of them dead ends", moved, 4 * m, worst, worst_at[0], worst_at[2], forced,
+                 open_count, m * size_t(nu), dead);
+        report.push_back(line);
     }
     // The path itself (AIPATH_main, the spine the converter takes its target speeds from) down the middle of the four,
     // wide enough to hold them at the converter's lane slots (+-0.6 of its half width) and never narrower than the
@@ -1988,7 +2470,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // 0x800AA3D8 (one sector a gate: 1, 9, 19, 21). The plane only counts inside those sectors, so a gate goes where
     // the path crosses its plane inside one of them.
     std::vector<uint8_t> bounds;
-    if (!disc.read("COLLDAT" + t + "/BOUNDS.DAT", bounds) || bounds.size() < 16) {
+    if (!disc.read(coll_dir + "/BOUNDS.DAT", bounds) || bounds.size() < 16) {
         log += "the sector bounds couldn't be read\n";
         return false;
     }
@@ -2314,7 +2796,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // Embarcadero's bay east of the waterfront road and north of the wharf. Each shore runs along the track's ground,
     // 100-300 ft off it (the gap left to the extended ground's slope), the sea on one side of it out to `far`.
     // Coordinates are track.glb's x and z in feet. Water: the PS1's own water texel (track 2's page 576,256, CLUT 28734:
-    // snow 16,49,99, night 0,0,16), flat; Golden Gate has no water of its own and takes it too.
+    // day 24,49,99, snow 16,49,99, night 0,0,16), flat; Golden Gate has no water of its own and takes it too.
     {
         struct Shore {
             int axis;                                  // 0: the sea is toward x = far; 2: toward z = far
@@ -2342,12 +2824,11 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                               { 5500, -1750 }, { 5650, -1250 }, { 5850, -600 }, { 5850, 30000 } } },
             };
         }
-        std::array<uint8_t, 3> water{};
-        bool has_water = true;
+        // The water texel by condition (day 24, 49, 99: Golden Gate's stunt road is a day version).
+        std::array<uint8_t, 3> water{ 24, 49, 99 };
         if (cond.condition == Condition::snow) water = { 16, 49, 99 };
         else if (cond.condition == Condition::night) water = { 0, 0, 16 };
-        else has_water = false;   // no day version of tracks 1 and 2 is built
-        if (!shores.empty() && has_water) {
+        if (!shores.empty()) {
             constexpr int tile = 16;
             std::vector<uint8_t> rgba(size_t(tile) * tile * 4);
             for (size_t i = 0; i < rgba.size(); i += 4) rgba[i] = water[0], rgba[i + 1] = water[1], rgba[i + 2] = water[2], rgba[i + 3] = 255;
@@ -2401,7 +2882,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     else {
         constexpr uint32_t snow_insn = 0x80054358;
-        const uint32_t start_insn = cond.condition == Condition::snow ? snow_start_insn : tr.start_insn;
+        const uint32_t start_insn = cond.condition == Condition::snow ? snow_start_insn : stunt ? stunt_start_insn : tr.start_insn;
         const uint32_t gate_times = tr.gate_times, bonus_insn = tr.bonus_insn;
         if (!exe.in(start_insn, 4) || !exe.in(gate_times, 4) || !exe.in(snow_insn, 4) ||
             exe.w(start_insn) >> 16 != 0x2402 || exe.w(snow_insn) >> 16 != 0x2442 ||
@@ -2484,6 +2965,16 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         condition_toml = line;
         report.push_back(std::string("snow: ") + line);
     }
+    else if (stunt) {
+        // The PS1 pulls a car in the air with 600 a frame^2 (car descriptor +0x18, func_8005E0CC: only while a wheel
+        // is off the ground), about 4.5 x Rush 2's gravity at frames_per_second, and a jump's length goes as
+        // v^2 / g: on Rush 2's gravity the stunt road's kickers threw cars about 550 ft into nose-first wrecks. Rush 2
+        // gravity x 2 while every wheel is off the road (src/calspeed/calspeed_rom.cpp air_gravity; x 4, near the
+        // PS1's, felt too heavy): jumps about half as long as on Rush 2's gravity. On the road the cars drive as on
+        // any other track.
+        condition_toml = "[handling]\nair_gravity = 2\n\n";
+        report.push_back("stunt: air_gravity = 2");
+    }
 
     const std::string dir = "tracks/" + folder + "/";
     out[dir + "track.glb"] = g.bytes();
@@ -2500,12 +2991,15 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             diorama_toml = "diorama = \"diorama.glb\"\n";
         }
     }
-    const char* described = cond.condition == Condition::snow ? " in the snow" : cond.condition == Condition::night ? " at night" : "";
+    const char* described = cond.condition == Condition::snow ? " in the snow" : cond.condition == Condition::night ? " at night" :
+                            stunt ? ", its stunt road" : "";
     out[dir + "track.toml"] = a49::text_bytes(
         // smooth_height: the PS1's road polygons are coarse (a crease of 1-6 degrees every 57 ft on Golden Gate's
         // lanes), and with only the blended tilt each crease still kicked the car on straights (user report 2026-11-09;
         // docs/sfrush_ps1.md#collision).
         "[track]\nname = \"" + track_name + "\"\nsmooth_height = true\n" + (run_in ? "run_in = true\n" : "") +
+        // The stunt road scores stunts in its races, as the Stunts on All Tracks cheat does (user, 2026-11-10).
+        (stunt ? "stunts = true\n" : "") +
         "author = \"San Francisco Rush, PlayStation (converted)\"\n"
         "description = \"Track " + t + " of the PlayStation San Francisco Rush" + described + "\"\n\n" + race_toml +
         // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
@@ -2569,6 +3063,7 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
     for (const TrackInfo& tr : tracks) {
         for (const ConditionInfo& c : conditions) {
             if (c.condition == Condition::day && !tr.day) continue;
+            if (c.condition == Condition::stunt && !tr.stunt) continue;
             const std::vector<uint8_t>* lanes = nullptr;
             if (tr.n >= 1 && tr.n <= 3 && !n64[size_t(tr.n - 1)].empty()) lanes = &n64[size_t(tr.n - 1)];
             if (!build_condition(disc, assets_dir, out, log, tr, c, lanes)) return false;

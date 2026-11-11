@@ -117,6 +117,8 @@ namespace {
     std::atomic<float> applied_smooth_fold = 20.0f; // Its fold angle (degrees).
     std::atomic_bool applied_smooth_height = false; // Its averaged road height ([track] smooth_height).
     std::atomic_uint32_t applied_car_light = 0;     // Its [look] car_light as 0xRRGGBBFF, 0 for none.
+    std::atomic<float> applied_air_gravity = 1.0f;  // Its [handling] air_gravity, 1 for none.
+    std::atomic_bool applied_stunts = false;        // Its [track] stunts.
     std::mutex traction_mutex;
     std::vector<std::array<float, 2>> applied_traction; // Its [handling] traction steps (mph, factor), under traction_mutex.
     rush2::track2049::ConvertedTrack track;
@@ -443,6 +445,8 @@ namespace {
             ? (uint32_t((*mod_settings.car_light)[0]) << 24) | (uint32_t((*mod_settings.car_light)[1]) << 16) |
                   (uint32_t((*mod_settings.car_light)[2]) << 8) | 0xFFu
             : 0u;
+        applied_air_gravity = mod ? mod_settings.air_gravity : 1.0f;
+        applied_stunts = mod && mod_settings.stunts;
         {
             std::lock_guard lock{ traction_mutex };
             applied_traction = mod ? mod_settings.traction : std::vector<std::array<float, 2>>{};
@@ -477,6 +481,8 @@ namespace {
         applied_slot = -1;
         applied_road_hold = false;
         applied_car_light = 0;
+        applied_air_gravity = 1.0f;
+        applied_stunts = false;
         {
             std::lock_guard lock{ traction_mutex };
             applied_traction.clear();
@@ -611,6 +617,23 @@ float rush2::track2049::mod_traction(uint8_t* rdram, float mph) {
         if (mph >= step[0]) factor = step[1];
     }
     return factor;
+}
+
+float rush2::track2049::mod_air_gravity(uint8_t* rdram) {
+    int s = applied_slot;
+    return s >= 0 && MEM_BU(0, (int32_t)track_id) == s ? applied_air_gravity.load() : 1.0f;
+}
+
+bool rush2::track2049::mod_stunts(uint8_t* rdram) {
+    int s = applied_slot;
+    return applied_stunts && s >= 0 && MEM_BU(0, (int32_t)track_id) == s;
+}
+
+// The stunt panel's two tests of the Stunts on All Tracks cheat byte (0x8010C200, loaded into $a1, nonzero = shown):
+// hud_stunt_box_visible_80060E34 at 0x80060E7C and hud_widget_text_cb_player_stats_800B7654 at 0x800B76B0, right
+// after the load. A custom track with [track] stunts reads as the cheat set; the byte itself is left alone.
+extern "C" void rush2_track_mod_stunts(uint8_t* rdram, recomp_context* ctx) {
+    if (rush2::track2049::mod_stunts(rdram)) ctx->r5 = 1;
 }
 
 bool rush2::track2049::mod_road_hold(uint8_t* rdram) {

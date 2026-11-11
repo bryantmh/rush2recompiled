@@ -103,6 +103,10 @@ namespace rush2::track_mod {
         // push along the ground (engine, brakes, tires, drag; not gravity) times that factor, the last step reached
         // counting (src/track_traction.cpp; the PS1 SF Rush's snow). Empty: Rush 2's.
         std::vector<std::array<float, 2>> traction;
+        // [handling] air_gravity: gravity times this while all four wheels are off the road (eased in over the first
+        // foot, src/calspeed/calspeed_rom.cpp air_gravity), so jumps fly shorter while driving on the road is Rush 2's.
+        // 1 to 10, default 1 (the PS1 SF Rush's stunt road: 2).
+        float air_gravity = 1.0f;
         // [ai] speed_quantiles: the computer cars' target speeds (mph) as quantiles, evenly spaced from slowest to
         // fastest: each AI path point takes the speed at its rank by the tightest corner in the next 500 ft, the
         // tightest the slowest (src/track_mod/track_mod_convert.cpp target_speeds), in place of the radius table fitted
@@ -145,6 +149,9 @@ namespace rush2::track_mod {
         // [track] point_to_point (default false): a race run once from START to FINISH along an open AIPATH_main, as
         // California Speed's point-to-point courses (one lap, no BACKWARD; docs/custom_tracks.md#point-to-point).
         bool point_to_point = false;
+        // [track] stunts (default false): the race scores stunts and shows the stunt panel, as the Stunts on All Tracks
+        // cheat does, without the cheat being set (rush2_track_mod_stunts; the PS1 SF Rush's stunt road).
+        bool stunts = false;
         // [track] run_in (default false): a circuit whose race starts at START on a run-in that leads into the loop, as
         // Rush 2's New York One (laps round the loop from the checkpoint where AIPATH_main's end rejoins it; no
         // BACKWARD; docs/custom_tracks.md#run-in-circuits).

@@ -894,12 +894,12 @@ namespace {
                         MEM_W(0, (int32_t)(table + t * 4)) = MEM_W(0, (int32_t)(table + course * 4));
                     }
                     // With the version bands (src/rush1/track1_convert.cpp add_band_model), as the Rush 2049 versions'
-                    // rings: red round this one (ice white for a SNOW version, violet for a NIGHT one: the PlayStation
-                    // SF Rush's), blue round the course's N64 one. The names go in this entry's own string slots (its
+                    // rings: red round this one (ice white for a SNOW version, violet for a NIGHT one, green for a
+                    // STUNT one: the PlayStation SF Rush's), blue round the course's N64 one. The names go in this entry's own string slots (its
                     // logo name is the course's).
                     std::string model = "R1TRACK" + std::to_string(course - r1_first + 1);
                     const std::string& label = i < mod_version_labels.size() ? mod_version_labels[i] : std::string();
-                    write_string(rdram, m, model + (label == "SNOW" ? "S" : label == "NIGHT" ? "K" : "A"));
+                    write_string(rdram, m, model + (label == "SNOW" ? "S" : label == "NIGHT" ? "K" : label == "STUNT" ? "T" : "A"));
                     MEM_W(0, (int32_t)(new_diorama_names + t * 4)) = m;
                     write_string(rdram, m + 16, model + "N");
                     MEM_W(0, (int32_t)(new_diorama_names + course * 4)) = m + 16;
