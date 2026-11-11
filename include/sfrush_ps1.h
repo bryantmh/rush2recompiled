@@ -114,8 +114,14 @@ namespace rush2::sfrush_ps1 {
 
     // The mod's files by their path in the mod. The log gets what each conversion did.
     using ModFiles = std::map<std::string, std::vector<uint8_t>>;
-    bool build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
-    bool build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
+    // The N64 SF Rush's forward AI lane files for its tracks 0-2 (Golden Gate, Embarcadero, Market: ROM assets 58-60,
+    // src/rush1/rush1_rom.cpp read_asset), when the user has the N64 ROM. The PS1's versions of those courses then
+    // take the N64's lines (ps1_track.cpp, docs/sfrush_ps1.md#ai-lanes); an empty one keeps the PS1's own.
+    using N64Lanes = std::array<std::vector<uint8_t>, 3>;
+    bool build_mod(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+                   const N64Lanes& n64 = {});
+    bool build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+                     const N64Lanes& n64 = {});
     bool build_cars(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
     // The track select diorama (src/sfrush_ps1/ps1_diorama.cpp) as a glb: the hand-made layout `spec` (JSON) round
     // the route (the AI path's middle, a closed loop, glTF meters as track.glb has it).

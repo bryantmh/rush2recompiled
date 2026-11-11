@@ -205,6 +205,28 @@ vertices are (x, -height, y) of the track frame. **[V]**
   channel beside the shortcut). 0x40 = the next record is skipped by the ground query; 0x80 (ordinary road and grass
   on track 4) sets a per-car flag (0x801015C4 + car x 0x408) read at 0x8005E134 and 0x80062F04. `& 7 != 0` marks the
   0x28-byte records. **[V]** surfaces, **[I]** 0x80.
+- **The surface doesn't change the driving.** Its only reader is the wheel ground query `func_80061574` (called per
+  wheel from 0x80062B88-0x80062BE8): `(FLAGS >> 3) & 7` of 1 (dirt) or 2 (grass) stores 1, and 3 (water) stores 2,
+  in the per-car byte 0x801014E9 + car x 0x408 (cleared at 0x800537E0; 0x80050254 also stores 2). Nothing in the car
+  tick reads that byte: its only readers are player 1's, 0x8001659C (copied to 0x801014EA, which nothing reads) and
+  0x80021584 (water, 2, only). The grip (`func_8005E34C`) and rolling friction take the car table's values alone. So
+  a PS1 car drives dirt and grass exactly like road. **[V]** Every read of the flags byte in RUSH.EXE (the whole
+  game's code) is one of: `& 7` (record shape: the ground queries 0x8004D498, 0x8004DA34 and the loops before them),
+  `& 0x40` (skip), `(>> 3) & 7` (the three above) and `& 0x80` (0x80061A9C, 0x80061E38, 0x80061EC4 -> 0x801015C4).
+  0x801015C4's readers: 0x8005E134 (the gravity a frame while not every wheel is down, `func_8005E0CC`: +200 with it
+  set instead of the car table's gp+0x4EC) and 0x80062F04 (clears gp+0xBE8). Neither touches speed along the ground.
+  **[V]**
+- **Against the N64:** the N64's drag step `func_80077C90` (called from `car_forces_wrapper_80078264`) adds
+  -10 x speed (0x800C7D44) while both rear wheels (+0x780, +0x784) are on surface 1 (dirt) and -40 x speed
+  (0x800C7D48) on surface 2; Golden Gate's N64 collision has only road and dirt. `tools/lane_surfaces.py` lists the
+  ground under each AI lane: on the N64 the lanes are road all lap except the outer two clipping 180-270 ft of dirt at
+  30-31% of the lap (the park); on the PS1 the same stretch (31-37%) puts all four lanes on 400-1000 ft of the grass
+  class, which the PS1 drives as road. **[V]**
+- **The drones' line there:** `tools/lane_compare.py --n64 0 --rush2 <converted Golden Gate>` fits the PS1 lanes onto
+  the N64's (18 ft apart on average; 5-15 ft over most of the lap). In the park's left-hand bend (converted x
+  1000-2000, z -2850 to -3300) the PS1's two drone lines (PATHDAT/EXTDAT) cut 25-80 ft inside the N64's line, over
+  the grass class, while the N64's line lies on the PS1's road. They also zigzag there (85-180 ft radius kinks 20-40 ft
+  apart), so the converter's corner speeds through it are 70-115 mph against the N64's 130-145. **[V]**
 - **Walls under a road above:** an A wall's face (10 ft under its ground to 40 ft over it) is cut to 3 ft under any
   ground over its line, and only along the stretch that ground covers (the wall is split into pieces, 4 ft samples).
   Ground counts as over the line where one polygon lies 8 ft out on both sides of it (a road whose edge sits on or
@@ -271,6 +293,87 @@ s32 y, s32 speed (?), s32 heading (`& 0xFFF`, 4096 a turn), s32 height (y down);
 - Reset points take x, height and y from a record (`0x80055E78`). **[V]**
 - The points are about 200 ft apart; the drones drive straight chords between them. **[V]**
 - The third field (235-898, high on straights) isn't read near the path code; not ported. **[I]** a speed.
+
+## AI lanes
+
+What the converter writes as `AIPATH_main` and `AIPATH_lane1-4` (`build_condition` in ps1_track.cpp):
+
+- **Golden Gate, Embarcadero and Market, with the N64 ROM in** (the Games tab's SF Rush ROM): the N64's four forward
+  lanes (assets 58-60, read by `include/track1_lanes.h` as the N64 port reads them). `n64_lane_offsets` fits them
+  onto the PS1 drones' middle line in 2D (trimmed ICP from the eight axis-aligned starts). The fits come out as the
+  90-degree turn and mirror between the two games' axes, 12-20 ft apart on average. Golden Gate and Market are offset
+  0-13 ft; Embarcadero sits (1260, -304) ft off. Each lane is then placed where the N64 lane crosses each station's
+  section; every lane crosses 100% of the stations. Any short gap (up to 25 stations) is bridged, and a longer one
+  keeps the PS1 lane, blended in over 15 stations. The N64's lines lie 97-99.8% on the PS1's road; the PS1 drones'
+  own lines cut 25-80 ft inside them through Golden Gate's park (over the grass shoulders) and zigzag
+  ([Collision](#collision)). With them the drones run the N64's line, within 3-8 ft of it
+  (`tools/lane_compare.py`).
+- **Chinatown, Embarcadero's snow, or without the N64 ROM:** the PS1's lines (the lerp of PATHDAT/EXTDAT,
+  [AI paths](#ai-paths)), smoothed (`smooth_lane`: a 5-station moving average, 3 passes) so the kinks don't read as
+  corners, except where the smoothed lane would come within 6 ft of a wall or cross one: there the raw line stays,
+  blended back over 6 stations (smoothing cut Chinatown's turn round a wall end, 12 of 21 night wrecks a race).
+- **Walls: hand fixes per course** (`lane_fixes`, ps1_track.cpp). The N64's lines don't fit the PS1's road
+  everywhere (12-20 ft apart on average), and in places they cut a corner through a PS1 wall or run over its pavement:
+  Embarcadero's first left-hander, 1650 ft in, had all four lanes through the corner's wall and every car scraping it.
+  Each fix moves the four lanes together sideways at one spot (the station nearest a point on the road, or a given
+  station where two passes of the lap lie together), by a given number of feet toward that point, at full strength
+  over a few stations and eased out over 12 or so either side; nothing else moves. The spots came
+  from `tools/lane_surfaces.py --rush2 OUT --walls 3` (where a lane runs within 3 ft of a wall at the car's height, or
+  crosses one) and `tools/drone_pace.py RUN.r2rc --hits` (where the drones hit something: jolts over 8 g, grouped),
+  checked on the `--plot` maps: 5 on Golden Gate (3 for its run-in merge), 7 on Embarcadero (6 night, 1 snow), 8 on Market, 1 on Chinatown.
+  After them every lane keeps 3 ft from every wall but 10 ft of Market at 2.7 ft. They replaced an automatic nudge
+  (any lane point within 5 ft of a wall, 8 in snow, pushed away from it): it moved the lines everywhere near a wall,
+  and where a lane was already past one it pushed it further out or not at all.
+  `lane_walls` (the PS1's walls and the converter's step walls) and `nearest_wall` remain for the smoothing above.
+- **`AIPATH_main`** is the middle of the four final lanes, since the converter takes the target speeds from it alone
+  (`target_speeds` in track_mod_convert.cpp). It is as wide as the PS1's corridor, or wider where the lanes spread
+  further.
+- **Gates** reach every lane's crossing with 15 ft to spare: a drone on a lane outside a gate never counts it
+  (Embarcadero's snow lanes ran 68-73 ft from its overpass gate's center, 60 ft wide: 5 of 7 drones never counted a
+  lap).
+- **Golden Gate's run-in:** the path ends 27-47 ft beside where it rejoins its loop at the toll plaza. The converter
+  continues from the loop start's crossing, so that sideways step read as a hairpin and the plaza's straight targeted
+  70 mph. The lanes' last stations ease onto the lanes they rejoin. The lap's end (the lower road) and the run-in (the
+  upper) are split by a gap until game (-126, -985), so the ease starts just past its tip; eased from 30 stations
+  back, every lane crossed the gap and every car hit its walls. Lane fixes keep both roads' lanes to the gap's side up
+  to its tip and put the loop's first lanes (station 320, beside the path's end) on the lap end's line, drifting back
+  by station 335 (clear of the joined road's narrowing at game (126, -1000)), so the lap's end runs nearly straight on
+  and the run-in takes the step, once a race. Merged only in the 120 ft past the tip, the S-bend's target in snow was
+  77-80 mph (snow 112 mph a lap against 115).
+- **Target speeds:** with the N64's lines, the N64 lanes' own speeds (as the N64 port converts them, `lane_mph`), as
+  each lane's `_SPEED` and their mean as `AIPATH_main`'s. Ranking corners by radius against the N64's speed
+  quantiles (`[ai] speed_quantiles`) put Golden Gate's park bend at 69-100 mph where the N64 asks 115-158: the
+  drones followed their targets there and averaged 125 mph a lap against the N64's 141. Chinatown, or no N64 ROM:
+  the converter's radius ranks with the quantiles (`ai_speed_toml`).
+- **Snow** (`snow_tuning`, tuned by hand per course): the recomp's snow costs half what the PS1's does (one traction
+  halving of its two), so the drones aim for half the PS1's slowdown, on the faster side. The PS1's own snow clock (8 s
+  more a gate) gives snow / night lap shares of 0.64 Golden Gate, 0.66 Embarcadero, 0.63 Market and 0.76 Chinatown, so
+  0.82, 0.83, 0.82 and 0.88. The snow's physics allows less on the tighter courses: the race time model's best lap
+  with the traction (`tools/race_time_test.bat` on each course's night path) is 0.79, 0.79, 0.74 and 0.76 of the dry
+  one, and drones pushed past it wrecked (Market at 82 mph: 34 wrecks a race). Per course: a scale on the target
+  speeds (the N64 lanes' `_SPEED`, or `[ai] speed_scale` on the converter's own), `[ai] traction_margin` (the share
+  of the snow's grip the corner speeds aim for, which also caps authored speeds), whether the N64's lines are kept
+  (Embarcadero's snow drones rolled and slid off them, 21-25 wrecks a race against 1 on the PS1's own). Snow drones hold only 31-36 ft/s^2 sideways at full
+  lock (night 67-69), and past it they fishtail or slide wide; wreck counts swing with small changes, so the tuning
+  aims at pace with few wrecks rather than none.
+- **Measured** (`tools/drone_pace.py --race`, 3 laps, Drone Cheating off; average speed, wrecks of the 7 drones):
+
+  | Course | N64 | PS1 night | PS1 snow | snow / night (aim; race time model) |
+  |---|---|---|---|---|
+  | Golden Gate | 140 mph, 0 | 139 mph, 2 | 115 mph, 0 | 0.83 (0.82; model 0.79) |
+  | Embarcadero | 132 mph, 0 | 130 mph, 2 | 100 mph, 2 | 0.77 (0.83; model 0.79) |
+  | Market | 105 mph, 6 | 108 mph, 0 | 80 mph, 12 | 0.74 (0.82; model 0.74) |
+  | Chinatown | (none) | 109 mph, 9 | 91 mph, 0 | 0.83 (0.88; model 0.76) |
+
+  With the lane fixes (2026-11-10): Embarcadero night went from 12 wrecks a race to 2, Market night from 9 to 0.
+  Market's snow wrecks swing between races (9-13 over the last runs, as before the fixes); Chinatown night's are cars
+  sliding 60-70 ft wide of the lanes, or hit 42 ft from any wall.
+
+  Before (the PS1's lines, the stock radius table): Golden Gate night 122 mph against the N64's 141; Chinatown night's
+  remaining wrecks are cars stopping dead on a straight 24-55 ft from any wall, **[I]** its trams.
+- **The mod's key** includes the N64 lane files, so adding the N64 ROM later rebuilds the PS1 mod once at the next
+  launch (`source_key`, ps1_install.cpp).
+- **Offline:** `tools/sfrush_ps1/cpp_test/build.bat`, with RUSH1_LANES_DIR set to a folder holding lanes58-60.bin.
 
 ## Checkpoints
 
@@ -522,8 +625,8 @@ runs it outside the game) builds one mod, `sfrush_ps1`:
   written un-mirrored ([Handedness](#handedness)). Collision = the ground polygons by surface (the grass class as the custom surface `COL_VERGE`, `like = "dirt"`,
   `drag = 15`, since Rush 2's `COL_GRASS` is wheel material 2, its water, which throws the water splash), the walls as faces from 10 ft under the ground
   beside them to 40 ft over it (cut short under ground above). FINISH and CHECKPOINT_1-3 from the CPF planes. AI:
-  AIPATH_main between PATHDAT and EXTDAT (at least 12 ft to a side), AIPATH_lane1-4 at 0, 1/3, 2/3 and 1 across the
-  corridor (the drones' own spread); speeds left to the converter. Logo: `assets/sfrush_ps1/chinatown_logo.png`
+  [AI lanes](#ai-lanes) (the N64's lines on Golden Gate, Embarcadero and Market with the N64 ROM; otherwise the PS1's
+  at 0, 1/3, 2/3 and 1 across its corridor, smoothed), AIPATH_main down their middle; speeds left to the converter. Logo: `assets/sfrush_ps1/chinatown_logo.png`
   (`tools/build_banners.py --ps1`). Track select picture (`preview.png`, behind the route preview): the PS1's own
   TITLETGA/TRK4N.TGA whole (512 x 168, 15-bit, rows top-down whatever its header says), a map of the course naming
   its districts, at its own 512 x 168 texels and shown 224 x 73 between the carousel arrows. Diorama:

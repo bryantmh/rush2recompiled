@@ -21,6 +21,7 @@
 #include "car_mods.h"
 #include "options_page.h"
 #include "texture_upscale.h"
+#include "track1.h"
 #include "track2049.h"
 #include "track_cache.h"
 
@@ -31,9 +32,22 @@ namespace {
         return recompui::file::get_program_path() / "assets" / "sfrush_ps1";
     }
 
+    // The N64 SF Rush's forward AI lanes of its tracks 0-2 when its ROM is in (the Games tab's SF Rush ROM), for the
+    // PS1's versions of those courses (ps1_track.cpp); empty without it.
+    ps1::N64Lanes n64_lanes() {
+        ps1::N64Lanes out;
+        auto rom = rush2::track1::get_rom();
+        if (!rom) return out;
+        for (int t = 0; t < 3; t++) {
+            if (!rush2::track1::read_asset(*rom, 58 + t, out[size_t(t)])) out[size_t(t)].clear();
+        }
+        return out;
+    }
+
     // What the mod is built from: the disc's data track (its name, size and time; reading 50 MB at every launch to
-    // hash it isn't worth it), the shipped logo and diorama layout, and this build.
-    std::string source_key(const std::filesystem::path& disc_path) {
+    // hash it isn't worth it), the shipped logo and diorama layout, the N64's lanes (a ROM added later rebuilds it)
+    // and this build.
+    std::string source_key(const std::filesystem::path& disc_path, const ps1::N64Lanes& n64) {
         ps1::Disc disc;
         std::string error;
         if (!disc.open(disc_path, error)) return "";
@@ -50,6 +64,7 @@ namespace {
         }
         std::vector<uint8_t> diorama = rush2::upscale::read_file(assets_dir() / "chinatown_diorama.json");
         h = rush2::track_cache::hash(diorama.data(), diorama.size(), h);
+        for (const auto& lanes : n64) h = rush2::track_cache::hash(lanes.data(), lanes.size(), h ^ lanes.size());
         char text[17];
         snprintf(text, sizeof(text), "%016llx", (unsigned long long)h);
         return text;
@@ -142,7 +157,8 @@ namespace {
 
     // Builds and installs the mod from the disc. refresh: only when the installed one's key changed.
     void run(const std::filesystem::path& disc_path, bool refresh) {
-        std::string key = source_key(disc_path);
+        ps1::N64Lanes n64 = n64_lanes();
+        std::string key = source_key(disc_path, n64);
         if (key.empty()) {
             set_state("Failed: the disc couldn't be read");
             return;
@@ -156,7 +172,7 @@ namespace {
         ps1::Disc disc;
         std::string error, log;
         ps1::ModFiles files;
-        bool ok = disc.open(disc_path, error) && ps1::build_mod(disc, assets_dir(), files, log);
+        bool ok = disc.open(disc_path, error) && ps1::build_mod(disc, assets_dir(), files, log, n64);
         if (!ok || !install(files, key, disc_path, !refresh, error)) {
             if (error.empty()) error = "the disc's files couldn't be converted";
             printf("[ps1] %s\n%s", error.c_str(), log.c_str());

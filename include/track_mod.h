@@ -109,6 +109,14 @@ namespace rush2::track_mod {
         // to Rush 2's and Rush 2049's stock lanes. The PS1 SF Rush's courses take their N64 versions' lane speeds
         // (tools/rush1/lane_speed_table.py). Empty: the stock table.
         std::vector<float> ai_speed_quantiles;
+        // [ai] traction_margin: with [handling] traction, how much of the traction's grip the computer cars' corner
+        // speeds aim for (and the cap on authored _SPEED), 0.1 to 1, default 1 (src/track_mod/track_mod_convert.cpp
+        // target_speeds). Snow drones that aim at all of it slide wide; a track tunes it for its drones' snow pace.
+        float ai_traction_margin = 1.0f;
+        // [ai] speed_scale: the computed target speeds (not authored _SPEED) times this, 0.3 to 1.5, default 1: a
+        // version of a course whose drones should run a set share of another's pace (the PS1 SF Rush's snow,
+        // src/sfrush_ps1/ps1_track.cpp snow_tuning).
+        float ai_speed_scale = 1.0f;
         // [audio] music: the track's own songs, played as its Original (src/music.cpp): a song of the game
         // ("track1".."track8": Rush 2's by its track select order, or a Sound tab song's key such as "r49dc_5"), or
         // music files in the track's folder (.ogg, .wav), one or a list. music is the first, music_list all of them.

@@ -3336,6 +3336,19 @@ area = "car"
 ref = "docs/functions/rush1_car.md#sf-rush-car-functions"
 
 [[func]]
+vram = 0x80077C90
+name = "car_wheel_forces_drag"
+sig = "void car_wheel_forces_drag(Car *car)"
+desc = "Drag step: aero and rolling drag into car +0x48, x1.25 when +0xA38 is 2; -10 x speed when both rear wheels (+0x780, +0x784) are on surface 1 (dirt), -40 x speed on surface 2. Rush 2's adds grass -15 and the off-road factor."
+consts = "-10 (0x800C7D44) dirt rear-wheel drag; -40 (0x800C7D48) surface 2 drag; 1.25 = +0xA38 == 2 factor"
+status = "verified"
+rush2 = 0x8006AFD8
+rush2049 = [0x800E23A4]
+calspeed = [0x8008F268]
+area = "car"
+ref = "docs/sfrush_ps1.md#collision"
+
+[[func]]
 vram = 0x80078264
 name = "car_forces_wrapper"
 sig = "void car_forces_wrapper(Car *car)"

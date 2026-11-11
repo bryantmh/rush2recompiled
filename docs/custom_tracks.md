@@ -294,7 +294,9 @@ wide`) and says which it is when it is standing up or too narrow.
   `AIPATH_main` a float attribute named `_SPEED`, in mph. Convert the curve to a mesh first (Object > Convert > Mesh,
   after setting its Extrude), add the attribute in Object Data Properties > Attributes (Domain: Vertex, Type: Float),
   set its values, and tick **Data > Mesh > Attributes** when you export. Where the path has `_SPEED`, those speeds are
-  used as they are (1 to 255 mph, no extra braking added), and `AISPEED_` caps still apply; the report says
+  used as they are (1 to 255 mph, no extra braking added), and `AISPEED_` caps still apply, as does `[handling]
+  traction`: an authored speed is held to what the track's grip allows round the corner ahead, braked for at that
+  grip (lanes' `_SPEED` too); the report says
   `(all from _SPEED)` or `(some from _SPEED)`. A second attribute, `_AI_MODE`, sets how the cars steer along that
   stretch, as the stock lanes do: 2 (the default) holds the line closely, 5 steers more loosely. Painted
   `AIPATH_lane` curves can carry their own `_SPEED` and `_AI_MODE`; lanes without them use `AIPATH_main`'s. Backward
@@ -442,6 +444,28 @@ markers and `[handling] traction` still apply on top. `tools/rush1/lane_speed_ta
 Rush's tracks; the SF Rush PlayStation mod gives its versions of Golden Gate, Embarcadero and Market their N64
 courses' speeds and Chinatown all seven N64 tracks' (the stock table had the computer cars 10-30 mph slow in Golden
 Gate's corners).
+
+Two more `[ai]` keys tune a slippery version of a course (its snow) against its dry one:
+
+```toml
+[ai]
+traction_margin = 0.75   # share of [handling] traction's grip the corner speeds aim for, 0.1 to 1 (default 1)
+speed_scale = 0.91       # the computed target speeds times this, 0.3 to 1.5 (default 1; not _SPEED)
+```
+
+- `traction_margin`: with `[handling] traction`, a corner's speed is what that share of the traction's grip allows
+  (authored `_SPEED` is held to it too). At 1 the computer cars aim for all of it and slide wide off the road in snow;
+  they hold about 0.4 of it at full lock.
+- `speed_scale`: scales the computed speeds, so a version's computer cars run a set share of another's pace. The
+  share a traction costs a car comes from the race time model: `tools/race_time_test.bat PATH.bin` on the dry version's
+  converted path prints its lap dry and with the traction.
+
+Check the computer cars' pace and wrecks with `tools/drone_pace.py --race TRACK ...`: it races each track headless at
+many times real time (a 3-lap race in about 25 s, docs below in [Race replays](#race-replays)) and prints their
+average speed and wrecks; `--mod-dir` races a converter output folder in place of the installed mod, and `--hits`
+lists where the cars hit something (jolts over 8 g, grouped within 40 ft). `tools/lane_surfaces.py --rush2 OUT --walls
+3` on a converted track (`collision.bin` + `path.bin`) lists where each lane runs within 3 ft of a wall at the car's
+height or crosses one, and `--plot X Z RADIUS PNG` maps the spot.
 
 ## Sky
 
@@ -931,6 +955,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 | `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
 | `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light` | [Sky](#sky), [Night](#night) |
 | `[handling]` | `traction` | [Handling](#handling) |
+| `[ai]` | `speed_quantiles`, `traction_margin`, `speed_scale` | [AI speeds](#ai-speeds) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
 | `[surfaces.<name>]` | `like`, `drag` | [Custom surfaces](#custom-surfaces) |
 | `[audio]` | `music` | [track.toml](#tracktoml) |
@@ -1164,8 +1189,10 @@ merges and renames as needed.
 - **Authored AI values:** `src/gltf_scene.cpp` keeps a primitive's SCALAR attributes whose names start with `_`
   (`Primitive::attrs`). `read_ribbon` takes a rung's `_SPEED` as the mean of its two vertices and `_AI_MODE` from the
   first; spine resampling interpolates the speed and takes the nearest mode. `target_speeds` uses authored speeds in
-  place of the computed ones (no braking pass; `AISPEED_` caps kept); painted lanes store their crossing's values
-  (`LaneAI`), and `write_path` writes each lane point's speed byte and steering byte (func_80071FBC's mode, 2 if
+  place of the computed ones (no braking pass; `AISPEED_` caps kept; with `[handling] traction`, held to
+  `traction_cap`: `with_traction`'s limit for the radius ahead, braked for at the traction's grip); painted lanes
+  store their crossing's values (`LaneAI`), and `write_path` writes each lane point's speed byte (an authored one held
+  to `traction_cap` too) and steering byte (func_80071FBC's mode, 2 if
   none). `keep_height` (AIPATH_main's custom property) marks every gap run as air, without the step test.
 - **Sky:** `SKY` meshes become one model named `SKYO1` (not in the placement), whose list switches to 1-cycle,
   TEXEL0 x SHADE, render modes 0x0F0A4000 / 0x0F0A3000 / 0x00504240 (opaque / alpha-tested / translucent, no fog) and

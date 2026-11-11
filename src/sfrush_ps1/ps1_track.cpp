@@ -21,6 +21,7 @@
 #include <set>
 
 #include "sfrush_ps1.h"
+#include "track1_lanes.h"
 #include "texture_upscale.h"
 #include "../arcade2049/arcade_internal.h"
 
@@ -86,7 +87,54 @@ namespace {
     // lane speeds (N64 tracks 1-3, assets 58-60), track 4, a course the N64 lacks, all seven N64 tracks':
     // tools/rush1/lane_speed_table.py --tracks 0 / 1 / 2 / 0,1,2,3,4,5,6. Snow slows the tight corners on top
     // ([handling] traction).
-    std::string ai_speed_toml(int track) {
+    // Snow's computer cars, tuned by hand per course. The recomp's snow costs half what the PS1's does (one traction
+    // halving of its two), so the drones aim for half the PS1's slowdown, on the faster side: the PS1's own snow clock
+    // (8 s more a gate) gives snow / night lap shares of 0.64 Golden Gate, 0.66 Embarcadero, 0.63 Market, 0.76
+    // Chinatown, so 0.82, 0.83, 0.82 and 0.88. The snow's physics allows less on the tighter courses: the race time
+    // model's best lap with the traction (tools/race_time_test.bat) is 0.79, 0.79, 0.74, 0.76 of the dry one, and
+    // drones pushed past it wrecked (Market at 82 mph: 34 wrecks a race). Measured (tools/drone_pace.py --race, 3 laps,
+    // Drone Cheating off): 0.83, 0.77, 0.75 and 0.83 of night, 0-9 wrecks. speed: the target speeds times this (the
+    // N64 lanes' _SPEED on tracks 1-3 with the N64 ROM, else [ai] speed_scale on the converter's own); margin: [ai]
+    // traction_margin, the share of the snow's grip the corner speeds aim for (aiming at all of it, the drones slid
+    // wide off the road and into walls).
+    // n64_lines: whether snow takes the N64's lines like night (Embarcadero's snow drones rolled and slid off them,
+    // 21-25 wrecks a race against 1 on the PS1's own).
+    struct SnowTuning { double speed, margin; bool n64_lines; };
+    const SnowTuning snow_tuning[4] = { { 0.83, 1.0, true }, { 1.1, 0.75, false }, { 1.0, 0.6, true }, { 1.0, 0.75, false } };
+    // Lane fixes: hand corrections where the AI lanes run into or past a wall (tools/lane_surfaces.py --walls lists
+    // them; tools/drone_pace.py --hits where the drones hit). Each moves the lanes sideways by shift ft toward game
+    // (x, y, z) (the written track's, as the tools print it), a point on the road off the wall's side: from the
+    // station nearest it, `span` stations either side at full strength, eased out over `back` stations before and
+    // `ahead` after, all four lanes together so their spacing stays. when: 0 both, 1 night only, 2 snow only. station:
+    // the converter's station to fix at instead of the nearest, where two passes of the lap lie together (the
+    // converter's log lists each fix's station and place; path.bin's lane points don't number the same); below -1, that
+    // many from the path's end (-10: its tenth-last station).
+    struct LaneFix { int track, when; double x, y, z; int span; double shift; int back = 12, ahead = 12, station = -1; };
+    const LaneFix lane_fixes[] = {
+        // Golden Gate: where the lap's end (the lower road) meets the run-in from the toll plaza (the upper), past the
+        // gap between them (the run-in ease below). Both keep to the gap's side up to its tip (station 311 on the
+        // run-in, the 11th-last on the lap's end), and the loop's first lanes (station 320, beside the path's end)
+        // start on the lap end's line and drift back by station 335, clear of the joined road's narrowing at game
+        // (126, -1000): the lap's end runs nearly straight on and the run-in takes the step, once a race. Merged in the
+        // 120 ft past the tip, snow's grip capped the S-bend at 77-80 mph (snow 112 mph a lap against 115). The wall on
+        // the left at 30%; the one at 35%.
+        { 1, 0, 100, 125, -1000, 1, 45.0, 6, 14, 320 }, { 1, 0, -200, 112, -985, 3, 8.0, 12, 3, 311 },
+        { 1, 0, -200, 112, -975, 3, 10.0, 12, 3, -11 }, { 1, 0, 1026, 69, -2790, 4, 6.0 }, { 1, 0, 1791, 55, -3214, 3, 3.0 },
+        // Embarcadero, its N64 lines: the corner at 8% (over the pavement and through the wall's corner; every car),
+        // the corner at 88%, the pavement at 92%, the median's end at 34%, the corner at 70%, the deck's corner at
+        // 76%. In snow (its own lines) the wall at 51%.
+        { 2, 1, -1296, 18, 850, 2, 16.0 }, { 2, 1, -814, 18, -3057, 3, 12.0 }, { 2, 1, -1070, 18, -2338, 4, 6.0 },
+        { 2, 1, -5667, 68, -467, 3, 5.0 }, { 2, 1, -2627, 18, -5517, 3, 5.0 }, { 2, 1, -2175, 82, -4510, 2, 10.0 },
+        { 2, 2, -4115, 70, -3713, 6, 6.0 },
+        // Market: the wall's corner at 4% (every car), over the pavement and past the wall at 56%, along the deck's
+        // edge at 59% (two), along the edge at 66%, the wall's corner at 72%, the wall at 82%.
+        { 3, 0, 64, -2, -4229, 3, 10.0 }, { 3, 0, 952, 13, -4874, 8, 18.0 }, { 3, 0, 150, 64, -4885, 4, 9.0 },
+        { 3, 0, 300, 64, -4830, 3, 6.0 },
+        { 3, 0, -1480, 95, -5010, 5, 8.0 }, { 3, 0, -2640, 216, -3890, 3, 10.0 }, { 3, 0, -3189, 288, -1735, 3, 3.0 },
+        // Chinatown: the wall's corner at 75%.
+        { 4, 0, 2596, -58, 523, 2, 8.0 },
+    };
+    std::string ai_speed_toml(int track, bool snow) {
         static const char* const quantiles[] = {
             "69, 127, 134, 134, 139, 140, 141, 144, 147, 149, 151, 151, 153, 154, 155, 157, 158, 158, 159, 161, 174",
             "103, 117, 122, 128, 132, 134, 136, 138, 140, 142, 144, 145, 145, 147, 147, 148, 151, 151, 153, 154, 158",
@@ -94,7 +142,12 @@ namespace {
             "70, 91, 99, 105, 109, 114, 119, 123, 128, 133, 136, 138, 141, 145, 147, 150, 153, 155, 158, 161, 174",
         };
         if (track < 1 || track > 4) return "";
-        return std::string("[ai]\nspeed_quantiles = [") + quantiles[track - 1] + "]\n\n";
+        char margin[96] = "";
+        if (snow) {
+            snprintf(margin, sizeof(margin), "traction_margin = %.2f\nspeed_scale = %.2f\n", snow_tuning[track - 1].margin,
+                     snow_tuning[track - 1].speed);
+        }
+        return std::string("[ai]\nspeed_quantiles = [") + quantiles[track - 1] + "]\n" + margin + "\n";
     }
     // In snow the race setup sets the clock to 60 whatever the track (0x80015E04, gp+0x40 == 1).
     constexpr uint32_t snow_start_insn = 0x80015E04;
@@ -605,10 +658,216 @@ namespace {
         }
         return out;
     }
+
+    // AI lanes (docs/sfrush_ps1.md#ai-lanes). Each lane is an offset u along the section (lat) at every AI path station.
+
+    // Smooths a lane's x and z (a moving average over 5 stations, `passes` times; a run-in's ends stay put): the PS1's
+    // drone lines zigzag (85-180 ft radius kinks 20-40 ft apart on Golden Gate's park), which the converter would
+    // read as corners.
+    void smooth_lane(std::vector<V3>& lane, bool open, int passes) {
+        const size_t m = lane.size();
+        if (m < 8) return;
+        for (int p = 0; p < passes; p++) {
+            std::vector<V3> src = lane;
+            for (size_t i = 0; i < m; i++) {
+                if (open && (i < 2 || i + 2 >= m)) continue;
+                double x = 0, z = 0;
+                for (int k = -2; k <= 2; k++) {
+                    const V3& q = src[(i + m + size_t(k + 2) - 2) % m];
+                    x += q[0];
+                    z += q[2];
+                }
+                lane[i][0] = x / 5;
+                lane[i][2] = z / 5;
+            }
+        }
+    }
+
+    // The N64 SF Rush's four lanes of the same course laid on the PS1's: a 2D rigid fit (rotation, possibly mirrored,
+    // and offset) of the N64's lane points onto the PS1 drones' middle line (trimmed ICP from the eight axis-aligned
+    // starts), then each N64 lane's crossing of each station's section. The fits come out the 90-degree turn between
+    // the two games' axes, 15-21 ft apart on average (the drones' lines differ, not the roads: the N64's lines lie
+    // 97-99.8% on the PS1's road, tools/lane_compare.py, tools/lane_surfaces.py). False (why says) when the file
+    // doesn't read or the fit is poor; `u` gets each lane's offsets, `mph` the N64 lane's own target speed there (as
+    // the N64 port converts it, src/rush1/track1_convert.cpp lane_mph; NaN at its near-stopped points, under 30 mph),
+    // `have` which stations it crosses.
+    bool n64_lane_offsets(const std::vector<uint8_t>& file, const std::vector<V3>& mid, const std::vector<V3>& lat,
+                          const std::vector<V3>& tan, std::vector<std::vector<double>>& u,
+                          std::vector<std::vector<double>>& mph, std::vector<std::vector<bool>>& have,
+                          std::string& why) {
+        std::vector<rush2::track1::FileLane> lanes;
+        if (!rush2::track1::parse_lanes(file.data(), file.size(), lanes)) {
+            why = "the N64 lane file doesn't read";
+            return false;
+        }
+        std::vector<V3> q;   // every N64 lane point (game feet, y up)
+        for (const auto& l : lanes) for (const auto& p : l.points) q.push_back({ double(p.x), double(p.y), double(p.z) });
+        const size_t m = mid.size();
+        if (q.size() < 50 || m < 50) {
+            why = "too few lane points";
+            return false;
+        }
+        std::vector<V3> qs, ps;
+        for (size_t i = 0; i < q.size(); i += std::max<size_t>(1, q.size() / 1500)) qs.push_back(q[i]);
+        for (size_t i = 0; i < m; i += std::max<size_t>(1, m / 600)) ps.push_back(mid[i]);
+        V2 qc{}, pc{};
+        for (const V3& a : qs) qc = { qc[0] + a[0] / qs.size(), qc[1] + a[2] / qs.size() };
+        for (const V3& a : ps) pc = { pc[0] + a[0] / ps.size(), pc[1] + a[2] / ps.size() };
+        struct Fit {
+            double c = 1, s = 0, tx = 0, tz = 0;
+            bool mirror = false;
+            double err = 1e30;
+            V2 apply(const V3& a) const {
+                double x = a[0], z = mirror ? -a[2] : a[2];
+                return { c * x - s * z + tx, s * x + c * z + tz };
+            }
+        };
+        // Trimmed ICP steps from `f`: pairs each N64 point with its nearest PS1 point, drops pairs over 2.5 x the
+        // median distance, and solves the rotation and offset of the rest.
+        auto refine = [&](Fit f, int steps) {
+            for (int it = 0; it < steps; it++) {
+                std::vector<std::pair<double, size_t>> pairs(qs.size());
+                std::vector<double> dist(qs.size());
+                for (size_t k = 0; k < qs.size(); k++) {
+                    V2 a = f.apply(qs[k]);
+                    double best = 1e30;
+                    size_t bj = 0;
+                    for (size_t j = 0; j < ps.size(); j++) {
+                        double dx = ps[j][0] - a[0], dz = ps[j][2] - a[1], d2 = dx * dx + dz * dz;
+                        if (d2 < best) best = d2, bj = j;
+                    }
+                    pairs[k] = { std::sqrt(best), bj };
+                    dist[k] = pairs[k].first;
+                }
+                std::vector<double> sorted = dist;
+                std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+                const double cut = std::max(10.0, 2.5 * sorted[sorted.size() / 2]);
+                double sum = 0;
+                size_t used = 0;
+                double mx = 0, mz = 0, nx = 0, nz = 0;
+                for (size_t k = 0; k < qs.size(); k++) {
+                    if (dist[k] > cut) continue;
+                    double x = qs[k][0], z = f.mirror ? -qs[k][2] : qs[k][2];
+                    mx += x, mz += z, nx += ps[pairs[k].second][0], nz += ps[pairs[k].second][2];
+                    sum += dist[k];
+                    used++;
+                }
+                if (used < 10) return f;
+                mx /= used, mz /= used, nx /= used, nz /= used;
+                double sxx = 0, sxy = 0;
+                for (size_t k = 0; k < qs.size(); k++) {
+                    if (dist[k] > cut) continue;
+                    double x = qs[k][0] - mx, z = (f.mirror ? -qs[k][2] : qs[k][2]) - mz;
+                    double px = ps[pairs[k].second][0] - nx, pz = ps[pairs[k].second][2] - nz;
+                    sxx += x * px + z * pz;
+                    sxy += x * pz - z * px;
+                }
+                double ang = std::atan2(sxy, sxx);
+                f.c = std::cos(ang), f.s = std::sin(ang);
+                f.tx = nx - (f.c * mx - f.s * mz);
+                f.tz = nz - (f.s * mx + f.c * mz);
+                f.err = sum / used;
+            }
+            return f;
+        };
+        Fit best;
+        for (int mirror = 0; mirror < 2; mirror++) {
+            for (int r = 0; r < 4; r++) {
+                Fit f;
+                f.mirror = mirror != 0;
+                f.c = std::cos(r * 1.5707963267948966), f.s = std::sin(r * 1.5707963267948966);
+                double cz = f.mirror ? -qc[1] : qc[1];
+                f.tx = pc[0] - (f.c * qc[0] - f.s * cz);
+                f.tz = pc[1] - (f.s * qc[0] + f.c * cz);
+                f = refine(f, 6);
+                if (f.err < best.err) best = f;
+            }
+        }
+        best = refine(best, 25);
+        char line[200];
+        snprintf(line, sizeof(line), "fit %.1f ft apart, turned %.1f degrees%s, offset (%.0f, %.0f) ft", best.err,
+                 std::atan2(best.s, best.c) * 57.29577951308232, best.mirror ? ", mirrored" : "", best.tx, best.tz);
+        why = line;
+        if (best.err > 35.0) {
+            why = "the N64's lanes don't fit this course (" + why + ")";
+            return false;
+        }
+        // Each lane's crossing of each station's section: the nearest to the station's middle that runs the same
+        // way (within 45 degrees) within 150 ft of it.
+        constexpr double reach = 150.0, cell = 100.0;
+        u.assign(lanes.size(), std::vector<double>(m, 0.0));
+        mph.assign(lanes.size(), std::vector<double>(m, std::nan("")));
+        have.assign(lanes.size(), std::vector<bool>(m, false));
+        auto lane_mph = [](uint8_t fps) { return fps == 0 ? 0.0 : double(std::max(1, (fps * 30 + 22) / 44)); };
+        for (size_t l = 0; l < lanes.size(); l++) {
+            const auto& pts = lanes[l].points;
+            std::vector<V2> w(pts.size());
+            for (size_t k = 0; k < pts.size(); k++) w[k] = best.apply({ double(pts[k].x), 0.0, double(pts[k].z) });
+            std::map<std::pair<int, int>, std::vector<size_t>> grid;   // segment k: w[k] -> w[k + 1] (closed)
+            for (size_t k = 0; k < w.size(); k++) {
+                const V2& a = w[k];
+                const V2& b = w[(k + 1) % w.size()];
+                if (std::hypot(b[0] - a[0], b[1] - a[1]) > 400.0) continue;   // the lane file's run-in end to its start
+                for (int gx = int(std::floor(std::min(a[0], b[0]) / cell)); gx <= int(std::floor(std::max(a[0], b[0]) / cell)); gx++) {
+                    for (int gz = int(std::floor(std::min(a[1], b[1]) / cell)); gz <= int(std::floor(std::max(a[1], b[1]) / cell)); gz++) {
+                        grid[{ gx, gz }].push_back(k);
+                    }
+                }
+            }
+            double prev = 0;
+            bool had = false;
+            size_t since = 0;   // stations since the last crossing: past 10 the next may start anywhere
+            for (size_t i = 0; i < m; i++) {
+                const V3& c = mid[i];
+                if (had && ++since > 10) had = false;
+                double best_u = 0, best_score = 1e30, best_mph = 0;
+                bool found = false;
+                std::set<size_t> seen;
+                for (int s = -int(reach / cell) - 1; s <= int(reach / cell) + 1; s++) {
+                    double sx = c[0] + lat[i][0] * s * cell, sz = c[2] + lat[i][2] * s * cell;
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            auto it = grid.find({ int(std::floor(sx / cell)) + dx, int(std::floor(sz / cell)) + dz });
+                            if (it == grid.end()) continue;
+                            for (size_t k : it->second) {
+                                if (!seen.insert(k).second) continue;
+                                const V2& a = w[k];
+                                const V2& b = w[(k + 1) % w.size()];
+                                double ddx = b[0] - a[0], ddz = b[1] - a[1], len = std::hypot(ddx, ddz);
+                                if (len < 1e-6 || (ddx * tan[i][0] + ddz * tan[i][2]) < 0.707 * len) continue;
+                                double det = -lat[i][0] * ddz + ddx * lat[i][2];
+                                if (std::fabs(det) < 1e-9) continue;
+                                double ax = a[0] - c[0], az = a[1] - c[2];
+                                double uu = (ax * -ddz + ddx * az) / det;
+                                double ww = (lat[i][0] * az - lat[i][2] * ax) / det;
+                                if (ww < 0 || ww > 1 || std::fabs(uu) > reach) continue;
+                                double score = had ? std::fabs(uu - prev) : std::fabs(uu);
+                                if (score < best_score) {
+                                    best_score = score, best_u = uu, found = true;
+                                    double s0 = lane_mph(pts[k].fps), s1 = lane_mph(pts[(k + 1) % w.size()].fps);
+                                    best_mph = s0 + (s1 - s0) * ww;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (found && (!had || std::fabs(best_u - prev) < 40.0)) {
+                    u[l][i] = best_u;
+                    mph[l][i] = best_mph >= 30.0 ? best_mph : std::nan("");
+                    have[l][i] = true;
+                    prev = best_u;
+                    had = true;
+                    since = 0;
+                }
+            }
+        }
+        return true;
+    }
 }
 
 static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& assets_dir, ps1::ModFiles& out,
-                            std::string& log, const TrackInfo& tr, const ConditionInfo& cond) {
+                            std::string& log, const TrackInfo& tr, const ConditionInfo& cond,
+                            const std::vector<uint8_t>* n64_lanes) {
     using ps1::Disc;
     char line[256];
     const char* folder_suffix = cond.condition == Condition::snow ? "_snow" : cond.condition == Condition::night ? "_night" : "";
@@ -910,6 +1169,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     std::vector<Ground> grounds;
     std::vector<Wall> walls;
+    std::vector<Wall> step_walls;   // the walls the converter adds at the foot of steps (below), for the AI lanes' clearance
     std::vector<int> chunk_of_ground;
     size_t fo = 0, b_records = 0;
     for (size_t k = 0; k < coll.size(); k++) {
@@ -1203,6 +1463,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             }
             m.tris.push_back({ base, base + 1, base + 2 });
             m.tris.push_back({ base, base + 2, base + 3 });
+            step_walls.push_back({ { a[0], a[2] }, { b[0], b[2] }, { wn[0], wn[2] }, -1, lo - 3.0, hi + 3.0 });
             steps++;
         }
     }
@@ -1407,7 +1668,8 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     }
     // (side is measured in the game frame, the PS1's mirror image: its left is the written track's right.)
     bool right_is_left = side < 0;
-    auto ribbon = [&](const std::string& rname, const std::vector<V3>& pts, const std::vector<double>& halves) {
+    auto ribbon = [&](const std::string& rname, const std::vector<V3>& pts, const std::vector<double>& halves,
+                      const std::vector<std::pair<std::string, std::vector<double>>>& attrs = {}) {
         std::vector<V3> verts, nrms;
         std::vector<std::array<uint32_t, 3>> tris;
         for (size_t i = 0; i < m; i++) {
@@ -1424,21 +1686,287 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             tris.push_back({ 2 * ii, 2 * j, 2 * ii + 1 });
             tris.push_back({ 2 * ii + 1, 2 * j, 2 * j + 1 });
         }
-        return g.mesh(rname, verts, nrms, tris);
+        return g.mesh(rname, verts, nrms, tris, attrs);
     };
     std::vector<double> halves(m);
     for (size_t i = 0; i < m; i++) halves[i] = std::max(12.0, std::hypot(lp[i][0] - rp[i][0], lp[i][2] - rp[i][2]) / 2.0);
-    ribbon("AIPATH_main", mid, halves);
-    // Four lanes across the corridor, left to right, as the drones' lerp of the two lines.
+    // Four lanes (docs/sfrush_ps1.md#ai-lanes). The PS1's own: across the corridor, left to right, as the drones'
+    // lerp of the two lines, smoothed (smooth_lane). With the N64 ROM, Golden Gate, Embarcadero and Market take the
+    // N64's four lines instead (n64_lane_offsets); a station an N64 lane doesn't cross (a gap of up to 25 stations is
+    // bridged) keeps the PS1 lane, blended over 15 stations either side.
+    std::vector<V3> lat_of(m), tan_of(m);
+    for (size_t i = 0; i < m; i++) {
+        V2 tg = tangent(i);
+        lat_of[i] = { -tg[1], 0.0, tg[0] };
+        tan_of[i] = { tg[0], 0.0, tg[1] };
+    }
+    // The walls the lanes keep clear of (in x and z): the PS1's and the converter's step walls, bucketed 50 ft.
+    constexpr double wall_cell = 50.0;
+    std::vector<Wall> lane_walls = walls;
+    lane_walls.insert(lane_walls.end(), step_walls.begin(), step_walls.end());
+    std::map<std::pair<int, int>, std::vector<size_t>> wall_grid;
+    for (size_t k = 0; k < lane_walls.size(); k++) {
+        const Wall& w = lane_walls[k];
+        for (int gx = int(std::floor(std::min(w.a[0], w.b[0]) / wall_cell)) - 1; gx <= int(std::floor(std::max(w.a[0], w.b[0]) / wall_cell)) + 1; gx++) {
+            for (int gz = int(std::floor(std::min(w.a[1], w.b[1]) / wall_cell)) - 1; gz <= int(std::floor(std::max(w.a[1], w.b[1]) / wall_cell)) + 1; gz++) {
+                wall_grid[{ gx, gz }].push_back(k);
+            }
+        }
+    }
+    // The nearest wall point to p in x and z (raised walls only over their height band): distance and point.
+    auto nearest_wall = [&](const V3& p, V2& at) {
+        double best = 1e30;
+        auto it = wall_grid.find({ int(std::floor(p[0] / wall_cell)), int(std::floor(p[2] / wall_cell)) });
+        if (it == wall_grid.end()) return best;
+        for (size_t k : it->second) {
+            const Wall& w = lane_walls[k];
+            if (w.high != w.low && (p[1] < w.low - 8.0 || p[1] > w.high + 8.0)) continue;
+            double dx = w.b[0] - w.a[0], dz = w.b[1] - w.a[1], len2 = dx * dx + dz * dz;
+            double tt = len2 > 0 ? std::clamp(((p[0] - w.a[0]) * dx + (p[2] - w.a[1]) * dz) / len2, 0.0, 1.0) : 0.0;
+            V2 q{ w.a[0] + dx * tt, w.a[1] + dz * tt };
+            double d = std::hypot(p[0] - q[0], p[2] - q[1]);
+            if (d < best) best = d, at = q;
+        }
+        return best;
+    };
+    // Whether the segment p-q crosses a wall (raised walls only over their height band).
+    auto crosses_wall = [&](const V3& p, const V3& q) {
+        std::set<size_t> seen;
+        for (const V3& e : { p, q }) {
+            auto it = wall_grid.find({ int(std::floor(e[0] / wall_cell)), int(std::floor(e[2] / wall_cell)) });
+            if (it == wall_grid.end()) continue;
+            for (size_t k : it->second) {
+                if (!seen.insert(k).second) continue;
+                const Wall& w = lane_walls[k];
+                if (w.high != w.low && (p[1] < w.low - 8.0 || p[1] > w.high + 8.0)) continue;
+                auto orient = [](double ax, double az, double bx, double bz, double cx, double cz) {
+                    return (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+                };
+                double d1 = orient(w.a[0], w.a[1], w.b[0], w.b[1], p[0], p[2]);
+                double d2 = orient(w.a[0], w.a[1], w.b[0], w.b[1], q[0], q[2]);
+                double d3 = orient(p[0], p[2], q[0], q[2], w.a[0], w.a[1]);
+                double d4 = orient(p[0], p[2], q[0], q[2], w.b[0], w.b[1]);
+                if (((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0))) return true;
+            }
+        }
+        return false;
+    };
+    std::vector<std::vector<V3>> lanes4(4, std::vector<V3>(m));
+    // Each lane's target speed (mph, AIPATH_lane _SPEED): the N64 lane's own where it has one, NaN to leave it to the
+    // converter (its radius ranks: the stock table's, or [ai] speed_quantiles).
+    std::vector<std::vector<double>> lane_speed(4, std::vector<double>(m, std::nan("")));
     for (int s = 0; s < 4; s++) {
         double f = s / 3.0;
-        std::vector<V3> lane(m);
         for (size_t i = 0; i < m; i++) {
             const V3& a = right_is_left ? rp[i] : lp[i];
             const V3& b = right_is_left ? lp[i] : rp[i];
-            lane[i] = a + (b - a) * f;
+            lanes4[size_t(s)][i] = a + (b - a) * f;
         }
-        ribbon("AIPATH_lane" + std::to_string(s + 1), lane, std::vector<double>(m, 3.0));
+        // Smoothed, except near walls: where the smoothed lane would come within 6 ft of a wall or cross one (it cut
+        // Chinatown's turn round the end of the converter's step wall at (2550, 500), 12 of the night drones' 21
+        // wrecks a race), the raw line stays, blended back over 6 stations either side.
+        std::vector<V3> raw = lanes4[size_t(s)];
+        smooth_lane(lanes4[size_t(s)], run_in, 3);
+        std::vector<bool> keep(m, false);
+        bool any = false;
+        for (size_t i = 0; i < m; i++) {
+            const V3& sm = lanes4[size_t(s)][i];
+            V2 at{};
+            size_t j = (i + 1) % m;
+            keep[i] = nearest_wall(sm, at) < 6.0 || crosses_wall(raw[i], sm) ||
+                      (!(run_in && j == 0) && crosses_wall(sm, lanes4[size_t(s)][j]));
+            any = any || keep[i];
+        }
+        if (any) {
+            std::vector<double> w(m, 0.0);
+            for (size_t i = 0; i < m; i++) {
+                if (!keep[i]) continue;
+                for (int d = -6; d <= 6; d++) {
+                    long k = long(i) + d;
+                    if (run_in && (k < 0 || k >= long(m))) continue;
+                    size_t kk = size_t((k % long(m) + long(m)) % long(m));
+                    w[kk] = std::max(w[kk], 1.0 - std::abs(d) / 7.0);
+                }
+            }
+            for (size_t i = 0; i < m; i++) {
+                V3& pt = lanes4[size_t(s)][i];
+                pt[0] += (raw[i][0] - pt[0]) * w[i];
+                pt[2] += (raw[i][2] - pt[2]) * w[i];
+            }
+        }
+    }
+    // A course whose snow drones wrecked on the N64's lines keeps the PS1's there (snow_tuning).
+    if (n64_lanes && cond.condition == Condition::snow && tr.n >= 1 && tr.n <= 4 && !snow_tuning[tr.n - 1].n64_lines) {
+        n64_lanes = nullptr;
+        report.push_back("AI lanes: snow keeps the PS1's on this course");
+    }
+    if (n64_lanes) {
+        std::vector<std::vector<double>> u, n64_mph;
+        std::vector<std::vector<bool>> have;
+        std::string why;
+        if (n64_lane_offsets(*n64_lanes, mid, lat_of, tan_of, u, n64_mph, have, why)) {
+            std::string cover;
+            for (size_t s = 0; s < 4 && s < u.size(); s++) {
+                // Short gaps bridged.
+                std::vector<bool> ok = have[s];
+                for (size_t i = 0; i < m;) {
+                    if (ok[i]) { i++; continue; }
+                    size_t j = i;
+                    while (j < m && !ok[j]) j++;
+                    if (i > 0 && j < m && j - i <= 25) {
+                        for (size_t k = i; k < j; k++) {
+                            double f = double(k - i + 1) / double(j - i + 1);
+                            u[s][k] = u[s][i - 1] + (u[s][j] - u[s][i - 1]) * f;
+                            n64_mph[s][k] = n64_mph[s][i - 1] + (n64_mph[s][j] - n64_mph[s][i - 1]) * f;
+                            ok[k] = true;
+                        }
+                    }
+                    i = j;
+                }
+                size_t n_ok = size_t(std::count(ok.begin(), ok.end(), true));
+                cover += (s ? ", " : "") + std::to_string(n_ok * 100 / m) + "%";
+                if (n_ok * 2 < m) continue;   // mostly uncrossed: the PS1's lane
+                // Weight of the N64 lane: 1 where it crosses, falling to 0 over 15 stations into a gap.
+                std::vector<double> w(m, 0.0), un(m, 0.0);
+                for (size_t i = 0; i < m; i++) {
+                    if (ok[i]) { w[i] = 1.0; un[i] = u[s][i]; lane_speed[s][i] = n64_mph[s][i]; continue; }
+                    size_t best = m;
+                    for (size_t d = 1; d <= 15 && best == m; d++) {
+                        if (i >= d && ok[i - d]) best = i - d;
+                        else if (i + d < m && ok[i + d]) best = i + d;
+                    }
+                    if (best < m) {
+                        w[i] = 1.0 - double(best > i ? best - i : i - best) / 16.0;
+                        un[i] = u[s][best];
+                        lane_speed[s][i] = n64_mph[s][best];
+                    }
+                }
+                for (size_t i = 0; i < m; i++) {
+                    if (w[i] <= 0) continue;
+                    V3 n64p = mid[i] + lat_of[i] * un[i];
+                    V3& p = lanes4[s][i];
+                    p[0] = p[0] + (n64p[0] - p[0]) * w[i];
+                    p[2] = p[2] + (n64p[2] - p[2]) * w[i];
+                }
+                smooth_lane(lanes4[s], run_in, 1);
+            }
+            report.push_back("AI lanes: the N64's (" + why + "; stations crossed by lane: " + cover + ")");
+        }
+        else {
+            report.push_back("AI lanes: the PS1's, smoothed (" + why + ")");
+        }
+    }
+    else {
+        report.push_back("AI lanes: the PS1's, smoothed");
+    }
+    // Hand fixes at the spots where the lanes cut into or past a wall (lane_fixes).
+    {
+        size_t fixed = 0;
+        std::string where;
+        for (const LaneFix& fx : lane_fixes) {
+            if (fx.track != tr.n || (fx.when == 1 && cond.condition == Condition::snow) ||
+                (fx.when == 2 && cond.condition != Condition::snow)) {
+                continue;
+            }
+            // The written track's x is this frame's mirrored (gl()).
+            const double fxx = -fx.x;
+            const long at_station = fx.station < -1 ? long(m) + fx.station : fx.station;
+            size_t i0 = at_station >= 0 && size_t(at_station) < m ? size_t(at_station) : 0;
+            double best = at_station >= 0 ? -1.0 : 1e30;
+            for (size_t i = 0; i < m && best >= 0; i++) {
+                double d = std::hypot(mid[i][0] - fxx, mid[i][2] - fx.z) + 4.0 * std::fabs(mid[i][1] - fx.y);
+                if (d < best) best = d, i0 = i;
+            }
+            // Toward the point, from where the lanes run on average there.
+            double off = 0.0;
+            for (const auto& l : lanes4) off += ((fxx - l[i0][0]) * lat_of[i0][0] + (fx.z - l[i0][2]) * lat_of[i0][2]) / 4.0;
+            const double dir = off >= 0 ? 1.0 : -1.0;
+            for (int d = -(fx.span + fx.back); d <= fx.span + fx.ahead; d++) {
+                long k = long(i0) + d;
+                if (run_in && (k < 0 || k >= long(m))) continue;
+                size_t kk = size_t((k % long(m) + long(m)) % long(m));
+                const int ease = d < 0 ? fx.back : fx.ahead;
+                double t = std::abs(d) <= fx.span ? 1.0 : 1.0 - double(std::abs(d) - fx.span) / double(ease + 1);
+                double w = t * t * (3 - 2 * t) * fx.shift * dir;
+                for (auto& l : lanes4) {
+                    l[kk][0] += lat_of[kk][0] * w;
+                    l[kk][2] += lat_of[kk][2] * w;
+                }
+            }
+            fixed++;
+            char at[96];
+            snprintf(at, sizeof(at), " %zu (%.0f, %.0f)", i0, -mid[i0][0], mid[i0][2]);
+            where += at;
+        }
+        if (fixed) report.push_back("AI lanes: " + std::to_string(fixed) + " hand fixes off walls, at stations" + where);
+    }
+    // A run-in circuit's path ends beside where it rejoins its loop (Golden Gate's toll plaza: 27 ft to the side with
+    // the PS1's lines, 47 with the N64's), and the converter goes on from the loop start's crossing: that sideways step
+    // read as a hairpin (target speeds of 70 mph on the plaza's straight). The lanes' last 30 stations ease onto the
+    // lanes they rejoin. On Golden Gate only from just past the tip of the gap between the lap's end and the run-in
+    // (game (-100, -985)): eased from 30 stations back, every lane crossed the gap and every car hit its walls; the
+    // loop's lanes start part of the way toward the lap end's line instead (lane_fixes).
+    if (run_in && m > 120) {
+        size_t ease = 30;
+        if (tr.n == 1) {
+            const V3 tip{ 100.0, 0.0, -985.0 };   // this frame's x is the written track's mirrored
+            size_t from = m - ease;
+            double best = 1e30;
+            for (size_t i = m - 60; i < m; i++) {
+                double d = std::hypot(mid[i][0] - tip[0], mid[i][2] - tip[2]);
+                if (d < best) best = d, from = i;
+            }
+            ease = std::max<size_t>(4, m - from);
+        }
+        for (size_t i = m - ease; i < m; i++) {
+            size_t j = 0;
+            double best = 1e30;
+            for (size_t k = 0; k < m / 2; k++) {
+                double d = std::hypot(mid[i][0] - mid[k][0], mid[i][2] - mid[k][2]);
+                if (d < best) best = d, j = k;
+            }
+            if (best > 120.0) continue;
+            double t = double(i - (m - ease) + 1) / double(ease), w = t * t * (3 - 2 * t);
+            for (auto& l : lanes4) {
+                l[i][0] += (l[j][0] - l[i][0]) * w;
+                l[i][2] += (l[j][2] - l[i][2]) * w;
+            }
+        }
+    }
+    // The path itself (AIPATH_main, the spine the converter takes its target speeds from) down the middle of the four,
+    // wide enough to hold them at the converter's lane slots (+-0.6 of its half width) and never narrower than the
+    // PS1's corridor; the gates below cross it.
+    for (size_t i = 0; i < m; i++) {
+        double x = 0, z = 0;
+        for (const auto& l : lanes4) x += l[i][0], z += l[i][2];
+        mid[i][0] = x / 4, mid[i][2] = z / 4;
+        double spread = 0;
+        for (const auto& l : lanes4) spread = std::max(spread, std::hypot(l[i][0] - mid[i][0], l[i][2] - mid[i][2]));
+        halves[i] = std::max(halves[i], spread / 0.6);
+    }
+    // Speeds as _SPEED (two ribbon vertices a station): the lanes their own, the path their mean where all four have
+    // one. The converter takes them as they are, snow's traction still slowing the tight corners
+    // (docs/custom_tracks.md#the-ai-path).
+    // Snow scales the N64's (night) speeds by the course's snow_tuning.
+    const double speed_scale = cond.condition == Condition::snow && tr.n >= 1 && tr.n <= 4 ? snow_tuning[tr.n - 1].speed : 1.0;
+    auto speed_attr = [&](const std::vector<double>& v) {
+        std::vector<double> out;
+        bool any = false;
+        for (double x : v) { out.push_back(x * speed_scale); out.push_back(x * speed_scale); any = any || !std::isnan(x); }
+        return any ? std::vector<std::pair<std::string, std::vector<double>>>{ { "_SPEED", out } }
+                   : std::vector<std::pair<std::string, std::vector<double>>>{};
+    };
+    std::vector<double> main_speed(m, std::nan(""));
+    for (size_t i = 0; i < m; i++) {
+        double sum = 0;
+        int n_have = 0;
+        for (const auto& l : lane_speed) if (!std::isnan(l[i])) sum += l[i], n_have++;
+        if (n_have == 4) main_speed[i] = sum / 4;
+    }
+    ribbon("AIPATH_main", mid, halves, speed_attr(main_speed));
+    for (int s = 0; s < 4; s++) {
+        ribbon("AIPATH_lane" + std::to_string(s + 1), lanes4[size_t(s)], std::vector<double>(m, 3.0),
+               speed_attr(lane_speed[size_t(s)]));
     }
 
     // Gates: TRACK<n>.CPF's four planes (s32 nx, ny, nz, d; 16384 = 1, the path's 0.1 ft units: n . (x, height, y) =
@@ -1595,6 +2123,10 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                 half = std::hypot(ends[0][0] - ends[1][0], ends[0][1] - ends[1][1]) / 20.0;
             }
         }
+        // And wide enough for every lane where it crosses, 15 ft to spare: a drone on a lane outside the gate never
+        // counts it (Embarcadero's snow lanes ran 68-73 ft from its overpass gate's center, 60 ft wide: 5 of 7 drones
+        // never counted a lap).
+        for (const auto& l : lanes4) half = std::max(half, std::hypot(l[i][0] - center[0], l[i][2] - center[2]) + 15.0);
         // Forward: against the normal (the gate is passed going from n . p > d to below).
         double len = std::hypot(nx, ny);
         g.empty(gname, a49::gate_matrix(for_a49(center), for_a49({ -ny / len, 0.0, -nx / len }), half));
@@ -1977,7 +2509,7 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         "author = \"San Francisco Rush, PlayStation (converted)\"\n"
         "description = \"Track " + t + " of the PlayStation San Francisco Rush" + described + "\"\n\n" + race_toml +
         // The grass class (COL_VERGE, above): grass's drag, dirt's dust and sound.
-        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" + ai_speed_toml(tr.n) + condition_toml + look_toml +
+        "[surfaces.verge]\nlike = \"dirt\"\ndrag = 15\n\n" + ai_speed_toml(tr.n, cond.condition == Condition::snow) + condition_toml + look_toml +
         "[menu]\nlogo = \"logo.png\"\npreview = \"preview.png\"\nafter = \"sfrush\"\n" + menu_toml + diorama_toml + mover_toml);
     // The track select picture: the PS1's own (TITLETGA/TRK<n>N.TGA, 512 x 168, 15-bit, rows top-down whatever the
     // header says), a map of the course with its districts named, whole: the route preview keeps its 512 x 168 texels
@@ -2032,11 +2564,14 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     return true;
 }
 
-bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log) {
+bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
+                      const N64Lanes& n64) {
     for (const TrackInfo& tr : tracks) {
         for (const ConditionInfo& c : conditions) {
             if (c.condition == Condition::day && !tr.day) continue;
-            if (!build_condition(disc, assets_dir, out, log, tr, c)) return false;
+            const std::vector<uint8_t>* lanes = nullptr;
+            if (tr.n >= 1 && tr.n <= 3 && !n64[size_t(tr.n - 1)].empty()) lanes = &n64[size_t(tr.n - 1)];
+            if (!build_condition(disc, assets_dir, out, log, tr, c, lanes)) return false;
         }
     }
     return true;

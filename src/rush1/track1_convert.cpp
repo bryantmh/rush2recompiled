@@ -34,6 +34,7 @@
 
 #include "track1.h"
 #include "track1_banners.h"
+#include "track1_lanes.h"
 #include "track2049.h"
 #include "texture_upscale.h"
 
@@ -1306,23 +1307,14 @@ namespace {
         Bytes d = asset(rom, (backward ? path_back_asset : path_asset) + t);
         std::vector<std::vector<LanePoint>> lanes;
         std::vector<size_t> loops;
-        size_t o = 0;
-        for (int l = 0; l < 4; l++) {
-            int n = s16(d, o), loop = s16(d, o + 2), end = s16(d, o + 4);
-            if (n < 0) fail("bad lane");
+        std::vector<rush2::track1::FileLane> file_lanes;
+        if (!rush2::track1::parse_lanes(d.data(), d.size(), file_lanes)) fail("bad lane file");
+        for (const auto& fl : file_lanes) {
             std::vector<LanePoint> pts;
-            for (int k = 0; k < n; k++) {
-                size_t p = o + 8 + size_t(k) * 10;
-                int c0 = s16(d, p), c1 = s16(d, p + 2), c2 = s16(d, p + 4);
-                pts.push_back({ c1, -c2, c0, lane_mph(d[p + 6]), d[p + 7] });
-            }
-            o += 8 + size_t(n) * 10;
-            if (!(2 <= end && end <= n)) end = n;
-            pts.resize(size_t(end));
-            loops.push_back(0 <= loop && loop < end ? size_t(loop) : 0);
+            for (const auto& p : fl.points) pts.push_back({ p.x, p.y, p.z, lane_mph(p.fps), p.behaviour });
+            loops.push_back(fl.loop);
             lanes.push_back(std::move(pts));
         }
-        if (o != d.size()) fail("path size mismatch");
 
         // Records: f32 x, y, z, s32 gate radius squared, s16 flags, s16 time[3] (by lap); the end record (flags -1) holds the start time's
         // base at +0x12 and the loop-start checkpoint at +0x14.

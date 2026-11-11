@@ -1495,6 +1495,14 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             s.ai_speed_quantiles.clear();
         }
     }
+    if (auto m = t["ai"]["speed_scale"].value<double>()) {
+        if (*m >= 0.3 && *m <= 1.5) s.ai_speed_scale = float(*m);
+        else report.error("track.toml: [ai] speed_scale must be from 0.3 to 1.5; 1 is used.");
+    }
+    if (auto m = t["ai"]["traction_margin"].value<double>()) {
+        if (*m >= 0.1 && *m <= 1.0) s.ai_traction_margin = float(*m);
+        else report.error("track.toml: [ai] traction_margin must be from 0.1 to 1; 1 is used.");
+    }
     if (auto* arr = t["audio"]["music"].as_array()) {
         for (auto& e : *arr) {
             if (auto v = e.value<std::string>()) s.music_list.push_back(*v);
@@ -2781,6 +2789,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // Past a run-in circuit's last spine point the race goes on from the loop start's crossing.
     long loop_at = -1;
     for (const Gate& g : gates) if (g.loop && g.at >= 0) loop_at = g.at;
+    // [handling] traction's limit on authored speeds (mph per spine point, the forward race's): the speed its grip
+    // allows round the corner ahead, braked for at its grip. Empty without traction. Authored spine speeds take it in
+    // target_speeds, painted lanes' in write_path.
+    std::vector<float> traction_cap;
     auto target_speeds = [&](const std::vector<PathPoint>& sp, bool forward) {
         size_t n = sp.size();
         // Point i + k along the race: a circuit wraps to its start, a run-in circuit to its loop start, a
@@ -2831,6 +2843,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // show it (a track's own speeds may ask for more on a fast course; snow still holds them to this grip).
         float a_dry = 0.0f;
         for (const auto& t : table) a_dry = std::max(a_dry, (t[1] * 1.4667f) * (t[1] * 1.4667f) / t[0]);
+        // [ai] traction_margin: the share of the traction's grip aimed for (1 by default). Snow drones aiming at all
+        // of it slide wide off the road (the PS1 courses' hold 31-36 ft/s^2 sideways at full lock in snow, against the
+        // 88 f x a_dry gives): the PS1 conversion tunes it per course (src/sfrush_ps1/ps1_track.cpp).
+        const float traction_margin = settings.ai_traction_margin;
         auto with_traction = [&](float s_table, float r, float cap) {
             if (steps.empty()) return std::min(s_table, cap);
             // From the fastest step's range down: the first range the grip-limited speed reaches is the answer, held
@@ -2839,7 +2855,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 float lo = k == 0 ? 0.0f : steps[k - 1][0];
                 float hi = k == steps.size() ? 1e9f : steps[k][0];
                 float f = k == 0 ? 1.0f : steps[k - 1][1];
-                float s = std::min(s_table, std::sqrt(f * a_dry * std::min(r, 1e7f)) / 1.4667f);
+                float s = std::min(s_table, std::sqrt((k == 0 ? 1.0f : traction_margin) * f * a_dry * std::min(r, 1e7f)) / 1.4667f);
                 if (s >= lo || k == 0) return std::min({ s, hi, cap });
             }
             return std::min(s_table, cap);
@@ -2876,17 +2892,36 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                     s = table[t][1] + (table[t + 1][1] - table[t][1]) * f;
                 }
             }
-            v[i] = with_traction(s, r, straights) * 1.4667f;
+            v[i] = with_traction(s, r, straights) * 1.4667f * settings.ai_speed_scale;
         }
         // Authored speeds (AIPATH_main's _SPEED, forward races only) replace the computed ones and keep their own
-        // braking; AISPEED caps still apply.
+        // braking; AISPEED caps still apply, and so does traction: an authored speed is held to what the grip allows
+        // round the corner ahead (with_traction's limit), braked for at that grip.
         std::vector<bool> authored(n, false);
+        const float decel = 28.0f;
+        auto decel_at = [&](float fps) { return std::min(decel, grip_at(fps / 1.4667f) * a_dry); };
+        std::vector<float> cap;
+        if (!steps.empty()) {
+            cap.resize(n);
+            for (size_t i = 0; i < n; i++) cap[i] = with_traction(255.0f, r_ahead[i], 255.0f) * 1.4667f;
+            for (int pass = 0; pass < 2; pass++) {
+                for (size_t k = 0; k < n; k++) {
+                    size_t i = (n - 1 - k), j = ahead_of(i, 1);
+                    if (p2p && i + 1 == n) continue;
+                    float from = std::sqrt(cap[j] * cap[j] + 2.0f * decel_at(cap[j]) * spine_step);
+                    cap[i] = std::min(cap[i], from);
+                }
+            }
+        }
         if (forward) {
             for (size_t i = 0; i < n; i++) {
                 if (std::isnan(sp[i].speed)) continue;
                 v[i] = std::clamp(sp[i].speed, 1.0f, 255.0f) * 1.4667f;
+                if (!cap.empty()) v[i] = std::min(v[i], cap[i]);
                 authored[i] = true;
             }
+            traction_cap.clear();
+            for (float c : cap) traction_cap.push_back(c / 1.4667f);
         }
         // AISPEED caps: from the nearest point on, until the next marker (0 lifts the cap), in the forward race's order
         // in both directions, so a cap covers the same stretch of road backward (backward point i is forward point
@@ -2918,8 +2953,6 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         // Brake ahead of slow points: v^2 <= v_next^2 + 2 * decel * step, twice around for the wrap. The AI's 28 ft/s^2
         // is well inside the grip the table shows the cars have, so traction only cuts it where f x a_dry falls below
         // it (never at the PS1 snow's f = 0.5: 88 ft/s^2).
-        const float decel = 28.0f;
-        auto decel_at = [&](float fps) { return std::min(decel, grip_at(fps / 1.4667f) * a_dry); };
         for (int pass = 0; pass < 2; pass++) {
             for (size_t k = 0; k < n; k++) {
                 size_t i = (n - 1 - k), j = ahead_of(i, 1);
@@ -3204,7 +3237,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 for (float c : lane[i]) add16(d, s16(c));
                 float speed = mph[i], mode = sp[i].mode;
                 if (ai && i < ai->speed[k].size()) {
-                    if (!std::isnan(ai->speed[k][i])) speed = ai->speed[k][i];
+                    if (!std::isnan(ai->speed[k][i])) {
+                        speed = ai->speed[k][i];
+                        if (i < traction_cap.size()) speed = std::min(speed, traction_cap[i]);
+                    }
                     if (!std::isnan(ai->mode[k][i])) mode = ai->mode[k][i];
                 }
                 add8(d, uint8_t(std::clamp(std::lround(speed), 1l, 255l)));

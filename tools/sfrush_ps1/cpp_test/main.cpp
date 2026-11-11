@@ -5,6 +5,10 @@
 //   build.bat [OUT_DIR] [DISC]   (OUT_DIR default tmp/ps1/cpp; DISC any image ps1_disc.cpp reads, default
 //                                 SFRUSH_PS1_DISC)
 //
+// RUSH1_LANES_DIR: a folder with the N64 SF Rush's lane files lanes58.bin, lanes59.bin and lanes60.bin (ROM assets
+// 58-60, decompressed: tools/rush1/r1.py Rush1().asset(58 + t)), as the game passes them with the N64 ROM in; without it
+// the PS1's own lanes are used.
+//
 // Writes OUT_DIR/sfrush_ps1/ and prints the converter's log and time.
 
 #include <chrono>
@@ -33,7 +37,13 @@ int main(int argc, char** argv) {
     auto t0 = std::chrono::steady_clock::now();
     ps1::ModFiles files;
     std::string log;
-    bool ok = ps1::build_mod(disc, std::filesystem::path("assets") / "sfrush_ps1", files, log);
+    ps1::N64Lanes n64;
+    if (const char* dir = std::getenv("RUSH1_LANES_DIR"); dir && *dir) {
+        for (int t = 0; t < 3; t++) {
+            n64[size_t(t)] = rush2::upscale::read_file(std::filesystem::u8path(dir) / ("lanes" + std::to_string(58 + t) + ".bin"));
+        }
+    }
+    bool ok = ps1::build_mod(disc, std::filesystem::path("assets") / "sfrush_ps1", files, log, n64);
     double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     printf("== %s: %s in %.1f s, %zu files\n%s", ps1::mod_id, ok ? "built" : "FAILED", s, files.size(), log.c_str());
     if (!ok) return 1;
