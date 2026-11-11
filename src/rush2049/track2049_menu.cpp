@@ -376,6 +376,29 @@ namespace {
     bool filter_leaves_none = false;
     int filter_keep_track = -1;     // The track shown when a changed filter rebuilt the screen.
 
+    // The carousel's slide, kept across the rebuild a version switch makes (rush2_track49_filter_frame): by entry (in
+    // display order) how far its x (+0x4) still is from its target (+0x10), and the highlight's x (0x803CB40C). The
+    // build puts every entry at its target, so without this a switch mid-slide jumped to the end of the slide.
+    struct CarouselSlide {
+        bool valid = false;
+        std::vector<float> offsets;
+        float highlight_x = 0.0f;
+    };
+    CarouselSlide kept_slide;
+    constexpr uint32_t carousel_highlight_x = 0x803CB40C;   // f32: the highlight's x (init: track's table x - 5)
+
+    float slide_get(uint8_t* rdram, uint32_t addr) {
+        uint32_t bits = (uint32_t)MEM_W(0, (int32_t)addr);
+        float f;
+        memcpy(&f, &bits, 4);
+        return f;
+    }
+    void slide_set(uint8_t* rdram, uint32_t addr, float f) {
+        uint32_t bits;
+        memcpy(&bits, &f, 4);
+        MEM_W(0, (int32_t)addr) = (int32_t)bits;
+    }
+
     // Whether the track select would offer track t (0-254) without track versions: base_selectable and the game
     // filter.
     bool member_ok(uint8_t* rdram, int t) {
@@ -1621,6 +1644,24 @@ extern "C" int rush2_track49_filter_frame(uint8_t* rdram, recomp_context* ctx) {
         menu_play_sound_80064908(rdram, ctx);
         *ctx = saved;
         filter_keep_track = switched;
+        // The switch swaps one entry for its other version and keeps the rest: the screen is rebuilt in this frame
+        // (the game's own func_803AB294(1) after the hook builds it again and draws it), so no frame goes by without
+        // the screen, and the slide in progress carries on (rush2_track49_carousel_restore).
+        {
+            std::lock_guard lock{ menu_mutex };
+            int count = MEM_H(0, (int32_t)carousel_count);
+            kept_slide.valid = count > 0 && count <= menu_tracks;
+            kept_slide.offsets.clear();
+            for (int i = 0; kept_slide.valid && i < count; i++) {
+                uint32_t entry = new_carousel + i * carousel_entry;
+                kept_slide.offsets.push_back(slide_get(rdram, entry + 0x4) - slide_get(rdram, entry + 0x10));
+            }
+            kept_slide.highlight_x = slide_get(rdram, carousel_highlight_x);
+        }
+        ctx->r4 = 0;
+        trackselect_init_draw_803AB294(rdram, ctx);
+        *ctx = saved;
+        return 0;
     }
     else if (!offered_changed &&
              !rush2::game_filter::frame(rdram, ctx, rush2::game_filter::Screen::Tracks, filter_present)) {
@@ -1722,6 +1763,21 @@ extern "C" void rush2_track49_carousel_place(uint8_t* rdram, recomp_context* ctx
     int count = (int16_t)MEM_H(0, (int32_t)ctx->r21);
     if (place < 0 && count > 0) place += count;
     MEM_B(0x14, (int32_t)ctx->r16) = (int8_t)place;
+}
+
+// func_803AB294 at 0x803AB9B8, the screen built (entries at their targets, the highlight at its track's x), before the
+// first frame's slide: after a version switch the slide that was going on carries on (kept_slide, saved by
+// rush2_track49_filter_frame). The switch keeps the carousel's entries and order, swapping one for its other version.
+extern "C" void rush2_track49_carousel_restore(uint8_t* rdram, recomp_context* ctx) {
+    std::lock_guard lock{ menu_mutex };
+    if (!std::exchange(kept_slide.valid, false)) return;
+    int count = MEM_H(0, (int32_t)carousel_count);
+    if (count != int(kept_slide.offsets.size())) return;
+    for (int i = 0; i < count; i++) {
+        uint32_t entry = new_carousel + i * carousel_entry;
+        slide_set(rdram, entry + 0x4, slide_get(rdram, entry + 0x10) + kept_slide.offsets[size_t(i)]);
+    }
+    slide_set(rdram, carousel_highlight_x, kept_slide.highlight_x);
 }
 
 // Rush 2049's own preview for the 2049 entries (docs/rush2049_research/menus.md §7.5): the carousel instances the

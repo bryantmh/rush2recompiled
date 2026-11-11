@@ -1053,6 +1053,13 @@ func = "trackselect_init_draw_803AB294"
 before_vram = 0x803AB718
 text = "    rush2_track49_carousel_place(rdram, ctx);"
 
+# A version switch rebuilds the screen: the carousel slide going on carries on instead of jumping to its end
+# (src/rush2049/track2049_menu.cpp, carousel_restore).
+[[patches.hook]]
+func = "trackselect_init_draw_803AB294"
+before_vram = 0x803AB9B8
+text = "    rush2_track49_carousel_restore(rdram, ctx);"
+
 [[patches.instruction]]
 func = "trackselect_init_draw_803AB294"
 vram = 0x803AB718

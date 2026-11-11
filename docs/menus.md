@@ -126,7 +126,11 @@ was). A course whose other versions are locked (Metro, Mission, Presidio before 
 shows its arcade version and still names it; `--config cheats.unlock_all_tracks=true` opens them for a test run
 (src/rush2049/track2049_menu.cpp `rush2_track49_filter_frame`, drawn by `rush2::game_filter::draw`). The pick is saved
 per course in the saves' "track_select" section ("versions") and the screen is rebuilt as after a filter change, on
-the new version. `RUSH2_TEST_TRACK=ID` with a course's other version opens on that version (picked for the run).
+the new version. `RUSH2_TEST_TRACK=ID` with a course's other version opens on that version (picked for the run). The rebuild happens in the switch's own frame (teardown, then the game's own func_803AB294(1) builds and draws),
+so no frame goes without the screen, and a carousel slide in progress carries on: each entry's distance from its
+target (+0x4 x minus +0x10 target, by display index) and the highlight's x (0x803CB40C) are put back after the build
+(hook 0x803AB9B8, `rush2_track49_carousel_restore`). Carousel entry (0x1C bytes): +0x0 track, +0x4/+0x8/+0xC position,
++0x10 target x, +0x14 place, +0x18 model node; each frame every entry moves by the shown entry's (target - x) / 10 * dt * 30.
 
 Each version's preview has a thin ring around the round picture in its version's color: N64 blue, DC orange, ARCADE
 red (`version_ring_*`, include/track2049.h). The ring shows only when the X prompt names the version
