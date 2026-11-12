@@ -151,11 +151,16 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
 ## 8. Implementation [V]
 
 - **Types.** The 2049 cars are Rush 2 types 23-35 (type 22 stays Rush 2's "no car" marker). The 22-entry per-type
-  tables (§2) and the per-type box tables move to copies for every type at 0x80200000.. (73 types with California
-  Speed's 36-56, docs/calspeed_research.md#7-cars, and the mod cars' 57-72, docs/car_mods.md#new-cars; the layout is
+  tables (§2) and the per-type box tables move to copies for every type at 0x80200000.. (121 types with California
+  Speed's 36-56, docs/calspeed_research.md#7-cars, and the mod cars' 57-120, docs/car_mods.md#new-cars; the layout is
   `include/car_types.h`, and `tools/rush2049/cartypes.py` generates the matching us.toml patches); preview ids become
-  player * 73 + type, so the race/preview per-car arrays move to 146-entry copies in two windows (from 0x80208000,
-  and the ones that don't fit from 0x8022A000). A fill loop that steps a pointer to an
+  player * 121 + type, so the race/preview per-car arrays move to 242-entry copies (about 134 KB) from 0x80178000, in
+  the RDRAM the game heap left when it moved (0x80170CC0-0x80200000, src/assets.cpp; a RAM dump of a 4-player race
+  showed nothing else there). Code addresses only each array's first 8 entries (the race cars), so an array starts
+  where those share one lui value. The car select's carousel is 0x1010 bytes a player (0x18 a car), the physics
+  descriptor pointers (0x80219200) have room for 112, and each player record's side slot holds 99 types' 13-byte
+  option blocks (0x510 bytes). Types stay below 128 (the game reads a type as a byte, often `lb`), and preview ids
+  (up to 241) are read unsigned. A fill loop that steps a pointer to an
   end (bne) needs that end a whole step from its start: cartypes.py rounds it up (func_8008A1FC's part-handle clear
   steps 8 bytes).
 - **The part-handle table 0x8010C480 is not just 44 cars x 39 parts.** Indices 1716 and up hold track-object,

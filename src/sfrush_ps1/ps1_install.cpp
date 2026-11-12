@@ -176,7 +176,7 @@ namespace {
             std::filesystem::remove(fresh, ec);
             return false;
         }
-        // A first install goes to the end of the mod order: new mods are put first, and new cars take the 16 mod car
+        // A first install goes to the end of the mod order: new mods are put first, and new cars take the 64 mod car
         // slots in mod order, so the PS1's cars would move the cars of mods already installed (the Rush 2049 arcade
         // cars) to other slots, and saves that picked them would get other cars.
         bool first_install = !installed().rtz;

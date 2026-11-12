@@ -5,7 +5,7 @@
 // tools/rush2049/cartypes.py) points every instruction that addresses them at copies for every type at 0x80200000
 // (include/car_types.h) and re-strides the row arithmetic from 22 to 73. This file builds the copies at boot: Rush 2's
 // entries, the "no car" marker type 22, then the 2049 cars' (types 23-35); California Speed's (36-56) are filled by
-// src/calspeed/calspeed_cars.cpp and the mod cars' (57-72) by set_mod_car (src/car_mods.cpp).
+// src/calspeed/calspeed_cars.cpp and the mod cars' (57-120) by set_mod_car (src/car_mods.cpp).
 
 #include <cstdio>
 #include <algorithm>
@@ -2552,7 +2552,8 @@ namespace {
         // Before version 7 they ended at the 2049 types: California Speed's blocks start fresh (init_side_slot).
         // Version 7 gave every California Speed car TIRE SIZE 1.0 (byte 25), not its own wheel scale: a block still on
         // it takes the car's own. Before version 9 they ended at California Speed's types: the mod cars' blocks
-        // (57-72) start fresh, as any block past a slot's saved bytes does.
+        // (57-120) start fresh, as any block past a slot's saved bytes does (so do mod slots 17-64, types 73-120, past
+        // a save from before there were 64).
         bool old_calspeed_tires = version < 8;
         // Version 9 started the mod cars' TIRE SIZE at 0.75 (bytes 0), and version 10 gave the blocks of slots not yet
         // filled the Pickup's 1.25. Before version 11 nothing says which mod a block was made for ("?"): once its mod
@@ -3550,7 +3551,7 @@ extern "C" void rush2_car49_select_set(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void rush2_car49_select_cursor(uint8_t* rdram, recomp_context* ctx) {
     uint32_t at = (uint32_t)ctx->r4;
     int type = (int)(ctx->r2 & 0xFF);
-    // Test aid: RUSH2_TEST_CAR=<type> (Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-72) opens the car
+    // Test aid: RUSH2_TEST_CAR=<type> (Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-120) opens the car
     // select on that car, whatever the save chose.
     static const char* test_car = std::getenv("RUSH2_TEST_CAR");
     if (test_car != nullptr && std::atoi(test_car) >= 0 && std::atoi(test_car) < types && std::atoi(test_car) != 22) {

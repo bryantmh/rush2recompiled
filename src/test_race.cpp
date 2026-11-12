@@ -3,7 +3,7 @@
 //
 // - RUSH2_TEST_RACE=<track select id> (0-11 Rush 2, then the added tracks, include/track2049.h) or the folder name of
 //   a custom track (a mod's tracks/<folder>).
-// - RUSH2_TEST_RACE_CARS=<type>[,<type>...] (Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-72): one car
+// - RUSH2_TEST_RACE_CARS=<type>[,<type>...] (Rush 2 0-21, 2049 23-35, California Speed 36-56, mod cars 57-120): one car
 //   per player, 1 to 4 players (split screen). Without it, one player in RUSH2_TEST_CAR's car, or the Pickup (0).
 // - RUSH2_TEST_RACE_LAPS=<n>, RUSH2_TEST_RACE_DRONES=<n>: the track select's LAPS and DRONES (the race keeps the saved
 //   ones otherwise).

@@ -17,14 +17,14 @@ namespace rush2::rom2049 {
 namespace rush2::online::sync { class Walker; }
 
 // Rush 2049 cars as Rush 2 car types 23-35 (src/rush2049/car2049.cpp); type 22 is Rush 2's "no car" marker. This file
-// also keeps what every extra type (2049's, California Speed's 36-56 and mod cars 57-72, include/car_types.h) shares:
+// also keeps what every extra type (2049's, California Speed's 36-56 and mod cars 57-120, include/car_types.h) shares:
 // the widened per-type tables, assets, side slots for the player records' options, denting and the car select's list.
 namespace rush2::car2049 {
     constexpr int rush2_types = rush2::car_types::rush2_types;
     constexpr int car_count = rush2::car_types::count_2049;
     constexpr int first_type = rush2::car_types::first_2049;
     constexpr int end_type = first_type + car_count; // 36: past the 2049 types
-    constexpr int types = rush2::car_types::types;   // 73: every type (the tables' width)
+    constexpr int types = rush2::car_types::types;   // 121: every type (the tables' width)
 
     // The car select's per-player car list, moved from 0x803CB368 to hold every type: car i of player p at
     // + 2 * i + p (count: s16 [2] at 0x803CB398).
