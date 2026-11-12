@@ -42,17 +42,27 @@ ones `RSPProcessCS.hlsl` transforms vertices with):
 Screen space ambient occlusion, two full-screen passes per run of 3D draws:
 
 1. `AmbientOcclusionPS.hlsl` (and `AmbientOcclusionPSMS`, for a multisampled depth buffer, which reads sample 0)
-   reads the depth buffer into a half-float two-channel target the size of the color target (made on first use and
-   kept in the framebuffer storage, `RenderFramebufferStorage::occlusionTexture`). Per pixel it rebuilds the view
+   reads the depth buffer into a half-float two-channel target at half the color target's size each way (made on
+   first use and kept in the framebuffer storage, `RenderFramebufferStorage::occlusionTexture`). Each of its pixels
+   works out the full resolution pixel at twice its position, with that pixel's full resolution neighbors for the
+   normal, so only a quarter of the pixels are shaded. Per pixel it rebuilds the view
    position from w and the pixel (`AmbientOcclusionCB.focal` = pixels per unit of y / w, the ratio of the matrix's y
    and w column lengths times half the viewport height; `center` = the viewport's center), takes the surface normal
    from the nearer neighbor on each axis, and tests 12 points on a disc of 6 ft. Each point above the surface adds
    `max(cos - 0.25, 0) * (1 - d^2 / r^2)`; the 0.25 leaves gentle folds (two slopes of a road) alone. The disc turns by
-   the pixel's place in a 4x4 ordered dither tile. Output: the ambient (1 open) and w. Occlusion fades out from 200 ft
-   to 400 ft.
-2. `AmbientOcclusionApplyPS.hlsl` averages the first pass over 4x4 pixels, which holds each turn once, skipping
-   pixels whose w differs by more than 4%, and the pipeline multiplies it into the color target's RGB (blend
-   ZERO / SRC_COLOR, alpha untouched).
+   the pixel's place in a 4x4 ordered dither tile of the half resolution target. Output: the ambient (1 open) and w.
+   Occlusion fades out from 200 ft to 400 ft. The pass covers the area halved outward plus one half resolution pixel
+   before and two after, which the apply reads.
+2. `AmbientOcclusionApplyPS.hlsl` (and `AmbientOcclusionApplyPSMS`), at full resolution, averages the 4x4 half
+   resolution pixels round each pixel (each turn once), each counted by how near its w is to the pixel's own w from
+   the depth buffer (none past 4%), which upsamples it along edges without bleeding across them; a pixel no
+   neighbor matches (a thin pole the first pass stepped over) is left open. The pipeline multiplies it into the color
+   target's RGB (blend ZERO / SRC_COLOR, alpha untouched).
+
+GPU cost (`RUSH2_GPU_LOG=1` prints it on the `[gpu]` lines, with the occlusion and apply passes apart): on the Presidio
+start with MSAA 4x and Medium, the full resolution first pass made ambient occlusion 0.40 to 0.65 ms of a 0.9 to 1.4 ms
+workload (occlusion 0.36 to 0.44); at half resolution it is 0.15 to 0.26 ms (occlusion 0.11 to 0.17), about 2.5 times
+cheaper, the apply unchanged.
 
 When it runs (`submitRasterScene`): every opaque, depth-writing draw with a perspective projection
 (`triangles.occlusionIndex >= 0`) marks occlusion as pending and grows the screen rectangle it covers. The passes run

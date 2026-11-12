@@ -1058,6 +1058,15 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   page chunk 28 (64 x 28 texels against its RECT's 64 x 32): the loader reads the whole .DAT into one buffer, steps
   through it by the .SIZ's sizes and uploads 64 x 32 from the chunk whatever its size, so that RECT's last 4 rows
   come from the start of chunk 29. **[V]**
+- **Snow is painted, not a recolor** (`tools/sfrush_ps1/snow_map.py check S`, 2026-11-11): the snow pages change
+  the texels too (28-47% of texel bytes per track, not just the CLUTs). Pairing every day texel a road or scenery face
+  shows with the snow texel at the same place (4.2 M distinct texels, each once per face tilt), 55% keep their
+  brightness and 25% turn snow white, and the same day color goes both ways: day grey (88, 88, 88) stays 63%, goes
+  white 18%. A day-color table (4-bit bins, built from three tracks, tested on the fourth) is off by a median 24-30
+  and over 48 on 23-31% of texels, its bins averaging white and bare into a muddy in-between; whether the face looks
+  up improves it by 1-2. So it can't snow the N64 dioramas; the PS1's snow texels can only be used where its own
+  pages are (Chinatown). The new snow's color: mean (195, 195, 223), 10th-90th percentile (173, 173, 198)-(222, 231,
+  255). **[V]**
 - **Night-only and day-only chunks:** the visible-chunk lists `track_draw_chunks` walks (static, in RUSH.EXE around
   0x8009C86C: u32 chunk id | flags, ended by -1) carry flags: 0x4000 = not drawn at night, 0x2000 = drawn only at
   night, 0x1000 = semi-transparent (gp+0x310). The lists come from per-track section tables (32-byte records, the

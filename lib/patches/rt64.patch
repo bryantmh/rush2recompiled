@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 79dfc38..c539fdf 100644
+index 79dfc38..4a08a68 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -504,6 +504,8 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
@@ -19,7 +19,7 @@ index 79dfc38..c539fdf 100644
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl" "src/shaders/RSPVertexTestZCSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/RtCopyColorToDepthPS.hlsl")
-@@ -550,7 +553,22 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+@@ -550,7 +553,23 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
  build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/VideoInterfacePSPixel.hlsl" "-D PIXEL_ANTIALIASING")
  build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
  build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
@@ -29,6 +29,7 @@ index 79dfc38..c539fdf 100644
 +build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionPS.hlsl")
 +build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionPS.hlsl" "src/shaders/AmbientOcclusionPSMS.hlsl" "-D MULTISAMPLING")
 +build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionApplyPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/AmbientOcclusionApplyPS.hlsl" "src/shaders/AmbientOcclusionApplyPSMS.hlsl" "-D MULTISAMPLING")
 +build_pixel_shader(  rt64 "src/shaders/CarReflectionPS.hlsl")
 +# Rush 2 recomp: sky fog.
 +build_pixel_shader(  rt64 "src/shaders/SkyFogPS.hlsl")
@@ -1202,7 +1203,7 @@ index 7a8c13b..c1aaabd 100644
          GameConfiguration gameConfig;
          uint32_t displayListAddress;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 5a331aa..122eafc 100644
+index 5a331aa..4d67b30 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
 @@ -11,6 +11,9 @@
@@ -1228,8 +1229,8 @@ index 5a331aa..122eafc 100644
          framebufferRenderer = std::make_unique<FramebufferRenderer>(ext.workloadGraphicsWorker, true, ext.createdGraphicsAPI, ext.shaderLibrary);
          renderFramebufferManager = std::make_unique<RenderFramebufferManager>(ext.device);
 -        queryPool = ext.device->createQueryPool(2);
-+        // Rush 2 recomp: and five per car lights submit for RUSH2_GPU_LOG.
-+        queryPool = ext.device->createQueryPool(2 + CarLightQueryLimit * CarLightQueryStride);
++        // Rush 2 recomp: and five per car lights submit and three per ambient occlusion submit for RUSH2_GPU_LOG.
++        queryPool = ext.device->createQueryPool(OcclusionQueryFirst + OcclusionQueryLimit * OcclusionQueryStride);
  
          projectionProcessor.setup(ext.workloadGraphicsWorker);
          transformProcessor.setup(ext.workloadGraphicsWorker);
@@ -1244,7 +1245,7 @@ index 5a331aa..122eafc 100644
              workloadConfig.targetRate = ext.sharedResources->swapChainRate;
              break;
          case UserConfiguration::RefreshRate::Manual:
-@@ -699,7 +706,9 @@ namespace RT64 {
+@@ -699,7 +706,10 @@ namespace RT64 {
  
              workerMutex.lock();
              ext.workloadGraphicsWorker->commandList->begin();
@@ -1252,10 +1253,11 @@ index 5a331aa..122eafc 100644
 +            ext.workloadGraphicsWorker->commandList->resetQueryPool(queryPool.get(), 0, queryPool->getCount());
 +            framebufferRenderer->carLightQueryPool = gpuLog ? queryPool.get() : nullptr;
 +            framebufferRenderer->carLightQueryCount = 0;
++            framebufferRenderer->occlusionQueryCount = 0;
              ext.workloadGraphicsWorker->commandList->writeTimestamp(queryPool.get(), 0);
              framebufferRenderer->endFramebuffers(ext.workloadGraphicsWorker, &workload.drawBuffers, &workload.outputBuffers, workloadConfig.raytracingEnabled);
              framebufferRenderer->recordSetup(ext.workloadGraphicsWorker, bufferUploaders, processRSP ? rspProcessor.get() : nullptr, processWorldVertices ? vertexProcessor.get() : nullptr, &workload.outputBuffers, workloadConfig.raytracingEnabled);
-@@ -849,6 +858,35 @@ namespace RT64 {
+@@ -849,6 +859,46 @@ namespace RT64 {
              const uint64_t *frameTimestamps = queryPool->getResults();
              rendererGPUProfiler.log(double(frameTimestamps[1] - frameTimestamps[0]) / 1000000.0);
  
@@ -1273,15 +1275,26 @@ index 5a331aa..122eafc 100644
 +                    }
 +                }
 +
++                static double occlusionSum[2] = {};
++                for (uint32_t q = 0; q < framebufferRenderer->occlusionQueryCount; q++) {
++                    const uint64_t *t = &frameTimestamps[OcclusionQueryFirst + q * OcclusionQueryStride];
++                    occlusionSum[0] += double(t[1] - t[0]) / 1000000.0;
++                    occlusionSum[1] += double(t[2] - t[1]) / 1000000.0;
++                }
++
 +                lightCount += (framebufferRenderer->carLightQueryCount > 0) ? 1 : 0;
 +                if (++gpuCount == 120) {
-+                    fprintf(stderr, "[gpu] workload %.3f ms, car lights %.3f ms (light %.3f, glow %.3f, copy %.3f, composite %.3f; %u of %u workloads)\n",
-+                        gpuSum / gpuCount, lightSum / gpuCount, partSum[0] / gpuCount, partSum[1] / gpuCount, partSum[2] / gpuCount, partSum[3] / gpuCount, lightCount, gpuCount);
++                    fprintf(stderr, "[gpu] workload %.3f ms, car lights %.3f ms (light %.3f, glow %.3f, copy %.3f, composite %.3f; %u of %u workloads), ambient occlusion %.3f ms (occlusion %.3f, apply %.3f)\n",
++                        gpuSum / gpuCount, lightSum / gpuCount, partSum[0] / gpuCount, partSum[1] / gpuCount, partSum[2] / gpuCount, partSum[3] / gpuCount, lightCount, gpuCount,
++                        (occlusionSum[0] + occlusionSum[1]) / gpuCount, occlusionSum[0] / gpuCount, occlusionSum[1] / gpuCount);
 +                    gpuSum = 0.0;
 +                    lightSum = 0.0;
 +                    for (double &v : partSum) {
 +                        v = 0.0;
 +                    }
++
++                    occlusionSum[0] = 0.0;
++                    occlusionSum[1] = 0.0;
 +
 +                    gpuCount = 0;
 +                    lightCount = 0;
@@ -1291,7 +1304,7 @@ index 5a331aa..122eafc 100644
              // Indicate to the texture cache it's safe to delete the textures if no locks are active.
              ext.textureCache->decrementLock();
          }
-@@ -888,6 +926,16 @@ namespace RT64 {
+@@ -888,6 +938,16 @@ namespace RT64 {
          uint32_t displayRateForTicks = 0;
          int processCursor = -1;
          bool frameReduction = false;
@@ -1308,7 +1321,7 @@ index 5a331aa..122eafc 100644
          while (threadsRunning) {
              {
                  std::unique_lock<std::mutex> cursorLock(cursorMutex);
-@@ -997,9 +1045,40 @@ namespace RT64 {
+@@ -997,9 +1057,40 @@ namespace RT64 {
                      }
                  }
  
@@ -1350,7 +1363,7 @@ index 5a331aa..122eafc 100644
                      logicalTicks += workloadConfig.targetRate;
                      displayFrames = uint32_t((logicalTicks - displayTicks) / workload.viOriginalRate);
                      deltaTimeMs = 1.0f / float(workloadConfig.targetRate);
-@@ -1040,6 +1119,7 @@ namespace RT64 {
+@@ -1040,6 +1131,7 @@ namespace RT64 {
                  curFrameCounters.skipped = false;
                  curFrameCounters.presented = 0;
                  curFrameCounters.available = 0;
@@ -1358,7 +1371,7 @@ index 5a331aa..122eafc 100644
                  curFrameCounters.count = displayFrames;
  
                  // Create as many render targets as required to store the interpolated targets.
-@@ -1064,9 +1144,10 @@ namespace RT64 {
+@@ -1064,9 +1156,10 @@ namespace RT64 {
                  uint32_t targetIndex = 0;
                  uint32_t framesRendered = 0;
                  int64_t renderTimeTotalMicro = 0;
@@ -1370,7 +1383,7 @@ index 5a331aa..122eafc 100644
                          const int64_t currentTimeMicro = workloadTimer.elapsedMicroseconds() - setupTimeMicro;
                          const int64_t expectedTimeMicro = frame * maxTimePerFrameMicro;
                          const int64_t measuredFrameMicro = renderTimeTotalMicro / framesRendered;
-@@ -1079,11 +1160,81 @@ namespace RT64 {
+@@ -1079,11 +1172,81 @@ namespace RT64 {
  
                      RenderTarget *overrideTarget = nullptr;
                      uint32_t overrideModifier = 0;
@@ -1453,7 +1466,7 @@ index 5a331aa..122eafc 100644
                          // Override the render target.
                          if (usingMSAA || (frame > 0)) {
                              overrideTarget = interpolatedTargets[targetIndex].get();
-@@ -1132,7 +1283,7 @@ namespace RT64 {
+@@ -1132,7 +1295,7 @@ namespace RT64 {
                      if (generateInterpolatedFrames && (usingMSAA || (frame > 0))) {
                          {
                              std::scoped_lock<std::mutex> cursorLock(cursorMutex);
@@ -1462,7 +1475,7 @@ index 5a331aa..122eafc 100644
                          }
  
                          {
-@@ -1150,8 +1301,16 @@ namespace RT64 {
+@@ -1150,8 +1313,16 @@ namespace RT64 {
                      }
  
                      framesRendered++;
@@ -1508,13 +1521,31 @@ index bde2f03..b92a1c4 100644
          int writeCursor;
          int barrierCursor;
 diff --git a/src/render/rt64_descriptor_sets.h b/src/render/rt64_descriptor_sets.h
-index 69a82ac..6657001 100644
+index 69a82ac..478fd47 100644
 --- a/src/render/rt64_descriptor_sets.h
 +++ b/src/render/rt64_descriptor_sets.h
-@@ -643,6 +643,64 @@ namespace RT64 {
+@@ -643,6 +643,82 @@ namespace RT64 {
          }
      };
  
++    // Rush 2 recomp: ambient occlusion's apply (AmbientOcclusionApplyPS.hlsl): the half resolution occlusion and the
++    // depth target (to upsample it by).
++    struct AmbientOcclusionApplyDescriptorSet : RenderDescriptorSetBase {
++        uint32_t gOcclusion;
++        uint32_t gDepth;
++
++        AmbientOcclusionApplyDescriptorSet(RenderDevice *device = nullptr) {
++            builder.begin();
++            gOcclusion = builder.addTexture(1);
++            gDepth = builder.addTexture(2);
++            builder.end();
++
++            if (device != nullptr) {
++                create(device);
++            }
++        }
++    };
++
 +    // Rush 2 recomp: car lights' composite (CarLightCompositePS.hlsl): the scene's copy, the lamps' light and glow, and
 +    // the depth target (to upsample the light by).
 +    struct CarLightCompositeDescriptorSet : RenderDescriptorSetBase {
@@ -1577,7 +1608,7 @@ index 69a82ac..6657001 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..24346b6 100644
+index 9fae0d4..6f3726b 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,14 +4,20 @@
@@ -1676,13 +1707,14 @@ index 9fae0d4..24346b6 100644
              }
          }
      }
-@@ -508,14 +539,412 @@ namespace RT64 {
+@@ -508,14 +539,437 @@ namespace RT64 {
              }
          };
  
 +        // Rush 2 recomp: ambient occlusion. Once the 3D draws that add to it end (at a 2D draw, a clear or the end of the
-+        // scene), the first pass reads the depth buffer into the storage's occlusion target, and the second multiplies its
-+        // blur into the color target, both over the screen area those draws covered.
++        // scene), the first pass reads the depth buffer into the storage's occlusion target at half resolution (a quarter
++        // of the pixels: it was most of the effect's cost), and the second multiplies its blur, upsampled by depth, into
++        // the color target, both over the screen area those draws covered.
 +        int32_t pendingOcclusion = -1;
 +        RenderRect occlusionRect;
 +        auto submitOcclusion = [&]() {
@@ -1695,14 +1727,21 @@ index 9fae0d4..24346b6 100644
 +            }
 +
 +            RenderDevice *device = worker->device;
-+            if ((fbStorage->occlusionTexture == nullptr) || (fbStorage->occlusionWidth != colorTarget->width) || (fbStorage->occlusionHeight != colorTarget->height)) {
++            // The occlusion target is half the color target's size each way (AmbientOcclusionPS.hlsl); the apply reads it and
++            // the depth target.
++            const int32_t halfWidth = int32_t(colorTarget->width + 1) / 2;
++            const int32_t halfHeight = int32_t(colorTarget->height + 1) / 2;
++            if ((fbStorage->occlusionTexture == nullptr) || (fbStorage->occlusionWidth != colorTarget->width) || (fbStorage->occlusionHeight != colorTarget->height) ||
++                (fbStorage->occlusionApplyDepthTexture != depthTarget->texture.get())) {
 +                fbStorage->occlusionApplySet.reset();
 +                fbStorage->occlusionFramebuffer.reset();
-+                fbStorage->occlusionTexture = device->createTexture(RenderTextureDesc::ColorTarget(colorTarget->width, colorTarget->height, RenderFormat::R16G16_FLOAT));
++                fbStorage->occlusionTexture = device->createTexture(RenderTextureDesc::ColorTarget(uint32_t(halfWidth), uint32_t(halfHeight), RenderFormat::R16G16_FLOAT));
 +                const RenderTexture *occlusionTexture = fbStorage->occlusionTexture.get();
 +                fbStorage->occlusionFramebuffer = device->createFramebuffer(RenderFramebufferDesc(&occlusionTexture, 1));
-+                fbStorage->occlusionApplySet = std::make_unique<TextureCopyDescriptorSet>(device);
-+                fbStorage->occlusionApplySet->setTexture(fbStorage->occlusionApplySet->gInput, occlusionTexture, RenderTextureLayout::SHADER_READ);
++                fbStorage->occlusionApplySet = std::make_unique<AmbientOcclusionApplyDescriptorSet>(device);
++                fbStorage->occlusionApplySet->setTexture(fbStorage->occlusionApplySet->gOcclusion, occlusionTexture, RenderTextureLayout::SHADER_READ);
++                fbStorage->occlusionApplySet->setTexture(fbStorage->occlusionApplySet->gDepth, depthTarget->texture.get(), RenderTextureLayout::DEPTH_READ, depthTarget->textureView.get());
++                fbStorage->occlusionApplyDepthTexture = depthTarget->texture.get();
 +                fbStorage->occlusionWidth = colorTarget->width;
 +                fbStorage->occlusionHeight = colorTarget->height;
 +            }
@@ -1723,22 +1762,35 @@ index 9fae0d4..24346b6 100644
 +                return;
 +            }
 +
++            // The half resolution box the apply reads: the area halved outward, one more pixel before it and two after.
++            const RenderRect halfRect(std::max(rect.left / 2 - 1, 0), std::max(rect.top / 2 - 1, 0),
++                std::min((rect.right + 1) / 2 + 2, halfWidth), std::min((rect.bottom + 1) / 2 + 2, halfHeight));
 +            const interop::AmbientOcclusionCB &occlusionCB = occlusionParamsVector[occlusionIndex];
 +            const RenderViewport targetViewport(0.0f, 0.0f, float(colorTarget->width), float(colorTarget->height));
++            const RenderViewport halfViewport(0.0f, 0.0f, float(halfWidth), float(halfHeight));
 +            const bool depthMS = (depthTarget->multisampling.sampleCount > 1);
 +            const ShaderRecord &occlusionShader = depthMS ? shaderLibrary->ambientOcclusionMS : shaderLibrary->ambientOcclusion;
-+            const ShaderRecord &applyShader = shaderLibrary->ambientOcclusionApply;
++            const ShaderRecord &applyShader = depthMS ? shaderLibrary->ambientOcclusionApplyMS : shaderLibrary->ambientOcclusionApply;
++            const bool timed = (carLightQueryPool != nullptr) && (occlusionQueryCount < OcclusionQueryLimit);
++            const uint32_t firstQuery = OcclusionQueryFirst + occlusionQueryCount * OcclusionQueryStride;
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, firstQuery);
++            }
++
 +            submitDepthAccess(worker, fbStorage, true, depthState);
 +            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(fbStorage->occlusionTexture.get(), RenderTextureLayout::COLOR_WRITE));
 +            worker->commandList->setFramebuffer(fbStorage->occlusionFramebuffer.get());
-+            worker->commandList->setViewports(targetViewport);
-+            worker->commandList->setScissors(rect);
++            worker->commandList->setViewports(halfViewport);
++            worker->commandList->setScissors(halfRect);
 +            worker->commandList->setPipeline(occlusionShader.pipeline.get());
 +            worker->commandList->setGraphicsPipelineLayout(occlusionShader.pipelineLayout.get());
 +            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionDepthSet->get(), 0);
 +            worker->commandList->setGraphicsPushConstants(0, &occlusionCB);
 +            worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
 +            worker->commandList->drawInstanced(3, 1, 0, 0);
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, firstQuery + 1);
++            }
 +
 +            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(fbStorage->occlusionTexture.get(), RenderTextureLayout::SHADER_READ));
 +            worker->commandList->setFramebuffer(fbStorage->colorOnly.get());
@@ -1749,6 +1801,10 @@ index 9fae0d4..24346b6 100644
 +            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionApplySet->get(), 0);
 +            worker->commandList->setGraphicsPushConstants(0, &occlusionCB);
 +            worker->commandList->drawInstanced(3, 1, 0, 0);
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, firstQuery + 2);
++                occlusionQueryCount++;
++            }
 +
 +            // Back to the scene's framebuffer, with the depth buffer still read only.
 +            worker->commandList->setFramebuffer(fbStorage->colorWriteDepthRead.get());
@@ -2091,7 +2147,7 @@ index 9fae0d4..24346b6 100644
              case InstanceDrawCall::Type::RawTriangles:
              case InstanceDrawCall::Type::RegularRect: {
                  assert(fbStorage->colorTarget != nullptr);
-@@ -550,6 +979,23 @@ namespace RT64 {
+@@ -550,6 +1004,23 @@ namespace RT64 {
                      continue;
                  }
  
@@ -2115,7 +2171,7 @@ index 9fae0d4..24346b6 100644
                  // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
                  const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
                  bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
-@@ -578,6 +1024,20 @@ namespace RT64 {
+@@ -578,6 +1049,20 @@ namespace RT64 {
  
                  drawCallTriangles(drawCall);
  
@@ -2136,7 +2192,7 @@ index 9fae0d4..24346b6 100644
                  // Simulate dither noise.
                  if (triangles.postBlendDitherNoise) {
                      if (triangles.postBlendDitherNoiseNegative) {
-@@ -638,6 +1098,10 @@ namespace RT64 {
+@@ -638,6 +1123,10 @@ namespace RT64 {
              }
          }
  
@@ -2147,7 +2203,7 @@ index 9fae0d4..24346b6 100644
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -1316,6 +1780,533 @@ namespace RT64 {
+@@ -1316,6 +1805,533 @@ namespace RT64 {
      }
  #endif
  
@@ -2681,7 +2737,7 @@ index 9fae0d4..24346b6 100644
      void FramebufferRenderer::addFramebuffer(const DrawParams &p) {
          assert(p.fbStorage != nullptr);
          
-@@ -1450,8 +2441,18 @@ namespace RT64 {
+@@ -1450,8 +2466,18 @@ namespace RT64 {
          uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
@@ -2700,7 +2756,7 @@ index 9fae0d4..24346b6 100644
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2507,441 @@ namespace RT64 {
+@@ -1506,6 +2532,441 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -3142,7 +3198,7 @@ index 9fae0d4..24346b6 100644
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +3059,20 @@ namespace RT64 {
+@@ -1623,6 +3084,20 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -3163,7 +3219,7 @@ index 9fae0d4..24346b6 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +3197,45 @@ namespace RT64 {
+@@ -1747,6 +3222,45 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -3209,7 +3265,7 @@ index 9fae0d4..24346b6 100644
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +3243,8 @@ namespace RT64 {
+@@ -1754,6 +3268,8 @@ namespace RT64 {
              }
          }
  
@@ -3219,7 +3275,7 @@ index 9fae0d4..24346b6 100644
          checkRtScene(rtScene);
  #   endif
 diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
-index 3add9c3..ef273a7 100644
+index 3add9c3..773192d 100644
 --- a/src/render/rt64_framebuffer_renderer.h
 +++ b/src/render/rt64_framebuffer_renderer.h
 @@ -5,12 +5,17 @@
@@ -3240,7 +3296,7 @@ index 3add9c3..ef273a7 100644
  #include "shared/rt64_frame_params.h"
  #include "shared/rt64_gpu_tile.h"
  #include "shared/rt64_render_indices.h"
-@@ -58,6 +63,81 @@ namespace RT64 {
+@@ -58,6 +63,86 @@ namespace RT64 {
          uint32_t indexCount;
      };
  
@@ -3312,6 +3368,11 @@ index 3add9c3..ef273a7 100644
 +    // Rush 2 recomp: the car lights submits a workload times (RUSH2_GPU_LOG), timestamps each: start, after the light, the glow, the copy, and the end.
 +    static const uint32_t CarLightQueryLimit = 16;
 +    static const uint32_t CarLightQueryStride = 5;
++    // Rush 2 recomp: and the ambient occlusion submits (RUSH2_GPU_LOG), after the car lights' queries: start, after the
++    // occlusion, and after its apply.
++    static const uint32_t OcclusionQueryLimit = 16;
++    static const uint32_t OcclusionQueryStride = 3;
++    static const uint32_t OcclusionQueryFirst = 2 + CarLightQueryLimit * CarLightQueryStride;
 +
 +    struct CarLightGroup {
 +        uint32_t first = 0;
@@ -3322,7 +3383,7 @@ index 3add9c3..ef273a7 100644
      struct FramebufferRenderer {
          std::vector<uint32_t> textureCacheVersions;
          std::vector<Texture *> textureCacheTextures;
-@@ -67,6 +147,15 @@ namespace RT64 {
+@@ -67,6 +152,16 @@ namespace RT64 {
          uint32_t textureCacheGlobalVersion = 0;
          bool textureCacheReplacementMapEnabled = false;
          std::vector<InstanceDrawCall> instanceDrawCallVector;
@@ -3335,10 +3396,11 @@ index 3add9c3..ef273a7 100644
 +        // Rush 2 recomp: RUSH2_GPU_LOG's timestamps round each car lights submit (WorkloadQueue), from query 2 on.
 +        RenderQueryPool *carLightQueryPool = nullptr;
 +        uint32_t carLightQueryCount = 0;
++        uint32_t occlusionQueryCount = 0;
          std::vector<RenderPipelineProgram> hitGroupVector;
          std::vector<interop::RenderIndices> renderIndicesVector;
          std::vector<DynamicTextureView> dynamicTextureViewVector;
-@@ -165,6 +254,9 @@ namespace RT64 {
+@@ -165,6 +260,9 @@ namespace RT64 {
          void submitRSPSmoothNormalCompute(RenderWorker *worker, const OutputBuffers *outputBuffers);
          bool submitDepthAccess(RenderWorker *worker, RenderFramebufferStorage *fbStorage, bool readOnly, bool &depthState);
          void submitRasterScene(RenderWorker *worker, const Framebuffer &framebuffer, RenderFramebufferStorage *fbStorage, const RasterScene &rasterScene, bool &depthState);
@@ -4131,7 +4193,7 @@ index 5c40c18..2e33dae 100644
 \ No newline at end of file
 +};
 diff --git a/src/render/rt64_render_target_manager.h b/src/render/rt64_render_target_manager.h
-index 7368711..006576f 100644
+index 7368711..b9bc226 100644
 --- a/src/render/rt64_render_target_manager.h
 +++ b/src/render/rt64_render_target_manager.h
 @@ -9,6 +9,7 @@
@@ -4142,17 +4204,18 @@ index 7368711..006576f 100644
  #include "rt64_render_target.h"
  
  namespace RT64 {
-@@ -56,6 +57,30 @@ namespace RT64 {
+@@ -56,6 +57,31 @@ namespace RT64 {
          uint64_t colorTargetRevision = 0;
          uint64_t depthTargetRevision = 0;
  
-+        // Rush 2 recomp: screen space ambient occlusion and sky fog (FramebufferRenderer::submitRasterScene), made when
-+        // first used. Sky fog uses colorOnly and occlusionDepthSet.
++        // Rush 2 recomp: screen space ambient occlusion (its target at half the color target's size each way) and sky fog
++        // (FramebufferRenderer::submitRasterScene), made when first used. Sky fog uses colorOnly and occlusionDepthSet.
 +        std::unique_ptr<RenderTexture> occlusionTexture;
 +        std::unique_ptr<RenderFramebuffer> occlusionFramebuffer;
 +        std::unique_ptr<RenderFramebuffer> colorOnly;
 +        std::unique_ptr<TextureCopyDescriptorSet> occlusionDepthSet;
-+        std::unique_ptr<TextureCopyDescriptorSet> occlusionApplySet;
++        std::unique_ptr<AmbientOcclusionApplyDescriptorSet> occlusionApplySet;
++        const RenderTexture *occlusionApplyDepthTexture = nullptr;
 +        uint32_t occlusionWidth = 0;
 +        uint32_t occlusionHeight = 0;
 +
@@ -4174,7 +4237,7 @@ index 7368711..006576f 100644
      };
  
 diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
-index d1c5273..9f3e355 100644
+index d1c5273..c594fa8 100644
 --- a/src/render/rt64_shader_library.cpp
 +++ b/src/render/rt64_shader_library.cpp
 @@ -5,6 +5,9 @@
@@ -4187,13 +4250,14 @@ index d1c5273..9f3e355 100644
  #include "shared/rt64_render_target_copy.h"
  #include "shared/rt64_rsp_vertex_test_z.h"
  
-@@ -49,6 +52,20 @@
+@@ -49,6 +52,21 @@
  #include "shaders/FullScreenVS.hlsl.spirv.h"
  #include "shaders/Im3DVS.hlsl.spirv.h"
  #include "shaders/ComposePS.hlsl.spirv.h"
 +#include "shaders/AmbientOcclusionPS.hlsl.spirv.h"
 +#include "shaders/AmbientOcclusionPSMS.hlsl.spirv.h"
 +#include "shaders/AmbientOcclusionApplyPS.hlsl.spirv.h"
++#include "shaders/AmbientOcclusionApplyPSMS.hlsl.spirv.h"
 +#include "shaders/CarReflectionCS.hlsl.spirv.h"
 +#include "shaders/CarReflectionVS.hlsl.spirv.h"
 +#include "shaders/CarReflectionPS.hlsl.spirv.h"
@@ -4208,13 +4272,14 @@ index d1c5273..9f3e355 100644
  #include "shaders/DebugPS.hlsl.spirv.h"
  #include "shaders/Im3DPS.hlsl.spirv.h"
  #include "shaders/PostProcessPS.hlsl.spirv.h"
-@@ -95,6 +112,20 @@
+@@ -95,6 +113,21 @@
  #   include "shaders/FullScreenVS.hlsl.dxil.h"
  #   include "shaders/Im3DVS.hlsl.dxil.h"
  #   include "shaders/ComposePS.hlsl.dxil.h"
 +#   include "shaders/AmbientOcclusionPS.hlsl.dxil.h"
 +#   include "shaders/AmbientOcclusionPSMS.hlsl.dxil.h"
 +#   include "shaders/AmbientOcclusionApplyPS.hlsl.dxil.h"
++#   include "shaders/AmbientOcclusionApplyPSMS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionCS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionVS.hlsl.dxil.h"
 +#   include "shaders/CarReflectionPS.hlsl.dxil.h"
@@ -4229,13 +4294,14 @@ index d1c5273..9f3e355 100644
  #   include "shaders/DebugPS.hlsl.dxil.h"
  #   include "shaders/Im3DPS.hlsl.dxil.h"
  #   include "shaders/PostProcessPS.hlsl.dxil.h"
-@@ -140,6 +171,20 @@
+@@ -140,6 +173,21 @@
  #   include "shaders/FullScreenVS.hlsl.metal.h"
  #   include "shaders/Im3DVS.hlsl.metal.h"
  #   include "shaders/ComposePS.hlsl.metal.h"
 +#   include "shaders/AmbientOcclusionPS.hlsl.metal.h"
 +#   include "shaders/AmbientOcclusionPSMS.hlsl.metal.h"
 +#   include "shaders/AmbientOcclusionApplyPS.hlsl.metal.h"
++#   include "shaders/AmbientOcclusionApplyPSMS.hlsl.metal.h"
 +#   include "shaders/CarReflectionCS.hlsl.metal.h"
 +#   include "shaders/CarReflectionVS.hlsl.metal.h"
 +#   include "shaders/CarReflectionPS.hlsl.metal.h"
@@ -4250,7 +4316,7 @@ index d1c5273..9f3e355 100644
  #   include "shaders/DebugPS.hlsl.metal.h"
  #   include "shaders/Im3DPS.hlsl.metal.h"
  #   include "shaders/PostProcessPS.hlsl.metal.h"
-@@ -148,6 +193,7 @@
+@@ -148,6 +196,7 @@
  #include "shared/rt64_fb_common.h"
  #include "shared/rt64_fb_reinterpret.h"
  #include "shared/rt64_texture_copy.h"
@@ -4258,7 +4324,7 @@ index d1c5273..9f3e355 100644
  #include "shared/rt64_video_interface.h"
  
  #include "rt64_descriptor_sets.h"
-@@ -535,6 +581,20 @@ namespace RT64 {
+@@ -535,6 +584,20 @@ namespace RT64 {
              rspSmoothNormal.pipeline = device->createComputePipeline(pipelineDesc);
          }
  
@@ -4279,7 +4345,7 @@ index d1c5273..9f3e355 100644
          // RSP World.
          {
              RSPWorldDescriptorSet descriptorSet;
-@@ -573,7 +633,7 @@ namespace RT64 {
+@@ -573,7 +636,7 @@ namespace RT64 {
          {
              TextureDecodeDescriptorSet descriptorSet;
              layoutBuilder.begin();
@@ -4288,14 +4354,15 @@ index d1c5273..9f3e355 100644
              layoutBuilder.addDescriptorSet(descriptorSet);
              layoutBuilder.end();
              textureDecode.pipelineLayout = layoutBuilder.create(device);
-@@ -851,7 +911,218 @@ namespace RT64 {
+@@ -851,7 +914,231 @@ namespace RT64 {
              pipelineDesc.multisampling = multisampling;
              postProcess.pipeline = device->createGraphicsPipeline(pipelineDesc);
          }
 -        
 +
 +        // Rush 2 recomp: screen space ambient occlusion. The first pass reads the depth target and writes the occlusion
-+        // and w to a single-sampled half-float target; the second multiplies its blur into the color target's RGB.
++        // and w to a single-sampled half-float target at half resolution; the second multiplies its blur, upsampled by
++        // the depth target, into the color target's RGB.
 +        {
 +            TextureCopyDescriptorSet descriptorSet;
 +            layoutBuilder.begin();
@@ -4304,11 +4371,19 @@ index d1c5273..9f3e355 100644
 +            layoutBuilder.end();
 +            ambientOcclusion.pipelineLayout = layoutBuilder.create(device);
 +            ambientOcclusionMS.pipelineLayout = layoutBuilder.create(device);
++
++            AmbientOcclusionApplyDescriptorSet applyDescriptorSet;
++            layoutBuilder.begin();
++            layoutBuilder.addPushConstant(0, 0, sizeof(interop::AmbientOcclusionCB), RenderShaderStageFlag::PIXEL);
++            layoutBuilder.addDescriptorSet(applyDescriptorSet);
++            layoutBuilder.end();
 +            ambientOcclusionApply.pipelineLayout = layoutBuilder.create(device);
++            ambientOcclusionApplyMS.pipelineLayout = layoutBuilder.create(device);
 +
 +            std::unique_ptr<RenderShader> occlusionShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionPSBlobDXIL, AmbientOcclusionPSBlobSPIRV, AmbientOcclusionPSBlobMSL, "PSMain", shaderFormat));
 +            std::unique_ptr<RenderShader> occlusionMSShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionPSMSBlobDXIL, AmbientOcclusionPSMSBlobSPIRV, AmbientOcclusionPSMSBlobMSL, "PSMain", shaderFormat));
 +            std::unique_ptr<RenderShader> applyShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionApplyPSBlobDXIL, AmbientOcclusionApplyPSBlobSPIRV, AmbientOcclusionApplyPSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> applyMSShader = device->createShader(CREATE_SHADER_INPUTS(AmbientOcclusionApplyPSMSBlobDXIL, AmbientOcclusionApplyPSMSBlobSPIRV, AmbientOcclusionApplyPSMSBlobMSL, "PSMain", shaderFormat));
 +            RenderGraphicsPipelineDesc pipelineDesc;
 +            pipelineDesc.renderTargetBlend[0] = RenderBlendDesc::Copy();
 +            pipelineDesc.renderTargetFormat[0] = RenderFormat::R16G16_FLOAT;
@@ -4337,6 +4412,10 @@ index d1c5273..9f3e355 100644
 +            pipelineDesc.pixelShader = applyShader.get();
 +            pipelineDesc.multisampling = multisampling;
 +            ambientOcclusionApply.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            pipelineDesc.pipelineLayout = ambientOcclusionApplyMS.pipelineLayout.get();
++            pipelineDesc.pixelShader = applyMSShader.get();
++            ambientOcclusionApplyMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
 +        }
 +
 +        // Rush 2 recomp: sky fog. Reads the depth target and blends the fog color over the color target's RGB where the
@@ -4509,16 +4588,17 @@ index d1c5273..9f3e355 100644
          {
              FramebufferRendererDescriptorCommonSet descriptorCommonSet(samplerLibrary, deviceCapabilities.raytracing);
 diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
-index 641f3ec..33ce7a9 100644
+index 641f3ec..093222b 100644
 --- a/src/render/rt64_shader_library.h
 +++ b/src/render/rt64_shader_library.h
-@@ -18,7 +18,19 @@ namespace RT64 {
+@@ -18,7 +18,20 @@ namespace RT64 {
          bool usesHardwareResolve = false;
  
          // All shaders.
 +        ShaderRecord ambientOcclusion;
 +        ShaderRecord ambientOcclusionMS;
 +        ShaderRecord ambientOcclusionApply;
++        ShaderRecord ambientOcclusionApplyMS;
          ShaderRecord bicubicScaling;
 +        ShaderRecord carReflection;
 +        ShaderRecord carReflectionDraw;
@@ -6069,62 +6149,78 @@ index 9131697..68b14a9 100644
          void setReplacementDefaultOperation(ReplacementOperation shift);
 diff --git a/src/shaders/AmbientOcclusionApplyPS.hlsl b/src/shaders/AmbientOcclusionApplyPS.hlsl
 new file mode 100644
-index 0000000..d593ec5
+index 0000000..cfafbd9
 --- /dev/null
 +++ b/src/shaders/AmbientOcclusionApplyPS.hlsl
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,53 @@
 +//
 +// RT64
 +//
 +
-+// Rush 2 recomp: screen space ambient occlusion, second pass. Averages the first pass (AmbientOcclusionPS.hlsl) over
-+// 4x4 pixels, which holds each of its turns once, skipping pixels at other depths so the occlusion doesn't bleed across
-+// edges, and returns it for the pipeline to multiply into the color target.
++// Rush 2 recomp: screen space ambient occlusion, second pass, at full resolution. Averages the first pass
++// (AmbientOcclusionPS.hlsl, half resolution) over its 4x4 pixels round this one, which hold each of its turns once,
++// counting each by how near its w is to this pixel's own (from the depth buffer), so the occlusion is upsampled along
++// edges without bleeding across them, and returns it for the pipeline to multiply into the color target. A pixel no
++// half resolution pixel is near in depth (a thin thing the first pass stepped over) is left open.
 +
 +#include "shared/rt64_ambient_occlusion.h"
 +
 +[[vk::push_constant]] ConstantBuffer<AmbientOcclusionCB> gConstants : register(b0);
 +
 +Texture2D<float2> gOcclusion : register(t1);
++#ifdef MULTISAMPLING
++Texture2DMS<float> gDepth : register(t2);
++#else
++Texture2D<float> gDepth : register(t2);
++#endif
 +
 +float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
-+    uint width, height;
-+    gOcclusion.GetDimensions(width, height);
-+    const int2 maxPixel = int2(width, height) - 1;
-+    const int2 pixel = clamp(int2(pos.xy), int2(0, 0), maxPixel);
-+    const float2 here = gOcclusion.Load(int3(pixel, 0));
-+    if (here.y >= gConstants.fadeEnd) {
++    const int2 pixel = int2(pos.xy);
++#ifdef MULTISAMPLING
++    const float depth = gDepth.Load(pixel, 0);
++#else
++    const float depth = gDepth.Load(int3(pixel, 0));
++#endif
++    const float rawW = gConstants.depthB / (depth - gConstants.depthA);
++    if ((depth >= 0.99999f) || (rawW <= 0.0f) || (rawW >= gConstants.fadeEnd)) {
 +        return float4(1.0f, 1.0f, 1.0f, 1.0f);
 +    }
 +
-+    const float tolerance = here.y * 0.04f + 0.01f;
++    // The half resolution pixels whose full resolution pixels (at twice their position) lie within 4 of this one.
++    uint width, height;
++    gOcclusion.GetDimensions(width, height);
++    const int2 maxPixel = int2(width, height) - 1;
++    const int2 base = (pixel - 1) >> 1;
++    const float tolerance = rawW * 0.04f + 0.01f;
 +    float sum = 0.0f;
 +    float weights = 0.0f;
-+    for (int y = -2; y < 2; y++) {
-+        for (int x = -2; x < 2; x++) {
-+            const float2 s = gOcclusion.Load(int3(clamp(pixel + int2(x, y), int2(0, 0), maxPixel), 0));
-+            const float weight = saturate(1.0f - abs(s.y - here.y) / tolerance);
++    for (int y = -1; y < 3; y++) {
++        for (int x = -1; x < 3; x++) {
++            const float2 s = gOcclusion.Load(int3(clamp(base + int2(x, y), int2(0, 0), maxPixel), 0));
++            const float weight = saturate(1.0f - abs(s.y - rawW) / tolerance);
 +            sum += s.x * weight;
 +            weights += weight;
 +        }
 +    }
 +
-+    const float ambient = (weights > 0.0f) ? (sum / weights) : here.x;
++    const float ambient = (weights > 0.0f) ? (sum / weights) : 1.0f;
 +    return float4(ambient, ambient, ambient, 1.0f);
 +}
 diff --git a/src/shaders/AmbientOcclusionPS.hlsl b/src/shaders/AmbientOcclusionPS.hlsl
 new file mode 100644
-index 0000000..74862a7
+index 0000000..229908b
 --- /dev/null
 +++ b/src/shaders/AmbientOcclusionPS.hlsl
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,113 @@
 +//
 +// RT64
 +//
 +
-+// Rush 2 recomp: screen space ambient occlusion, first pass. From the depth buffer, writes each pixel's ambient light
-+// (1 open, 0 enclosed) and its w to a half-float target that AmbientOcclusionApplyPS.hlsl blurs and multiplies into the
-+// color target. Each pixel tests 12 points on a disc around it, turned by its place in a 4x4 tile, so the 4x4 blur of
++// Rush 2 recomp: screen space ambient occlusion, first pass. From the depth buffer, writes the ambient light (1 open,
++// 0 enclosed) and w of the full resolution pixel at twice each of its own pixels' position to a half-float target at
++// half the color target's resolution each way (a quarter of the pixels: the occlusion changes slowly across the screen),
++// which AmbientOcclusionApplyPS.hlsl blurs, upsamples by depth and multiplies into the color target. Each pixel tests
++// 12 points on a disc around it, turned by its place in a 4x4 tile of the half resolution target, so the 4x4 blur of
 +// the second pass averages every turn.
 +
 +#include "shared/rt64_ambient_occlusion.h"
@@ -6173,7 +6269,8 @@ index 0000000..74862a7
 +
 +float2 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
 +    const int2 size = depthSize();
-+    const int2 pixel = int2(pos.xy);
++    const int2 halfPixel = int2(pos.xy);
++    const int2 pixel = min(halfPixel * 2, size - 1);
 +    const float w = loadW(pixel, size);
 +    if (w >= gConstants.fadeEnd) {
 +        return float2(1.0f, w);
@@ -6201,7 +6298,7 @@ index 0000000..74862a7
 +
 +    // The 4x4 ordered dither index turns the disc.
 +    const uint bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
-+    const uint tileIndex = bayer[(pixel.y & 3) * 4 + (pixel.x & 3)];
++    const uint tileIndex = bayer[(halfPixel.y & 3) * 4 + (halfPixel.x & 3)];
 +    const float turn = (float(tileIndex) + 0.5f) / 16.0f * 6.2831853f;
 +    const float radiusSquared = gConstants.radius * gConstants.radius;
 +    const float bias = 0.25f; // Ignores gentle folds, like where two slopes of a road meet.
