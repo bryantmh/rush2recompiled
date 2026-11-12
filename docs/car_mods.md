@@ -493,7 +493,11 @@ changes: for a livery, every body part the livery has its own of (FRAME1 by LOD,
 hood `H0_L`, `H2_L`, `H0D_L`, `H2D_L`) gets a `G_DL` branch to the livery's same-named list over its first command,
 and the car's other body parts (panels, damage parts, a hood the livery lacks) a `G_ENDDL`; for STYLE 1 it puts back the words it saved. The mirror walk (func_800776DC, which turns an asset's triangles
 over and follows branches) would turn a livery over twice and the car's own parts not at all, so
-`rush2_livery_mirror_begin` / `_end` put the loaded words back around it. The copy is found as `rush2_car49_paint` finds it: the id's texture bank (s16 at `car_banks` + id x 2)
+`rush2_livery_mirror_begin` / `_end` put the loaded words back around it. `_end` restores only the lists `_begin`
+found still holding the livery's words and drops the rest: a list whose words are gone was loaded over (the copy freed,
+another model there), and its first command can match the saved original by chance (a pipe sync), so writing the
+branch back put a jump into the new model aimed at the old livery list, now other data; RT64 then never reached the
+list's end and the game froze on a black loading screen. The copy is found as `rush2_car49_paint` finds it: the id's texture bank (s16 at `car_banks` + id x 2)
 gives the copy's texture records (0x80119220 + bank x 8), and the copy starts that far before them that its header
 word +8 (the texture table offset) says. (The car slot word 0x800D97E8 + id x 0x18 +0x14 is the car's palette, not
 its copy.) In the car select (game state 2) the id is the preview id, panel x 73 +

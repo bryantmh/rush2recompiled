@@ -1317,7 +1317,10 @@ namespace {
     };
     std::map<uint32_t, Original> originals;
     std::map<uint32_t, std::pair<uint32_t, uint32_t>> livery_words;
-    bool lifted = false;  // livery_words words taken off for the mirror walk (rush2_livery_mirror_begin)
+    // The livery_words lists whose words rush2_livery_mirror_begin took off for the mirror walk: only these get them
+    // back. A list whose words were gone by then was loaded over (the copy freed, another model in its place), and
+    // writing them back would branch that model into whatever now holds the old livery list (a freeze in RT64).
+    std::vector<uint32_t> lifted;
     // The livery body each copy shows (copy base -> car2049::add_livery_body id, and the first FRAME1 list with the
     // branch to it there, which tells a copy still showing it from one loaded over).
     struct Shown {
@@ -1353,34 +1356,38 @@ namespace {
 extern "C" void rush2_livery_mirror_begin(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::brake_mirror(rdram, true);
     std::lock_guard lock{ style_mutex };
-    if (livery_words.empty()) return;
-    for (const auto& [list, words] : livery_words) {
+    lifted.clear();
+    for (auto it = livery_words.begin(); it != livery_words.end();) {
+        const uint32_t list = it->first;
         auto o = originals.find(list);
-        if (o == originals.end()) continue;
-        if ((uint32_t)MEM_W(0, (int32_t)list) == words.first && (uint32_t)MEM_W(4, (int32_t)list) == words.second) {
+        if (o != originals.end() && (uint32_t)MEM_W(0, (int32_t)list) == it->second.first &&
+            (uint32_t)MEM_W(4, (int32_t)list) == it->second.second) {
             write_words(rdram, list, o->second.w0, o->second.w1);
+            lifted.push_back(list);
+            ++it;
+        }
+        else {
+            it = livery_words.erase(it); // loaded over since the livery was put on
         }
     }
-    lifted = true;
 }
 
 // Its exit (0x800777E8): the liveries' words back.
 extern "C" void rush2_livery_mirror_end(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::brake_mirror(rdram, false);
     std::lock_guard lock{ style_mutex };
-    if (!lifted) return;
-    lifted = false;
-    for (auto it = livery_words.begin(); it != livery_words.end();) {
-        auto o = originals.find(it->first);
-        if (o != originals.end() && (uint32_t)MEM_W(0, (int32_t)it->first) == o->second.w0 &&
-            (uint32_t)MEM_W(4, (int32_t)it->first) == o->second.w1) {
-            write_words(rdram, it->first, it->second.first, it->second.second);
-            ++it;
+    for (uint32_t list : lifted) {
+        auto w = livery_words.find(list);
+        auto o = originals.find(list);
+        if (w == livery_words.end() || o == originals.end()) continue;
+        if ((uint32_t)MEM_W(0, (int32_t)list) == o->second.w0 && (uint32_t)MEM_W(4, (int32_t)list) == o->second.w1) {
+            write_words(rdram, list, w->second.first, w->second.second);
         }
         else {
-            it = livery_words.erase(it); // loaded over meanwhile
+            livery_words.erase(w); // loaded over meanwhile
         }
     }
+    lifted.clear();
 }
 
 int rush2::car_mods::livery_count(int type) {
