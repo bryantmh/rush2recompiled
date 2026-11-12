@@ -424,6 +424,16 @@ its surface facing -x. `lift_model` copies the model with its texture loads and 
 the camera at that size. The name logo is the 144 x 23 banner (asset 3) box-filtered to 128 x 32 CI8. Cached as
 the blob `calspeed_menu`. [V in game]
 
+Two looks that come from California Speed's own data, not the port (checked 2026-11-11 against asset 6 and an RDRAM
+snapshot of the drawn frame):
+- Monterey's dark see-through box round the golf green is its fence, GLFFEN: an 8 x 8 **I4** texture (texture record
+  fmt 4, tile 0xF5800200; not IA4) whose texels are all 0xA, so its alpha is the intensity, 10/15. The list draws it
+  last with vertex color #141414 in render mode 0xC8104A50 (fog, then z-compared translucent) and alpha = TEXEL0, so
+  it is a dark fence at about 67% opacity on the N64 too.
+- San Diego's pink roofs are SDCOR01 (CI4, 16-color TLUT at asset 6 + 0xA5E8: #F68BD5, #F67BCD... with blue
+  windows), loaded and drawn as stored with white vertex colors; nothing in the game's code names or swaps it.
+- To check a landmark, decode its list and textures from asset 6 with tools/calspeed/cs.py (`CalSpeed().asset(6)`).
+
 ## 4. Surface types
 
 California Speed numbers its collision surface types (POLY flags & 0xF) its own way. Over its 16 tracks (counts

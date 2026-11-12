@@ -1595,7 +1595,7 @@ namespace {
     }
 
     // The version band (rush2::track2049::version_ring_*, as the Rush 2049 previews' rings): a model `name` that draws
-    // the diorama `base` (a call into its list) and a band of color `rgb` round the foot of its sides. The band follows
+    // the diorama `base` (a copy of its list) and a band of color `rgb` round the foot of its sides. The band follows
     // the outline of the diorama's base from above (the union of its lowest triangles, concave bays and all, pushed out
     // a little), not a circle. The track select shows it for a course with another version installed (track2049_menu.cpp).
     void add_band_model(Builder& b, const std::string& base, const std::string& name, uint32_t rgb) {
@@ -1668,10 +1668,21 @@ namespace {
         // Vertices (16 bytes: s16 x, y, z, flag, s, t, u8 r, g, b, a) and the list: up to 15 sides a load.
         Bytes verts;
         Builder::ModelOut m{ name, 1, {}, {}, {}, model->radius };
+        // The diorama's commands copied in (up to its G_ENDDL; its vertices, texels and loads stay shared), not called:
+        // the game's mirror walk (mirror_winding_walk_80077518) swaps the winding of every model's list and follows
+        // G_DL with no mark of what it already swapped, so a call from each of the five bands swapped the diorama's
+        // triangles six times in all, back to unmirrored. In a mirrored race (a circuit picks them) the map then faced
+        // away and was culled, and the buildings showed their insides.
         Body body;
-        body.fixups.push_back({ body.bytes.size() + 4, { false, -1, 0, base } });
-        add32(body.bytes, 0xDE000000);                  // the diorama
-        add32(body.bytes, 0);
+        {
+            const Body& src = *model->lods[0];
+            size_t end = 0;
+            while (end + 8 <= src.bytes.size() && src.bytes[end] != 0xDF) end += 8;
+            body.bytes.assign(src.bytes.begin(), src.bytes.begin() + end);
+            for (const Fixup& f : src.fixups) {
+                if (f.pos < end) body.fixups.push_back(f);
+            }
+        }
         // Texture off, sync, opaque z-buffered without fog, shade color.
         for (uint32_t w : { 0xD7000000u, 0xFFFFFFFFu, 0xE7000000u, 0u, 0xE200001Cu, 0x0C192230u, 0xFCFFFFFFu, 0xFFFE7C38u }) {
             add32(body.bytes, w);

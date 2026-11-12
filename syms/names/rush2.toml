@@ -7248,7 +7248,7 @@ ref = "us.toml"
 vram = 0x80077518
 name = "mirror_winding_walk"
 sig = "void mirror_winding_walk(void *model, s32 a1, s32 a2)"
-desc = "Walks every LOD list following G_DL, swapping TRI1/TRI2/QUAD vertex order to keep front faces when mirrored. | Mirror walker over a model container: branch, mirror and CHKPOINT -> FINISH banner logic. Rush 1's func_80097FE0 is its ancestor."
+desc = "Walks every LOD list following G_DL, swapping TRI1/TRI2/QUAD vertex order to keep front faces when mirrored. Keeps no mark of lists already swapped: a list reached from N models is swapped N times. | Mirror walker over a model container: branch, mirror and CHKPOINT -> FINISH banner logic. Rush 1's func_80097FE0 is its ancestor."
 consts = "0xF0FFFFFF = mask"
 status = "verified"
 rush1 = [0x80097FE0]

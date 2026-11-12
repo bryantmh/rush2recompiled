@@ -248,6 +248,11 @@ the track is loaded, and Rush 2 loads the track per race.
 2. **Winding.** `func_800776DC` → `func_80077518(list, 2, func_8006121C)` (2049: `func_800965BC` → `func_800963E8`
    → `func_8008AD6C`, same code). When the mirror state differs from the state the slot was processed in, every LOD
    list is walked again, following `G_DL`. TRI1/TRI2/QUAD vertex order is swapped to keep front faces.
+   - The walk (`mirror_winding_walk_80077518`) keeps no mark of a list it already swapped: a list that N of the
+     slot's models reach through `G_DL` is swapped N times. A list shared between models by calls ends up wound for
+     the mirror only when N is odd, so added models must copy a shared list, never call it. The SF Rush version bands
+     (src/rush1/track1_convert.cpp `add_band_model`) once called their diorama: six walks of each R1TRACKn list left
+     it unmirrored, so in a mirrored race (circuits pick them) the map faced away and was culled.
 3. **Geometry.** The world itself is mirrored by the camera matrix, not the file. [I]
 
 ### 4.3 Addressing
