@@ -80,7 +80,8 @@ fit TMEM, with its own TXLD load list (cars: CI8, see Car paint). Its render mod
 texture with in the same file (`TEXMODE` rows of `rush2049_dc_names.inc`, from `dc_names.py texture_modes`, which
 walks the N64 lists), else by its alpha: mostly graded translucent (C8104A50), any clear texels alpha-tested edges
 (C8113278), else opaque (C8112230). The N64 names few of a track's textures, so most go by alpha; drawing cutouts
-translucent let later objects show through tree cards, and translucent with depth writes blocked what's behind them. strips become F3DEX2 batches of 32 vertices (positions x16, st from the uv with
+translucent let later objects show through tree cards, and translucent with depth writes blocked what's behind them.
+Translucent strips are drawn after the opaque scenery (Translucent strips drawn last, below). strips become F3DEX2 batches of 32 vertices (positions x16, st from the uv with
 a per-batch shift, subdivided where the span overflows); conditionals become `E0010003/4`. The layout keeps 8 bytes
 between IMAG, TXLD and OBHD: `merge_models` (src/rush2049/track2049_convert.cpp) maps an address equal to a chunk's end into
 that chunk, so a load list starting where the texels end was relocated into the texels (the first track crash).
@@ -361,6 +362,47 @@ How the disc draws a model, read from its code (Sega's Kamui 2 library):
   renderer (stream walk at 0x8C06FFD0) draws through 0x8C0DAC20 with a float pair from that record (no track 1 texture
   has it in the file).
 - **Vertex colors** multiply the texture (modulate alpha, Gouraud), as the N64 combiner does.
+- **List type** (context +4, which PowerVR list the strips go to), set by 0x8C06EBB2 from the texture's pixel format
+  (surface +8) and flag 0x40: ARGB4444 (0x10000000) or flag 0x40 -> 2, **translucent** (blend +80 = 8, +84 = 6 or 10,
+  +104 = 1); RGB565 (0x08000000) -> 0, **opaque**; ARGB1555 (0) -> 4, **punch-through**. Every graded-alpha texture
+  (fences, glass, water) is therefore in the translucent list, which the hardware draws after the other two, sorted
+  by depth per pixel.
+
+### Translucent strips drawn last [V]
+
+Converted lists draw translucent strips (render mode `C8104A50`, no depth write) wherever they fall among the opaque
+scenery, so whatever farther is drawn after them paints over them: on Haight (TRACK4) and Marina the `CHAINLINK`
+fence vanished in front of the trees behind it (user report 2026-11-11). The N64's own lists draw that fence as an
+alpha-tested edge, so N64 mode never showed it. The PowerVR draws its translucent list (above) last, sorted.
+
+The converter (`late_marker`, src/rush2049dc/rush2049_dc_model.cpp) gives each model list with translucent strips
+this layout, everything in one list so the relocator rebases it, the mirror pass flips it once and every list reader
+sees all of it:
+
+- `E0000DC0 <slot offset>`: the first command (G_SPNOOP; byte 1 isn't the conditional's 1, so the relocator leaves it).
+- the opaque and alpha-tested strips;
+- `E0000DC1 <end offset>`: the slot;
+- the translucent strips, with their own texture and mode state, their conditionals mirrored from the main part;
+- end: the TLUT epilogue and `G_ENDDL`.
+
+Not for the sky, texture swaps (LOD flag 1: the mode is chosen at draw time), cars (drawn from per-car list copies)
+or the fixed-window files 61-63 and 76 (the battle draws them from its own lists).
+Counts: tracks 1-6 have 28, 13, 14, 14, 17 and 14 such lists (`CHAINLINK` on all six, glass, water, the Golden Gate's
+haze cards on Marina).
+
+At run time (src/rush2049dc/dc_translucent.cpp) `model_draw_8007AA48`'s hook turns the slot into `DE01` (branch) to the
+end the first time the list is drawn (the copy in RDRAM keeps it until the track loads again) and queues the tail
+under the node's modelview (`rush2_interp_get_modelview`), with the node's camera distance (`0x80117490`, which
+model_draw has stored by then), its G_LIGHTING state (`0x800E7DE1`) and its Fill Scenery Gaps walls mode.
+`func_8007C624` draws the queue farthest first at `L_8007D980`, after the world-space polygons and before the game's
+own late node pass, from the hook the Rocket ZX flames use (or before the race start countdown sign polygon, as they
+do). A list drawn after the queue went out (the late pass) gets its tail right after it instead.
+
+**The game's late node pass:** `scene_walk_8007B518` skips a node with flag 0x40000 while `0x800FAEA4` is 0, keeping
+the first such node's index in `0x800FAEAC` (-1 when none); at `L_8007D980` `func_8007C624` sets `0x800FAEA4` and walks
+that node's level again from it, drawing only the 0x40000 nodes (and stores -1 in `0x80112490` after). Checked offline with
+`tools/rush2049/cpp_test` (`dc_test` converts the files: every tail well formed, no translucent mode left outside one)
+and in game on Haight: the fence stays over the trees.
 
 **Sky.** The N64's SKYSKY lists (every track file, and STUNTSKYSKY) draw 1-cycle (`E3000A01 00000000`), TEXEL0 x SHADE
 in both combiner cycles (`FC121824 FF33FFFF`), render mode `0F0A4000` (opaque, no fog), with G_ZBUFFER and G_FOG

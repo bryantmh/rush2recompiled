@@ -249,10 +249,11 @@ it (the LOD 0 lists of parts FRAME1, D0_FR1, D0_FL1, D0_RR1, D0_RL1 and D0_TOP1,
 `func_80086700`'s suffix table 0x800C6180, through `rush2::car_types::part_record`), in the body node's axes. The
 weapon model's base (its vertices within 0.3 ft of its lowest) is set on the highest point of the body under it, so it
 neither floats nor sinks. Kept per car until its type or part lists change; the weapon model must be loaded first.
-The old rule (each model's highest point anywhere + 0.35 ft, `rush2::wings::body_height`, Rush 2's 22 cars only, 3.5
-ft for the rest) is the fallback when no geometry is found. It put the base 0.3-0.5 ft over most roofs at the
-Gatling's spot and about 3 ft over the ROCKET's and DEW's (their highest points are a fin and a wing; their roofs are
-2.56 and 1.6-2.6 ft up), and gave every non-Rush 2 car the same 3.5 ft.
+The old rule (each model's roof + 0.35 ft, `rush2::wings::body_height`, Rush 2's 22 cars only, 3.5 ft for the rest)
+is the fallback when no geometry is found. It puts the base 0.3-0.5 ft over most roofs at the Gatling's spot and gives
+every non-Rush 2 car the same 3.5 ft. The table held each model's highest point until 2026-11-11, which for the ROCKET
+and DEW is a fin and a rear wing (5.56 and 5.0); it now holds their roofs (2.56 and 2.6 ft), which also brought the
+2049 wings on those two cars down from the truck's 3 units to the 1 unit every other car has.
 
 **The dropped mine is two models.** The battle overlay's model loader (function at `0x803908D0`, loop at 0x8039098C)
 looks up the names at `0x803942EC` into handles at `0x80399B18` (index 4 `WPR_MINEBASE`, 5 `WPR_MINECAP`, 6

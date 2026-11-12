@@ -706,6 +706,11 @@ uint32_t rush2_interp_side_dl(uint8_t* rdram, const GfxCommand* cmds, uint32_t c
     return write_side_dl(rdram, cmds, count);
 }
 
+// Bytes (8-aligned) in the side buffer, for other files' matrices (src/rush2049dc/dc_translucent.cpp).
+uint32_t rush2_interp_side_alloc(uint32_t bytes) {
+    return side_alloc(bytes);
+}
+
 // The matrices of a view as func_8007C624 last set them: its root modelview, its projection without the view's
 // rotation and the rotation (src/rush2049/battle_render.cpp draws models of its own with them).
 bool rush2_interp_view_matrices(uint32_t view, uint32_t* root, uint32_t* projection, uint32_t* lookat) {

@@ -47,6 +47,7 @@
 #include "rush2.h"
 #include "rush2_hooks.h"
 #include "car2049.h"
+#include "dc_translucent.h"
 #include "ghost.h"
 #include "menus2049.h"
 #include "scenery_fill.h"
@@ -504,6 +505,9 @@ extern "C" void rush2_model_draw(uint8_t* rdram, recomp_context* ctx) {
         write_command(rdram, cursor, 0xDE000000, build_track_copies(rdram, dl));
         MEM_W(0x84, sp) = (int32_t)cursor;
     }
+    // Dreamcast 2049 models' translucent strips, drawn after the view's opaque scenery (src/rush2049dc/dc_translucent.cpp):
+    // on the list itself, before anything wraps it.
+    rush2::dc_translucent::model_draw(rdram, ctx);
     // Rush 2049 Rocket ZX flames (src/rush2049/car2049.cpp), before the wings swap the display list.
     rush2::car2049::draw_model(rdram, dl);
     // Rush 2049 wings on car bodies (src/rush2049/wings_render.cpp).

@@ -491,15 +491,20 @@ void rush2::scenery_fill::view_begin(uint8_t* rdram, uint32_t view) {
     std::thread(build_track, asset, address, guide_key(rdram, asset), gen, arena_index).detach();
 }
 
-void rush2::scenery_fill::model_draw(uint8_t* rdram, recomp_context* ctx) {
-    if (!enabled() || !in_race(rdram)) return;
-    const uint32_t node = (uint32_t)ctx->r23;
-    if (node < rush2::scene_nodes::table || node >= rush2::scene_nodes::table_end) return;
+int rush2::scenery_fill::walls_mode(uint8_t* rdram, uint32_t node) {
+    if (!enabled() || !in_race(rdram)) return 0;
+    if (node < rush2::scene_nodes::table || node >= rush2::scene_nodes::table_end) return 0;
     const int index = int((node - rush2::scene_nodes::table) / rush2::scene_nodes::node_size);
+    return index < placement_first || index >= placement_end ? 2 : 1;
+}
+
+void rush2::scenery_fill::model_draw(uint8_t* rdram, recomp_context* ctx) {
+    const int mode = walls_mode(rdram, (uint32_t)ctx->r23);
+    if (mode == 0) return;
     constexpr uint32_t max_one_sided = 8;
     GfxCommand cmds[6 + max_one_sided];
     uint32_t count = 0;
-    if (index < placement_first || index >= placement_end) {
+    if (mode == 2) {
         // Any other model (cars, props placed by code) only counts as something seen from behind on a wall's plane,
         // so no copy goes over it.
         gEXSetTwoSidedWalls(&cmds[count++], 2);

@@ -66,7 +66,9 @@ namespace {
     constexpr float flame_scale = 8.0f;
     constexpr float min_flame_scale = 2.0f;
 
-    // Wing placement per Rush 2 car: half the body's width and its height (world units, from the car models).
+    // Wing placement per Rush 2 car: half the body's width and its roof's height (world units, from the car models).
+    // The ROCKET's fin (5.56) and the DEW's rear wing (5.0) stand above their roofs; measured to them, the wings sat at
+    // the truck's 3 units up, level with the DEW's rear wing (docs/rush2049_research/battle.md: roofs 2.56 and 2.6).
     // Rush 2049 slides its wings to rest about 0.72 units past each car's half width (5/6 of its per-car table value),
     // 1 unit up, or higher on its tall truck; the same rule is applied to Rush 2's cars.
     struct CarSize {
@@ -94,8 +96,8 @@ namespace {
         { 3.188f, 3.562f }, // HOTROD
         { 2.875f, 2.688f }, // FORM1
         { 3.000f, 3.062f }, // GT90
-        { 1.938f, 5.562f }, // ROCKET
-        { 2.500f, 5.000f }, // DEW
+        { 1.938f, 2.560f }, // ROCKET (fin 5.562)
+        { 2.500f, 2.600f }, // DEW (rear wing 5.0)
     } };
     constexpr float rest_gap = 0.72f;
     // Rush 2049's cars are up to 3.44 units tall with the wings 1 unit up; its 5 unit truck has them 3 units up.

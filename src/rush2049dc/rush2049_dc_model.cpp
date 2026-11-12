@@ -350,6 +350,24 @@ namespace {
     constexpr uint32_t cc_textured[2] = { 0xFC127FFF, 0xFFFFF238 };
     constexpr uint32_t cc_shade[2] = { 0xFCFFFFFF, 0xFFFE7C38 };
 
+    // Translucent strips drawn last. The disc's texture setup (0x8C06EBB2) puts every ARGB4444 texture (and any with
+    // flag 0x40) in the PowerVR's translucent list, which the hardware draws after the opaque and punch-through lists,
+    // sorted by depth per pixel. Drawn among the opaque scenery on the N64 and writing no depth, a translucent strip
+    // (Marina's CHAINLINK fence) was painted over by whatever farther was drawn after it (the trees behind it). So a
+    // model's translucent strips (rm_translucent) go to the end of its list, behind a slot the game skips, and
+    // src/rush2049dc/dc_translucent.cpp draws them after the view's opaque scenery:
+    //   E0000DC0 slot      the first command: the slot's offset from the list's start (G_SPNOOP, byte 1 not the
+    //                      conditional's 1, so the relocator leaves it)
+    //   ... opaque strips ...
+    //   E0000DC1 end       the slot: the end's offset; at its first draw the game's copy becomes DE01 (branch) to it
+    //   ... translucent strips (their own texture and mode state) ...
+    //   end: the epilogue and G_ENDDL
+    // Everything stays in one list, so the relocator rebases the tail, the mirror pass flips it once, and the file's
+    // other readers (conversion, art, asset catalog) see all of it; drawn without the deferral the slot is a no-op.
+    // Not for the sky, texture swaps (their mode is chosen at draw time), cars (drawn from per-car list copies) or the
+    // fixed-window files (the battle's HUD and weapons, drawn from its own lists and kept within their windows).
+    constexpr uint32_t late_marker = 0xE0000DC0, late_slot = 0xE0000DC1;
+
     struct OutTexture {
         std::string name;
         int w = 0, h = 0;           // N64 size
@@ -504,7 +522,10 @@ namespace {
         uint32_t swap_mode;         // render mode for it
         int bind_texture;           // texture loaded first where the disc takes one by code, or -1
         bool sky = false;           // drawn as the N64's sky (rm_sky, no z-buffer or fog)
+        // Translucent strips go to `tail`, drawn after the view's opaque scenery (late_tail below).
+        bool split = false;
         std::vector<Cmd> cmds;
+        std::vector<Cmd> tail;
         std::vector<Vtx> vertices;
 
         // Current batch
@@ -516,6 +537,9 @@ namespace {
         int list_texture = -2;
         uint32_t list_mode = 0;
         const uint32_t* list_cc = nullptr;
+        int tail_texture = -2;
+        uint32_t tail_mode = 0;
+        const uint32_t* tail_cc = nullptr;
 
         int effective(int tex) const {
             if (flags & 1) return swap_texture >= 0 ? swap_texture : -1;
@@ -541,27 +565,32 @@ namespace {
             }
             if (sky) mode = textured && mode != rm_opaque ? rm_sky_translucent : rm_sky;
             cc = textured ? (sky ? cc_sky : cc_textured) : cc_shade;
-            if (!(flags & 1) && tex >= 0 && tex != list_texture) {
-                cmds.push_back({ 0xDE000000, txld_base + textures[tex].list, Fix::None });
+            bool late = split && mode == rm_translucent;
+            std::vector<Cmd>& out = late ? tail : cmds;
+            int& out_texture = late ? tail_texture : list_texture;
+            uint32_t& out_mode = late ? tail_mode : list_mode;
+            const uint32_t*& out_cc = late ? tail_cc : list_cc;
+            if (!(flags & 1) && tex >= 0 && tex != out_texture) {
+                out.push_back({ 0xDE000000, txld_base + textures[tex].list, Fix::None });
             }
-            list_texture = tex;
-            if (mode != list_mode) cmds.push_back({ 0xE200001C, mode, Fix::None });
-            list_mode = mode;
-            if (cc != list_cc) cmds.push_back({ cc[0], cc[1], Fix::None });
-            list_cc = cc;
+            out_texture = tex;
+            if (mode != out_mode) out.push_back({ 0xE200001C, mode, Fix::None });
+            out_mode = mode;
+            if (cc != out_cc) out.push_back({ cc[0], cc[1], Fix::None });
+            out_cc = cc;
             uint32_t first = (uint32_t)vertices.size();
             uint32_t n = (uint32_t)batch.size();
             vertices.insert(vertices.end(), batch.begin(), batch.end());
-            cmds.push_back({ 0x01000000 | n << 12 | n << 1, first * 16, Fix::Vertices });
+            out.push_back({ 0x01000000 | n << 12 | n << 1, first * 16, Fix::Vertices });
             for (size_t i = 0; i < tris.size(); i += 2) {
                 const auto& a = tris[i];
                 uint32_t w0 = (uint32_t)a[0] * 2 << 16 | (uint32_t)a[1] * 2 << 8 | (uint32_t)a[2] * 2;
                 if (i + 1 < tris.size()) {
                     const auto& b = tris[i + 1];
-                    cmds.push_back({ 0x06000000 | w0, (uint32_t)b[0] * 2 << 16 | (uint32_t)b[1] * 2 << 8 | (uint32_t)b[2] * 2, Fix::None });
+                    out.push_back({ 0x06000000 | w0, (uint32_t)b[0] * 2 << 16 | (uint32_t)b[1] * 2 << 8 | (uint32_t)b[2] * 2, Fix::None });
                 }
                 else {
-                    cmds.push_back({ 0x05000000 | w0, 0, Fix::None });
+                    out.push_back({ 0x05000000 | w0, 0, Fix::None });
                 }
             }
             batch.clear();
@@ -570,9 +599,9 @@ namespace {
 
         // Forces the next batch to set its texture and modes again (after a block that may have been skipped).
         void forget_state() {
-            list_texture = -2;
-            list_mode = 0;
-            list_cc = nullptr;
+            list_texture = tail_texture = -2;
+            list_mode = tail_mode = 0;
+            list_cc = tail_cc = nullptr;
         }
 
         bool fits(float v, float shift, int size) const {
@@ -713,14 +742,22 @@ namespace {
         if (b.sky) {
             for (const auto& c : sky_begin) b.cmds.push_back({ c[0], c[1], Fix::None });
         }
-        // Conditional blocks: (stream offset where it ends, command index of the branch to patch).
-        std::vector<std::pair<size_t, size_t>> blocks;
+        if (b.split) b.cmds.push_back({ late_marker, 0, Fix::None });     // w1 set below
+        // Conditional blocks: stream offset where it ends, and the index of its branch in the list and in the tail.
+        struct Block {
+            size_t end, cmd, tail;
+        };
+        std::vector<Block> blocks;
         size_t o = lod.stream;
+        auto close_block = [&]() {
+            b.flush();
+            b.cmds[blocks.back().cmd].w1 = (uint32_t)b.cmds.size() * 8;
+            if (b.split) b.tail[blocks.back().tail].w1 = (uint32_t)b.tail.size() * 8;
+            blocks.pop_back();
+        };
         auto close_blocks = [&]() {
-            while (!blocks.empty() && o >= blocks.back().first) {
-                b.flush();
-                b.cmds[blocks.back().second].w1 = (uint32_t)b.cmds.size() * 8;
-                blocks.pop_back();
+            while (!blocks.empty() && o >= blocks.back().end) {
+                close_block();
                 b.forget_state();
             }
         };
@@ -746,8 +783,9 @@ namespace {
                 uint32_t cond = (w & 3) == 1 ? 3 : (w & 3) == 2 ? 4 : 0;
                 if (cond && length) {
                     b.flush();
-                    blocks.push_back({ o + length, b.cmds.size() });
+                    blocks.push_back({ o + length, b.cmds.size(), b.tail.size() });
                     b.cmds.push_back({ 0xE0010000 | cond, 0, Fix::List });
+                    if (b.split) b.tail.push_back({ 0xE0010000 | cond, 0, Fix::List });
                     b.forget_state();
                 }
                 continue;
@@ -800,13 +838,33 @@ namespace {
             }
         }
         while (!blocks.empty()) {
-            b.flush();
-            b.cmds[blocks.back().second].w1 = (uint32_t)b.cmds.size() * 8;
-            blocks.pop_back();
+            close_block();
         }
         b.flush();
         if (b.sky) {
             for (const auto& c : sky_end) b.cmds.push_back({ c[0], c[1], Fix::None });
+        }
+        if (b.split) {
+            bool drawn = std::ranges::any_of(b.tail, [](const Cmd& c) { return (c.w0 >> 24) == 0x01; });
+            if (!drawn) {
+                // Nothing translucent: no marker, and the list's own offsets move back over it.
+                b.cmds.erase(b.cmds.begin());
+                for (Cmd& c : b.cmds) {
+                    if (c.fix == Fix::List) c.w1 -= 8;
+                }
+            }
+            else {
+                // The marker holds the slot's offset, the slot the end's (the epilogue below); the tail follows the slot.
+                uint32_t slot = (uint32_t)b.cmds.size() * 8;
+                b.cmds.front().w1 = slot;
+                b.cmds.push_back({ late_slot, 0, Fix::None });
+                uint32_t tail_at = (uint32_t)b.cmds.size() * 8;
+                for (Cmd c : b.tail) {
+                    if (c.fix == Fix::List) c.w1 += tail_at;
+                    b.cmds.push_back(c);
+                }
+                b.cmds[slot / 8].w1 = (uint32_t)b.cmds.size() * 8;
+            }
         }
         // End: put back the texture LUT mode Rush 2 keeps (RGBA16), which the load lists turn off.
         b.cmds.push_back({ 0xE7000000, 0, Fix::None });
@@ -1485,6 +1543,9 @@ bool rush2::rom2049::dc::convert_model(const Files& files, const std::string& dc
                 if (swap >= (int)textures.size()) swap = -1;
                 LodBuilder b{ textures, txld_at, flags, swap, swap_mode, bind };
                 b.sky = p.name.size() >= 6 && p.name.compare(p.name.size() - 6, 6, "SKYSKY") == 0;
+                // Not in the fixed-window files either: the battle draws those from its own lists, never deferred.
+                b.split = !b.sky && !car && !(flags & 1) &&
+                    std::ranges::find(fixed_window_files, n64_file) == std::end(fixed_window_files);
                 align8(objs);
                 auto [list, vertices] = convert_lod(m, l, b, objs, objs_at, remap);
                 size_t e = r + 0x18 + j * 16;

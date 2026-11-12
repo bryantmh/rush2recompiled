@@ -47,6 +47,7 @@
 #include "online.h"
 #include "online_sync.h"
 #include "rush2049_dc.h"
+#include "dc_translucent.h"
 #include "unlocks.h"
 #include "track2049_convert.h"
 #include "track_cache.h"
@@ -4220,6 +4221,7 @@ void rush2::car2049::sheen_model(uint8_t* rdram, recomp_context* ctx) {
 // func_8007C624 entry: a new view.
 extern "C" void rush2_car49_flames_view_begin(uint8_t* rdram, recomp_context* ctx) {
     queued_flames.clear();
+    rush2::dc_translucent::view_begin();
     light_tables_built = false;
     sheen_tables_built = false;
 }
@@ -4291,6 +4293,8 @@ void emit_queued_flames(uint8_t* rdram, uint32_t cursor_ptr) {
 
 // func_8007C624 at L_8007D980, after the world-space polygons: draws the queued flames. $s6 = display list cursor.
 extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
+    // Dreamcast models' translucent strips first (src/rush2049dc/dc_translucent.cpp): both blend over what's drawn.
+    rush2::dc_translucent::emit(rdram, (uint32_t)ctx->r22);
     if (!queued_flames.empty()) {
         emit_queued_flames(rdram, (uint32_t)ctx->r22);
     }
@@ -4303,7 +4307,7 @@ extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
 // next polygon sets them again, and the flames' 2-cycle fog state is undone when the loop has 1-cycle without fog
 // (sp+0x164 = 0, set by flag 0x100 polygons).
 extern "C" void rush2_car49_flames_before_poly(uint8_t* rdram, recomp_context* ctx) {
-    if (queued_flames.empty()) {
+    if (queued_flames.empty() && !rush2::dc_translucent::pending()) {
         return;
     }
     // race_countdown_sign_8010C040, moved here for four views (src/players4.cpp): a polygon pointer per view.
@@ -4317,7 +4321,10 @@ extern "C" void rush2_car49_flames_before_poly(uint8_t* rdram, recomp_context* c
         return;
     }
     uint32_t cursor_ptr = (uint32_t)ctx->r22;
-    emit_queued_flames(rdram, cursor_ptr);
+    rush2::dc_translucent::emit(rdram, cursor_ptr);
+    if (!queued_flames.empty()) {
+        emit_queued_flames(rdram, cursor_ptr);
+    }
     uint32_t sp = (uint32_t)ctx->r29;
     MEM_W(0x168, (int32_t)sp) = -1;
     MEM_W(0, (int32_t)0x80112470) = 0;

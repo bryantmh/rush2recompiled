@@ -317,6 +317,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/rush2049/car2049.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/audio2049.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049dc/audio2049_dc.cpp
+    ${CMAKE_SOURCE_DIR}/src/rush2049dc/dc_translucent.cpp
     ${CMAKE_SOURCE_DIR}/src/rush1/car1_decals.cpp
     ${CMAKE_SOURCE_DIR}/src/rush1/car1_stripes.cpp
     ${CMAKE_SOURCE_DIR}/src/rush2049/wings.cpp

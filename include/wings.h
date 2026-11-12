@@ -46,7 +46,7 @@ namespace rush2::wings {
     // the one in use, else the other opened once and kept; null if it isn't stored or enabled (source_enabled).
     // Opening it reads it from disk: the launch's build pass (rush2::track2049::prepare) opens it before the game asks.
     std::shared_ptr<const rush2::rom2049::Source> track_source(bool disc);
-    // The height of a Rush 2 car type's body (0-21; world units, from the car models), 3.5 for any other type.
+    // The height of a Rush 2 car type's roof (0-21; world units, from the car models), 3.5 for any other type.
     float body_height(int type);
     // True when the Wings option is on and the Rush 2049 ROM is available.
     bool enabled();

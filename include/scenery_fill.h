@@ -132,6 +132,10 @@ namespace rush2::scenery_fill {
     // From rush2_model_draw (model_draw_8007AA48 about to call a node's model: $s7 node, $fp list): around a track
     // model, the two-sided walls, and before the view's first one, the underlay.
     void model_draw(uint8_t* rdram, recomp_context* ctx);
+    // The two-sided walls mode (gEXSetTwoSidedWalls) model_draw draws a scene node's model with: 0 none (off, or not in
+    // a race), 1 a track model, 2 any other model. For drawing part of a model later in the view
+    // (src/rush2049dc/dc_translucent.cpp).
+    int walls_mode(uint8_t* rdram, uint32_t node);
 }
 
 #endif
