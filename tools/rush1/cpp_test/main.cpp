@@ -12,8 +12,17 @@
 #include <memory>
 
 #include "track1.h"
+#include "track2049.h"
+#include "texture_upscale.h"
 
 namespace fs = std::filesystem;
+
+// Game-side hooks the converter calls (upscale registry, 2049 race logos): nothing to do offline.
+void rush2::upscale::add_exact_image(std::vector<uint8_t>, rush2::upscale::Image) {}
+bool rush2::track2049::set_race_logo(const std::vector<uint8_t>&, const std::vector<uint8_t>&, const std::vector<uint8_t>&,
+                                     std::vector<uint8_t>&) {
+    return false;
+}
 
 // The parts of src/rush1/rush1_rom.cpp the converter needs, without the UI.
 namespace {

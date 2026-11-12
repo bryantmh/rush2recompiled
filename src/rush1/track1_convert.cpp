@@ -32,6 +32,7 @@
 
 #include "clipper2/clipper.h"
 
+#include "diorama_look.h"
 #include "track1.h"
 #include "track1_banners.h"
 #include "track1_lanes.h"
@@ -1598,7 +1599,15 @@ namespace {
     // the diorama `base` (a copy of its list) and a band of color `rgb` round the foot of its sides. The band follows
     // the outline of the diorama's base from above (the union of its lowest triangles, concave bays and all, pushed out
     // a little), not a circle. The track select shows it for a course with another version installed (track2049_menu.cpp).
-    void add_band_model(Builder& b, const std::string& base, const std::string& name, uint32_t rgb) {
+    // A SNOW or NIGHT version's model also wears the condition (`look`, dress_look below).
+    using rush2::diorama_look::Look;
+    struct Quad {
+        std::array<std::array<double, 3>, 4> p;
+        rush2::diorama_look::Rgb color;
+    };
+    void dress_look(Builder& b, Body& body, Look look, double lo, double radius, std::vector<Quad>& quads);
+
+    void add_band_model(Builder& b, const std::string& base, const std::string& name, uint32_t rgb, Look look = Look::day) {
         const Builder::ModelOut* model = nullptr;
         for (const Builder::ModelOut& m : b.models) if (m.name == base) model = &m;
         if (model == nullptr) fail("no model " + base);
@@ -1637,7 +1646,7 @@ namespace {
         // The base's outline: the diorama seen from above, the union of all its triangles (they have no underside, and
         // their sides run its full height), concave bays and all, pushed out a little. None found: the plain diorama.
         constexpr double grid = 4.0;            // Clipper units per model unit
-        double height = 0.0;
+        double height = 0.0, base_radius = 0.0;
         auto largest = [](const Clipper2Lib::Paths64& paths) {
             size_t best = 0;
             for (size_t i = 1; i < paths.size(); i++) {
@@ -1655,6 +1664,7 @@ namespace {
         if (!shape.empty()) {
             const Clipper2Lib::Path64& outline = shape[largest(shape)];
             double radius = std::sqrt(std::abs(Clipper2Lib::Area(outline)) / 3.14159) / grid;
+            base_radius = radius;
             // Pushed out 1.5% of the base's size so it doesn't fight the sides; as tall as 7% of it, from the foot up.
             height = radius * 0.07;
             Clipper2Lib::Paths64 grown = Clipper2Lib::InflatePaths({ outline }, radius * 0.015 * grid,
@@ -1683,6 +1693,8 @@ namespace {
                 if (f.pos < end) body.fixups.push_back(f);
             }
         }
+        std::vector<Quad> quads;     // the condition's own pieces (lit windows, snowflakes), drawn with the band
+        if (look != Look::day && base_radius > 0) dress_look(b, body, look, lo, base_radius, quads);
         // Texture off, sync, opaque z-buffered without fog, shade color.
         for (uint32_t w : { 0xD7000000u, 0xFFFFFFFFu, 0xE7000000u, 0u, 0xE200001Cu, 0x0C192230u, 0xFCFFFFFFu, 0xFFFE7C38u }) {
             add32(body.bytes, w);
@@ -1722,6 +1734,36 @@ namespace {
                 add32(body.bytes, tri(b0, b1, t1));
             }
         }
+        // The condition's quads, 15 a load (60 vertices), both windings as the band.
+        for (size_t q0 = 0; q0 < quads.size(); q0 += per_load) {
+            const size_t n = std::min(per_load, quads.size() - q0);
+            const uint32_t first = uint32_t(verts.size());
+            for (size_t k = 0; k < n; k++) {
+                const Quad& q = quads[q0 + k];
+                for (const auto& p : q.p) {
+                    for (int a = 0; a < 3; a++) add16(verts, uint16_t(int16_t(std::clamp(std::lround(p[a]), -32768L, 32767L))));
+                    add16(verts, 0);
+                    add16(verts, 0);
+                    add16(verts, 0);
+                    verts.push_back(uint8_t(q.color[0]));
+                    verts.push_back(uint8_t(q.color[1]));
+                    verts.push_back(uint8_t(q.color[2]));
+                    verts.push_back(0xFF);
+                }
+            }
+            const uint32_t count = uint32_t(4 * n);
+            loads.push_back({ body.bytes.size() + 4, first });
+            add32(body.bytes, 0x01000000 | (count << 12) | (count << 1));
+            add32(body.bytes, 0);
+            auto tri = [](uint32_t a, uint32_t b2, uint32_t c) { return (a * 2 << 16) | (b2 * 2 << 8) | (c * 2); };
+            for (uint32_t k = 0; k < uint32_t(n); k++) {
+                uint32_t v = 4 * k;
+                add32(body.bytes, 0x06000000 | tri(v, v + 1, v + 2));
+                add32(body.bytes, tri(v, v + 2, v + 3));
+                add32(body.bytes, 0x06000000 | tri(v, v + 2, v + 1));
+                add32(body.bytes, tri(v, v + 3, v + 2));
+            }
+        }
         add32(body.bytes, 0xD7000002);                  // texture on, as the lists end
         add32(body.bytes, 0xFFFFFFFF);
         for (uint32_t w : restore_state) add32(body.bytes, w);
@@ -1733,6 +1775,378 @@ namespace {
         m.dist[0] = model->dist[0];
         m.flags[0] = model->flags[0];
         b.models.push_back(std::move(m));
+    }
+
+    // A SNOW or NIGHT version's diorama (docs/sfrush_ps1.md#snow-and-night-dioramas): body (a copy of the diorama's
+    // commands) is pointed at recolored copies of its vertices and TLUTs, and `quads` gets the condition's pieces.
+    // Snow: the up-facing ground's textures go snow white, the rest a little colder, the buildings' roofs (drawn with
+    // their window textures) are redrawn as snow, and flakes float over the island. Night: the PS1's night darkening
+    // (bluer, the route kept lit), and lights in the textures themselves (copied texels pointing at a spare TLUT entry
+    // set to window light): some of the buildings' window texels, and scattered texels of the city ground.
+    void dress_look(Builder& b, Body& body, Look look, double lo, double radius, std::vector<Quad>& quads) {
+        namespace dl = rush2::diorama_look;
+        using V = std::array<double, 3>;
+        std::map<size_t, const Fixup*> at;
+        for (const Fixup& f : body.fixups) at[f.pos] = &f;
+        auto source = [&](const Fixup& f) { return b.sources[size_t(f.ref.index)].second + f.ref.offset; };
+
+        // Pass 1: the vertices each load reads, copied, and how far each copy faces up (the most of the triangles that
+        // use it); the walls of textured triangles above the ground (the buildings) for the windows.
+        Bytes copy;
+        std::vector<std::pair<size_t, uint32_t>> moved;      // (body offset of the address word, offset in copy)
+        std::vector<double> up;                              // per copied vertex
+        std::vector<uint8_t> textured;                       // per copied vertex: drawn by a textured triangle
+        std::vector<V> pos;
+        // Per TLUT (body offset of its SETTIMG's address word): triangles drawn with it, and how many face up.
+        std::map<size_t, std::pair<int, int>> tlut_use;
+        size_t tlut = 0, last_timg = 0;
+        bool texture_on = true;                              // the game draws models with texturing on
+        // Per texel load (body offset of its SETTIMG's address word): its render tile, the TLUT it is drawn with and
+        // how its triangles face.
+        struct TexUse {
+            size_t tlut = 0;
+            bool tluts = false;                              // drawn with more than one TLUT
+            uint32_t fmt = 0, siz = 0, line = 0, w = 0, h = 0, bytes = 0;
+            int tris = 0, up = 0, walls = 0;
+        };
+        std::map<size_t, TexUse> tex_use;
+        std::map<size_t, uint32_t> timg_siz;
+        size_t cur_tex = 0;
+        struct Tile { uint32_t fmt = 0, siz = 0, line = 0, w = 0, h = 0; } tile0;
+        std::array<int, 64> slot{};
+        slot.fill(-1);
+        // A triangle: corners, normal, mean shade, the texture it is drawn with (0: none) and where its indices are
+        // (body offset of the word, 0 for G_TRI1's / G_TRI2's first, 1 for G_TRI2's second).
+        struct Tri { V a, b, c, n; dl::Rgb color; size_t tex; size_t at; };
+        std::vector<Tri> tris;
+        for (size_t o = 0; o + 8 <= body.bytes.size(); o += 8) {
+            uint32_t w0 = u32(body.bytes, o), w1 = u32(body.bytes, o + 4);
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op == 0xD7) texture_on = (w0 & 2) != 0;
+            if (op == 0xFD) {
+                last_timg = o + 4;
+                timg_siz[o + 4] = (w0 >> 19) & 3;
+            }
+            if (op == 0xF0) tlut = last_timg;
+            if (op == 0xF3) {
+                cur_tex = last_timg;
+                tex_use[cur_tex].bytes = ((((w1 >> 12) & 0xFFF) + 1) * (4u << timg_siz[cur_tex])) / 8;
+            }
+            // The render tile (tile 0) as it stands: a list sets it only when it changes, so a texture takes the
+            // settings in force when its triangles are drawn.
+            if (op == 0xF5 && ((w1 >> 24) & 7) == 0) {
+                tile0.fmt = (w0 >> 21) & 7;
+                tile0.siz = (w0 >> 19) & 3;
+                tile0.line = (w0 >> 9) & 0x1FF;
+            }
+            if (op == 0xF2 && ((w1 >> 24) & 7) == 0) {
+                tile0.w = ((w1 >> 12) & 0xFFF) / 4 - ((w0 >> 12) & 0xFFF) / 4 + 1;
+                tile0.h = (w1 & 0xFFF) / 4 - (w0 & 0xFFF) / 4 + 1;
+            }
+            if (op == 0x01) {
+                auto f = at.find(o + 4);
+                if (f == at.end() || f->second->ref.load) continue;
+                uint32_t n = (w0 >> 12) & 0xFF, end = (w0 >> 1) & 0x7F;
+                size_t from = source(*f->second);
+                moved.push_back({ o + 4, uint32_t(copy.size()) });
+                for (uint32_t k = 0; k < n; k++) {
+                    copy.insert(copy.end(), b.out.begin() + from + k * 16, b.out.begin() + from + k * 16 + 16);
+                    pos.push_back({ double(s16(b.out, from + k * 16)), double(s16(b.out, from + k * 16 + 2)),
+                                    double(s16(b.out, from + k * 16 + 4)) });
+                    up.push_back(0.0);
+                    textured.push_back(0);
+                    if (end >= n && end - n + k < slot.size()) slot[end - n + k] = int(pos.size() - 1);
+                }
+            }
+            auto tri = [&](uint32_t w, size_t where) {
+                int i0 = slot[((w >> 16) & 0xFF) / 2 % 64], i1 = slot[((w >> 8) & 0xFF) / 2 % 64], i2 = slot[(w & 0xFF) / 2 % 64];
+                if (i0 < 0 || i1 < 0 || i2 < 0) return;
+                const V& a = pos[size_t(i0)];
+                const V& b2 = pos[size_t(i1)];
+                const V& c = pos[size_t(i2)];
+                V e1{ b2[0] - a[0], b2[1] - a[1], b2[2] - a[2] }, e2{ c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+                V n{ e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+                double l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (l < 1e-9) return;
+                n = { n[0] / l, n[1] / l, n[2] / l };
+                for (int i : { i0, i1, i2 }) {
+                    up[size_t(i)] = std::max(up[size_t(i)], std::abs(n[1]));
+                    if (texture_on) textured[size_t(i)] = 1;
+                }
+                if (texture_on && tlut != 0) {
+                    auto& u = tlut_use[tlut];
+                    u.first++;
+                    if (std::abs(n[1]) > 0.7) u.second++;
+                }
+                if (texture_on && cur_tex != 0) {
+                    TexUse& u = tex_use[cur_tex];
+                    if (u.tlut != 0 && u.tlut != tlut) u.tluts = true;
+                    if (u.tris > 0 && (u.fmt != tile0.fmt || u.siz != tile0.siz || u.line != tile0.line || u.h != tile0.h)) {
+                        u.tluts = true;                      // drawn two ways: left alone
+                    }
+                    u.tlut = tlut;
+                    u.fmt = tile0.fmt;
+                    u.siz = tile0.siz;
+                    u.line = tile0.line;
+                    u.w = tile0.w;
+                    u.h = tile0.h;
+                    u.tris++;
+                    if (std::abs(n[1]) > 0.7) u.up++;
+                    if (std::abs(n[1]) < 0.3) u.walls++;
+                }
+                dl::Rgb color{ 0, 0, 0 };
+                for (int i : { i0, i1, i2 }) for (int k = 0; k < 3; k++) color[size_t(k)] += copy[size_t(i) * 16 + 12 + size_t(k)] / 3;
+                tris.push_back({ a, b2, c, n, color, texture_on ? cur_tex : 0, where });
+            };
+            if (op == 0x05) tri(w0 & 0xFFFFFF, o);
+            if (op == 0x06) tri(w0 & 0xFFFFFF, o), tri(w1 & 0xFFFFFF, o + 4);
+        }
+        if (pos.empty()) return;
+        // The ground's height: the lower third of the up-facing triangles (the island's top; roofs are fewer and higher).
+        std::vector<double> flat;
+        for (const Tri& t : tris) if (std::abs(t.n[1]) > 0.8) flat.push_back((t.a[1] + t.b[1] + t.c[1]) / 3);
+        std::sort(flat.begin(), flat.end());
+        const double ground = flat.empty() ? lo : flat[flat.size() / 3];
+        const uint32_t seed = look == Look::snow ? 0x5A0Bu : 0x7E1Fu;
+
+        // Vertex colors. A textured triangle's color is its texel times its shade, so where the TLUT carries the
+        // condition (below) the shade is left as it is: night darkened twice was near black in game.
+        for (size_t v = 0; v < pos.size(); v++) {
+            uint8_t* c = &copy[v * 16 + 12];
+            dl::Rgb rgb{ c[0], c[1], c[2] }, out;
+            if (dl::is_route_red(rgb)) continue;
+            double w = std::clamp((up[v] - 0.55) / 0.35, 0.0, 1.0);
+            if (textured[v]) {
+                if (look == Look::night) continue;
+                out = dl::mix(rgb, { 255, 255, 255 }, w * 0.5);     // snow: shaded slopes a little lighter
+            }
+            else if (look == Look::night) {
+                out = dl::night(rgb);
+            }
+            else {
+                // Snow lies on what faces up, in patches about a tenth of the island across.
+                double patch = dl::value_noise(pos[v][0] / (radius * 0.2), pos[v][2] / (radius * 0.2), seed);
+                double tone = dl::value_noise(pos[v][0] / (radius * 0.08), pos[v][2] / (radius * 0.08), seed + 1);
+                out = dl::mix(dl::snow_cold(rgb), dl::snow_white(tone), w * (0.55 + 0.45 * patch));
+            }
+            c[0] = uint8_t(out[0]);
+            c[1] = uint8_t(out[1]);
+            c[2] = uint8_t(out[2]);
+        }
+        // The CI textures by TLUT load, read back, and which are the buildings' (a wall color with a grid of darker
+        // window texels: two or three entries, the darkest 5-45% of the texels, drawn mostly on walls) and which the
+        // city ground's (a large grey texture drawn on what faces up).
+        auto tlut_count = [&](size_t timg) {                 // entries the LOADTLUT after SETTIMG `timg` loads
+            for (size_t k = timg + 4; k + 8 <= body.bytes.size() && body.bytes[k] != 0xFD; k += 8) {
+                if (body.bytes[k] == 0xF0) return ((u32(body.bytes, k + 4) >> 14) & 0x3FF) + 1;
+            }
+            return 0u;
+        };
+        auto tlut_color = [&](size_t timg, uint32_t k) {
+            size_t from = source(*at.at(timg));
+            uint16_t e = uint16_t(b.out[from + 2 * k] << 8 | b.out[from + 2 * k + 1]);
+            auto c5 = [](int v) { return (v << 3) | (v >> 2); };
+            return dl::Rgb{ c5((e >> 11) & 31), c5((e >> 6) & 31), c5((e >> 1) & 31) };
+        };
+        struct Indexed { size_t timg; const TexUse* use; std::vector<uint8_t> idx; uint32_t w = 0; bool building = false, city = false; uint8_t dark = 0; };
+        std::map<size_t, std::vector<Indexed>> by_tlut;
+        std::set<size_t> mixed;                              // TLUT loads with a texture this can't read
+        std::set<size_t> buildings;                          // texel loads of the buildings' textures
+        for (const auto& [timg, u] : tex_use) {
+            if (u.tlut == 0) continue;
+            auto f = at.find(timg);
+            const uint32_t bits = 4u << u.siz;
+            const uint32_t w = u.line ? u.line * 64 / bits : 0;
+            if (u.tluts || u.fmt != 2 || u.siz > 1 || f == at.end() || f->second->ref.load || w == 0 || u.h == 0 ||
+                size_t(w) * u.h * bits / 8 > u.bytes || at.find(u.tlut) == at.end() || tlut_count(u.tlut) == 0) {
+                mixed.insert(u.tlut);
+                continue;
+            }
+            size_t from = source(*f->second);
+            const uint32_t count = tlut_count(u.tlut);
+            if (from + size_t(w) * u.h * bits / 8 > b.out.size() || source(*at.at(u.tlut)) + count * 2 > b.out.size()) {
+                mixed.insert(u.tlut);
+                continue;
+            }
+            Indexed t{ timg, &u, {}, w };
+            for (uint32_t i = 0; i < w * u.h; i++) {
+                t.idx.push_back(bits == 8 ? b.out[from + i] : uint8_t((b.out[from + i / 2] >> (i % 2 ? 0 : 4)) & 15));
+            }
+            std::map<uint8_t, int> n;
+            bool range = true;
+            for (uint8_t i : t.idx) { n[i]++; range = range && i < count; }
+            if (!range) { mixed.insert(u.tlut); continue; }
+            double dark_l = 1e9;
+            uint8_t main = 0;
+            int main_n = -1;
+            for (const auto& [i, c] : n) {
+                double l = dl::luminance(tlut_color(u.tlut, i));
+                if (l < dark_l) { dark_l = l; t.dark = i; }
+                if (c > main_n) { main_n = c; main = i; }
+            }
+            const double share = double(n[t.dark]) / t.idx.size();
+            t.building = u.walls * 10 >= u.tris * 7 && n.size() >= 2 && n.size() <= 3 && share >= 0.05 && share <= 0.45 &&
+                         dl::luminance(tlut_color(u.tlut, main)) - dark_l > 30;
+            double sat = 0;
+            for (uint8_t i : t.idx) {
+                dl::Rgb c = tlut_color(u.tlut, i);
+                sat += std::max({ c[0], c[1], c[2] }) - std::min({ c[0], c[1], c[2] });
+            }
+            sat /= double(t.idx.size());
+            t.city = u.up * 10 >= u.tris * 7 && t.idx.size() >= 512 && sat < 40;
+            if (t.building) buildings.insert(timg);
+            by_tlut[u.tlut].push_back(std::move(t));
+        }
+
+        // Night lights: a building texture gets about 45% of its window texels lit, the city ground about 6% of its
+        // texels, scattered. The lit texels are copies pointing at a TLUT entry none of that TLUT's textures uses,
+        // which the TLUT copy below sets to window light (no spare entry: no lights in that TLUT's textures).
+        std::map<size_t, uint32_t> lit_entry;                // TLUT load -> its spare entry, set to window light
+        if (look == Look::night) {
+            for (auto& [timg, texs] : by_tlut) {
+                const uint32_t count = tlut_count(timg);
+                if (mixed.count(timg) || count == 0 || count > 256) continue;
+                std::vector<bool> used(count, false);
+                for (const Indexed& t : texs) for (uint8_t i : t.idx) used[i] = true;
+                uint32_t spare = count;
+                for (uint32_t k = 0; k < count && spare == count; k++) if (!used[k]) spare = k;
+                if (spare == count) continue;
+                bool any = false;
+                for (const Indexed& t : texs) {
+                    if (!t.building && !t.city) continue;
+                    const TexUse& u = *t.use;
+                    std::vector<uint8_t> idx = t.idx;
+                    for (uint32_t i = 0; i < idx.size(); i++) {
+                        double r = dl::hash01(int64_t(i % t.w), int64_t(i / t.w) * 131 + int64_t(t.timg % 977), seed);
+                        if (t.building ? (idx[i] == t.dark && r < 0.45) : r < 0.06) idx[i] = uint8_t(spare);
+                    }
+                    const uint32_t bits = 4u << u.siz;
+                    moved.push_back({ t.timg, uint32_t(copy.size()) });
+                    if (bits == 8) {
+                        copy.insert(copy.end(), idx.begin(), idx.end());
+                    } else {
+                        for (size_t i = 0; i < idx.size(); i += 2) {
+                            copy.push_back(uint8_t((idx[i] << 4) | (i + 1 < idx.size() ? idx[i + 1] : 0)));
+                        }
+                    }
+                    // The rest of the load (a block longer than the tile) as it was.
+                    size_t from = source(*at.at(t.timg)), have = idx.size() * bits / 8;
+                    copy.insert(copy.end(), b.out.begin() + from + have, b.out.begin() + from + u.bytes);
+                    while (copy.size() % 8) copy.push_back(0);
+                    any = true;
+                }
+                if (any) lit_entry[timg] = spare;
+            }
+        }
+
+        // Snow on the roofs: the buildings' roofs (up-facing triangles above the ground whose corners are all corners
+        // of the buildings' walls, the triangles drawn with a window texture) are left out of the list (their indices
+        // made one vertex, so they draw nothing) and redrawn with the band as snow: the PS1's snow white, a tone per
+        // roof, darkened as the roof's own shade is.
+        if (look == Look::snow) {
+            std::set<std::array<long, 3>> wall_corners;
+            auto key = [](const V& p) { return std::array<long, 3>{ std::lround(p[0]), std::lround(p[1]), std::lround(p[2]) }; };
+            for (const Tri& t : tris) {
+                if (t.tex == 0 || !buildings.count(t.tex)) continue;
+                for (const V* p : { &t.a, &t.b, &t.c }) wall_corners.insert(key(*p));
+            }
+            for (const Tri& t : tris) {
+                if (std::abs(t.n[1]) <= 0.7 || dl::is_route_red(t.color)) continue;
+                if (!wall_corners.count(key(t.a)) || !wall_corners.count(key(t.b)) || !wall_corners.count(key(t.c))) continue;
+                if (std::min({ t.a[1], t.b[1], t.c[1] }) <= ground + radius * 0.005) continue;
+                body.bytes[t.at + 1] = body.bytes[t.at + 3];
+                body.bytes[t.at + 2] = body.bytes[t.at + 3];
+                Quad roof;
+                roof.p = { t.a, t.b, t.c, t.c };
+                double tone = dl::hash01(std::llround(t.a[0] / 8), std::llround(t.a[2] / 8), seed);
+                double shade = std::clamp(dl::luminance(t.color) / 230.0, 0.75, 1.0);
+                dl::Rgb c = dl::snow_white(0.55 + 0.45 * tone);
+                roof.color = { int(c[0] * shade), int(c[1] * shade), int(c[2] * shade) };
+                quads.push_back(roof);
+            }
+        }
+
+        // The TLUTs: every SETTIMG a LOADTLUT reads (before the next SETTIMG), its RGBA5551 entries copied and recolored.
+        for (size_t o = 0; o + 8 <= body.bytes.size(); o += 8) {
+            if (body.bytes[o] != 0xFD) continue;
+            auto f = at.find(o + 4);
+            if (f == at.end() || f->second->ref.load) continue;
+            uint32_t count = 0;
+            for (size_t k = o + 8; k + 8 <= body.bytes.size() && body.bytes[k] != 0xFD; k += 8) {
+                if (body.bytes[k] == 0xF0) { count = ((u32(body.bytes, k + 4) >> 14) & 0x3FF) + 1; break; }
+            }
+            if (count == 0 || count > 256) continue;
+            size_t from = source(*f->second);
+            if (from + count * 2 > b.out.size()) continue;
+            moved.push_back({ o + 4, uint32_t(copy.size()) });
+            // Snow: a texture mostly drawn on what faces up (the ground's gravel and grass) goes snow white, its light
+            // and dark kept as lighter and darker snow (water blue stays water); the others (walls, the base's earth) are
+            // frosted a little.
+            auto use = tlut_use.find(o + 4);
+            const bool ground = use != tlut_use.end() && use->second.second * 2 >= use->second.first;
+            auto lit = lit_entry.find(o + 4);
+            for (uint32_t k = 0; k < count; k++) {
+                uint16_t e = uint16_t(b.out[from + 2 * k] << 8 | b.out[from + 2 * k + 1]);
+                auto c5 = [](int v) { return (v << 3) | (v >> 2); };
+                dl::Rgb rgb{ c5((e >> 11) & 31), c5((e >> 6) & 31), c5((e >> 1) & 31) }, out = rgb;
+                if (lit != lit_entry.end() && k == lit->second) {
+                    out = dl::window_light(0.3);
+                } else if (!dl::is_route_red(rgb)) {
+                    if (look == Look::night) out = dl::night(rgb);
+                    else if (ground && !(rgb[2] > rgb[0] * 1.3 + 8 && rgb[2] > rgb[1] * 1.05)) out =dl::mix(dl::snow_cold(rgb), dl::snow_white(0.3 + 0.7 * dl::luminance(rgb) / 255), 0.8);
+                    else out = dl::mix(dl::snow_cold(rgb), dl::snow_white(0.7), 0.3);
+                }
+                // The lit entry was unused, often 0 (transparent): it is made opaque.
+                const bool lit_here = lit != lit_entry.end() && k == lit->second;
+                uint16_t ne = uint16_t(((out[0] >> 3) << 11) | ((out[1] >> 3) << 6) | ((out[2] >> 3) << 1) | (lit_here ? 1 : (e & 1)));
+                copy.push_back(uint8_t(ne >> 8));
+                copy.push_back(uint8_t(ne));
+            }
+            while (copy.size() % 8) copy.push_back(0);
+        }
+        int raw = b.add_raw(copy);
+        for (const auto& [pos_in_body, off] : moved) {
+            for (Fixup& f : body.fixups) {
+                if (f.pos == pos_in_body) f.ref = { false, raw, off };
+            }
+        }
+
+        if (look == Look::snow) {
+            // Flakes over the island, as in a snow globe: three crossed squares each (one always faces the camera
+            // enough), between the ground and half the island's radius above it.
+            double x0 = 1e30, x1 = -1e30, z0 = 1e30, z1 = -1e30;
+            for (const V& p : pos) {
+                x0 = std::min(x0, p[0]); x1 = std::max(x1, p[0]);
+                z0 = std::min(z0, p[2]); z1 = std::max(z1, p[2]);
+            }
+            const double size = radius * 0.011;
+            int placed = 0;
+            for (int k = 0; k < 2000 && placed < 160; k++) {
+                double x = x0 + (x1 - x0) * dl::hash01(k, 1, seed), z = z0 + (z1 - z0) * dl::hash01(k, 2, seed);
+                double y = ground + radius * (0.04 + 0.5 * dl::hash01(k, 3, seed));
+                // Over the island only: near some vertex of it.
+                bool over = false;
+                for (size_t v = 0; v < pos.size() && !over; v += 3) {
+                    over = std::abs(pos[v][0] - x) < radius * 0.12 && std::abs(pos[v][2] - z) < radius * 0.12;
+                }
+                if (!over) continue;
+                placed++;
+                dl::Rgb color = dl::snow_white(0.75 + 0.25 * dl::hash01(k, 4, seed));
+                for (int plane = 0; plane < 3; plane++) {
+                    Quad f;
+                    for (int c = 0; c < 4; c++) {
+                        double u = (c == 0 || c == 3) ? -size : size, v = c < 2 ? -size : size;
+                        V p{ x, y, z };
+                        if (plane == 0) { p[0] += u; p[1] += v; }
+                        else if (plane == 1) { p[2] += u; p[1] += v; }
+                        else { p[0] += u; p[2] += v; }
+                        f.p[size_t(c)] = p;
+                    }
+                    f.color = color;
+                    quads.push_back(f);
+                }
+            }
+        }
     }
 }
 
@@ -1752,8 +2166,8 @@ bool rush2::track1::extend_menu_container(const std::vector<uint8_t>& container,
             // SF Rush's SNOW, NIGHT and STUNT): N64, ARCADE, SNOW, NIGHT and STUNT.
             add_band_model(b, model, model + "N", rush2::track2049::version_ring_n64);
             add_band_model(b, model, model + "A", rush2::track2049::version_ring_arcade);
-            add_band_model(b, model, model + "S", rush2::track2049::version_ring_snow);
-            add_band_model(b, model, model + "K", rush2::track2049::version_ring_night);
+            add_band_model(b, model, model + "S", rush2::track2049::version_ring_snow, Look::snow);
+            add_band_model(b, model, model + "K", rush2::track2049::version_ring_night, Look::night);
             add_band_model(b, model, model + "T", rush2::track2049::version_ring_stunt);
             Bytes texels, palette;
             build_logo(t, texels, palette);

@@ -13,6 +13,7 @@
 #include <cmath>
 #include <fstream>
 
+#include "diorama_look.h"
 #include "sfrush_ps1.h"
 #include "texture_upscale.h"
 #include "clipper2/clipper.h"
@@ -40,6 +41,7 @@ namespace {
     constexpr int tex_size = 64;
     struct Paint {
         std::vector<uint8_t> px = std::vector<uint8_t>(tex_size * tex_size * 4, 255);
+        std::vector<uint8_t> lit = std::vector<uint8_t>(tex_size * tex_size, 0);   // lit windows (kept bright at night)
         uint32_t seed;
         explicit Paint(uint32_t s) : seed(s * 2654435761u + 12345u) {}
         double rnd() {
@@ -61,6 +63,11 @@ namespace {
         }
         void rect(int x0, int y0, int w, int h, std::array<int, 3> c) {
             for (int y = y0; y < y0 + h; y++) for (int x = x0; x < x0 + w; x++) set(x, y, c);
+        }
+        void light(int x0, int y0, int w, int h) {
+            for (int y = y0; y < y0 + h; y++) for (int x = x0; x < x0 + w; x++) {
+                lit[size_t(((y % tex_size) + tex_size) % tex_size * tex_size + ((x % tex_size) + tex_size) % tex_size)] = 1;
+            }
         }
         // Every texel jittered by up to +-amount (the same for the three channels).
         void noise(int amount) {
@@ -156,16 +163,18 @@ namespace {
         return p;
     }
 
-    // A wall: `color`, four floors of four windows, the odd one lit.
-    Paint wall(uint32_t seed, std::array<int, 3> color, std::array<int, 3> glass, int cols = 4, int rows = 4) {
+    // A wall: `color`, four floors of four windows, the odd one lit (`lit_share` of them: more at night).
+    Paint wall(uint32_t seed, std::array<int, 3> color, std::array<int, 3> glass, int cols = 4, int rows = 4, double lit_share = 0.12) {
         Paint p(seed);
         p.rect(0, 0, tex_size, tex_size, color);
         p.noise(8);
         int cw = tex_size / cols, rh = tex_size / rows;
         for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) {
             int x = c * cw + cw / 4, y = r * rh + rh / 4, w = cw / 2, h = rh / 2 + 1;
-            std::array<int, 3> g = p.rnd() < 0.12 ? std::array<int, 3>{ 230, 220, 150 } : mix(glass, { 0, 0, 0 }, p.rnd() * 0.3);
+            bool on = p.rnd() < lit_share;
+            std::array<int, 3> g = on ? std::array<int, 3>{ 230, 220, 150 } : mix(glass, { 0, 0, 0 }, p.rnd() * 0.3);
             p.rect(x, y, w, h, g);
+            if (on) p.light(x, y, w, h);
             p.rect(x, y + h, w, 1, mix(color, { 255, 255, 255 }, 0.35));   // the sill
             p.rect(x - 1, y, 1, h, mix(color, { 0, 0, 0 }, 0.25));
         }
@@ -203,12 +212,64 @@ namespace {
     }
 
     // The pyramid's skin: pale concrete with rows of narrow windows.
-    Paint pyramid_skin() {
+    Paint pyramid_skin(double lit_share = 0) {
         Paint p(9);
         p.rect(0, 0, tex_size, tex_size, { 214, 208, 196 });
         for (int y = 2; y < tex_size; y += 6) for (int x = 1; x < tex_size; x += 4) p.rect(x, y, 2, 3, { 70, 80, 96 });
         p.noise(6);
+        if (lit_share > 0) {      // at night (after the noise, so the day's texture is unchanged)
+            Paint pick(90);
+            for (int y = 2; y < tex_size; y += 6) for (int x = 1; x < tex_size; x += 4) {
+                if (pick.rnd() < lit_share) { p.rect(x, y, 2, 3, { 230, 220, 150 }); p.light(x, y, 2, 3); }
+            }
+        }
         return p;
+    }
+
+    // Value noise that wraps every `period` texels (the paints tile), 0..1.
+    double tile_noise(double x, double y, int period, uint32_t seed) {
+        int ix = int(std::floor(x)), iy = int(std::floor(y));
+        double u = x - ix, v = y - iy;
+        u = u * u * (3 - 2 * u);
+        v = v * v * (3 - 2 * v);
+        auto h = [&](int a, int b) { return rush2::diorama_look::hash01(((a % period) + period) % period, ((b % period) + period) % period, seed); };
+        return (h(ix, iy) * (1 - u) + h(ix + 1, iy) * u) * (1 - v) + (h(ix, iy + 1) * (1 - u) + h(ix + 1, iy + 1) * u) * v;
+    }
+
+    // The SNOW / NIGHT version's paints (docs/sfrush_ps1.md#snow-and-night-dioramas). Snow: what faces up (ground,
+    // grass, roofs, trees, decks) under the PS1's snow white in patches, `cover` of it; the rest a little colder.
+    // Night: the PS1's night darkening, lit windows kept and the route's red kept.
+    void dress_paints(std::map<std::string, Paint>& paints, int look) {
+        namespace dl = rush2::diorama_look;
+        const std::map<std::string, double> cover = {
+            { "city", 0.8 }, { "grass", 0.9 }, { "roof_flat", 0.95 }, { "roof_tan", 0.95 }, { "tiles_red", 0.85 },
+            { "tiles_green", 0.85 }, { "tiles_grey", 0.85 }, { "foliage", 0.7 }, { "asphalt", 0.5 }, { "dome", 0.5 },
+        };
+        uint32_t seed = 0x5A0Bu;
+        for (auto& [name, p] : paints) {
+            auto it = cover.find(name);
+            seed++;
+            for (int y = 0; y < tex_size; y++) for (int x = 0; x < tex_size; x++) {
+                dl::Rgb c = p.get(x, y), out;
+                if (dl::is_route_red(c)) continue;
+                if (look == 2) {
+                    // The city seen from above gets its lights too: about 6% of its texels, scattered, as the N64
+                    // dioramas' city ground (src/rush1/track1_convert.cpp dress_look).
+                    if (name == "city" && dl::hash01(x, y, seed + 99) < 0.06) p.lit[size_t(y * tex_size + x)] = 1;
+                    out = p.lit[size_t(y * tex_size + x)] ?dl::window_light(dl::hash01(x / 4, y / 4, seed)) : dl::night(c);
+                }
+                else if (it != cover.end()) {
+                    double patch = tile_noise(x / 16.0, y / 16.0, tex_size / 16, seed);
+                    double tone = tile_noise(x / 4.0, y / 4.0, tex_size / 4, seed + 7);
+                    double amount = it->second * std::clamp((patch - 0.15) / 0.35, 0.0, 1.0);
+                    out = dl::mix(dl::snow_cold(c), dl::snow_white(tone), amount);
+                }
+                else {
+                    out = dl::snow_cold(c);
+                }
+                p.set(x, y, out);
+            }
+        }
     }
 
     // Columns of warm stone (the Palace of Fine Arts' rotunda and colonnade), dark between them.
@@ -432,7 +493,7 @@ namespace {
 }
 
 bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, const std::filesystem::path& spec_path,
-                        std::vector<uint8_t>& out, std::string& log) {
+                        std::vector<uint8_t>& out, std::string& log, int look) {
     char line[256];
     Spec s;
     json j;
@@ -522,7 +583,7 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
     m.paints.emplace("water", water());
     m.paints.emplace("route", route());
     m.paints.emplace("foliage", foliage());
-    m.paints.emplace("pyramid", pyramid_skin());
+    m.paints.emplace("pyramid", pyramid_skin(look == 2 ? 0.3 : 0.0));
     m.paints.emplace("colonnade", colonnade());
     m.paints.emplace("dome", dome());
     m.paints.emplace("steel", steel());
@@ -537,13 +598,15 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
     };
     uint32_t seed = 20;
     for (const auto& [name, c] : walls) {
-        m.paints.emplace("wall_" + name, wall(seed++, c.first, c.second, name == "glass" ? 8 : 4, name == "glass" ? 8 : 4));
+        m.paints.emplace("wall_" + name, wall(seed++, c.first, c.second, name == "glass" ? 8 : 4, name == "glass" ? 8 : 4,
+                                              look == 2 ? 0.45 : 0.12));
     }
     m.paints.emplace("roof_flat", roof(40, { 120, 116, 110 }));
     m.paints.emplace("roof_tan", roof(41, { 170, 150, 120 }));
     m.paints.emplace("tiles_red", tiles(42, { 170, 40, 30 }));
     m.paints.emplace("tiles_green", tiles(43, { 50, 130, 80 }));
     m.paints.emplace("tiles_grey", tiles(44, { 110, 110, 116 }));
+    if (look != 0) dress_paints(m.paints, look);
 
     // The route: a closed loop, thinned to a point where it turns or every route_step meters.
     std::vector<V3> route;
@@ -1041,6 +1104,39 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
             }
         } else {
             log += "diorama: unknown landmark " + kind + "\n";
+        }
+    }
+
+    if (look == 1) {
+        // Flakes over the island, as the N64 dioramas' SNOW versions have (src/rush1/track1_convert.cpp dress_look):
+        // small tetrahedra (seen from any side in 4 triangles), between the ground and half the island's radius above.
+        namespace dl = rush2::diorama_look;
+        Paint flake(16);
+        flake.rect(0, 0, tex_size, tex_size, dl::snow_white(0.9));
+        m.paints.emplace("flake", flake);
+        double area = 0, x0 = 1e30, x1 = -1e30, z0 = 1e30, z1 = -1e30;
+        for (size_t i = 0; i < s.outline.size(); i++) {
+            const V2& a = s.outline[i];
+            const V2& b = s.outline[(i + 1) % s.outline.size()];
+            area += a[0] * b[1] - b[0] * a[1];
+            x0 = std::min(x0, a[0]); x1 = std::max(x1, a[0]); z0 = std::min(z0, a[1]); z1 = std::max(z1, a[1]);
+        }
+        const double radius = std::sqrt(std::abs(area) / 2 / pi), size = radius * 0.014;
+        int placed = 0;
+        for (int k = 0; k < 4000 && placed < 80; k++) {
+            double x = x0 + (x1 - x0) * dl::hash01(k, 1, 0x5A0Bu), z = z0 + (z1 - z0) * dl::hash01(k, 2, 0x5A0Bu);
+            if (!inside(s.outline, { x, z })) continue;
+            placed++;
+            double y = s.ground + radius * (0.06 + 0.5 * dl::hash01(k, 3, 0x5A0Bu));
+            V3 c{ x, y, z };
+            std::array<V3, 4> t = { V3{ x, y + size, z }, V3{ x + size * 0.94, y - size / 3, z },
+                                    V3{ x - size * 0.47, y - size / 3, z + size * 0.82 }, V3{ x - size * 0.47, y - size / 3, z - size * 0.82 } };
+            for (int f = 0; f < 4; f++) {
+                std::vector<V3> tri;
+                for (int v = 0; v < 4; v++) if (v != f) tri.push_back(t[size_t(v)]);
+                V3 mid{ (tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3, (tri[0][2] + tri[1][2] + tri[2][2]) / 3 };
+                m.poly("flake", tri, { { 0, 0 }, { 1, 0 }, { 0, 1 } }, sub(mid, c));
+            }
         }
     }
 

@@ -10,7 +10,9 @@ set "REPO=%CD%"
 if not exist "%HERE%out" mkdir "%HERE%out"
 
 call tools\vsenv.bat clang-cl /nologo /O2 /std:c++20 /EHsc -Wno-everything /I include ^
-    "%HERE%main.cpp" src\rush1\track1_convert.cpp /Fo"%HERE%out\\" /Fe"%HERE%out\track1_test.exe"
+    /I lib\Clipper2\CPP\Clipper2Lib\include /I lib\N64ModernRuntime\N64Recomp\include "%HERE%main.cpp" src\rush1\track1_convert.cpp ^
+    lib\Clipper2\CPP\Clipper2Lib\src\clipper.engine.cpp lib\Clipper2\CPP\Clipper2Lib\src\clipper.offset.cpp ^
+    lib\Clipper2\CPP\Clipper2Lib\src\clipper.rectclip.cpp /Fo"%HERE%out\\" /Fe"%HERE%out\track1_test.exe"
 if errorlevel 1 (
     popd
     exit /b 1

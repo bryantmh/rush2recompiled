@@ -3474,13 +3474,16 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     out[dir + "track.glb"] = g.bytes();
     // The track select diorama (docs/sfrush_ps1.md#track-select-diorama): hand-made round the AI path. Without it
     // (a broken layout file) the track select shows the route preview instead. Track 4's only: the versions of the N64
-    // courses show their course's diorama (src/rush2049/track2049_menu.cpp, as the SF Rush arcade versions do).
+    // courses show their course's diorama (src/rush2049/track2049_menu.cpp, as the SF Rush arcade versions do), dressed
+    // for snow or night (src/rush1/track1_convert.cpp add_band_model). Chinatown's SNOW and NIGHT dioramas are dressed
+    // the same way (docs/sfrush_ps1.md#snow-and-night-dioramas).
     std::string diorama_toml;
     if (tr.course == nullptr) {
         std::vector<std::array<double, 3>> route(m);
         for (size_t i = 0; i < m; i++) route[i] = gl(mid[i]);
         std::vector<uint8_t> diorama;
-        if (ps1::build_diorama(route, assets_dir / (std::string(track_id) + "_diorama.json"), diorama, log)) {
+        const int look = cond.condition == Condition::snow ? 1 : cond.condition == Condition::night ? 2 : 0;
+        if (ps1::build_diorama(route, assets_dir / (std::string(track_id) + "_diorama.json"), diorama, log, look)) {
             out[dir + "diorama.glb"] = std::move(diorama);
             diorama_toml = "diorama = \"diorama.glb\"\n";
         }

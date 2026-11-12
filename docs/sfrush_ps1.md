@@ -42,6 +42,7 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Game modes](#game-modes): [Explosive mode](#explosive-mode), [Time Sprint](#time-sprint)
 - [What the converter makes](#what-the-converter-makes)
 - [Track select diorama](#track-select-diorama)
+- [Snow and night dioramas](#snow-and-night-dioramas)
 - [Snow and night](#snow-and-night)
 - [Stunt track](#stunt-track)
 - [Music](#music)
@@ -803,6 +804,53 @@ the mod's source key, so editing it rebuilds the mod once):
   footprint or eaves reach past the island's edge, and trees off it. Keep it under 4,000 triangles (the custom-track converter's warning; the N64 ones have 740-2,400
   vertices): about 3,650 now.
 
+## Snow and night dioramas
+
+A SNOW or NIGHT version's track select diorama wears its condition (2026-11-12). The colors come from the PS1's own
+snow and night sets ([Snow and night](#snow-and-night), `tools/sfrush_ps1/snow_map.py`), in `include/diorama_look.h`:
+
+- **Night** (`snow_map.py check N`): unlike snow, the night set is a consistent recolor. A 4-bit day-color table
+  built from three tracks predicts the fourth's night texels to a median 16-19, against 39-41 for flat channel
+  gains. The dioramas use its shape as a formula (`night`): about half the saturation, then 0.27 / 0.28 / 0.42 of
+  each channel plus a little blue (its greys: 104 -> (20, 20, 38), 168 -> (45, 45, 71)). The route's red is left
+  lit. The PS1's lit windows average (216, 206, 126) (`window_light`, warm yellow to pale).
+- **Snow:** the snow set is painted by hand, not a recolor ([Snow and night](#snow-and-night)), so the dioramas
+  get a rule: snow lies on what faces up, in the PS1's new-snow color (`snow_white`, its 10th-90th percentile), in
+  soft patches; the rest takes the snow set's colder channel balance (`snow_cold`, x 1.08 / 1.09 / 1.27 at the same
+  brightness).
+- **The N64 courses' versions** (Golden Gate, Embarcadero, Market; `src/rush1/track1_convert.cpp` `dress_look`,
+  called by `add_band_model` for the S and K band models): each version model's list points at its own recolored
+  copies of the diorama's vertices and TLUTs (the texels stay shared). The ground (gravel, grass, water) is CI
+  textures times the vertex shade, so the condition goes on whichever of the two draws a triangle. Darkening both
+  multiplied night down to near black in game. A textured triangle's shade is kept (snow: lighter by up to half on
+  what faces up) and its TLUT is recolored; an untextured one's shade is recolored. Snow: a TLUT that at least half
+  of its triangles use facing up (the ground's) goes 80% to snow white, its light and dark kept as lighter and
+  darker snow, water-blue entries left as water; other TLUTs are frosted 30%. Untextured up-facing vertices go
+  snow white in patches about a tenth of the island across, and 160 flakes (three crossed squares each, 1.1% of the
+  island's radius) float up to half the radius above the ground, like a snow globe. Roofs: the up-facing triangles
+  above the ground whose corners are all corners of the buildings' walls are dropped from the list (their indices
+  made one vertex) and redrawn untextured in snow white, a tone per roof, shaded as the roof was. Night: TLUTs and
+  untextured shades through `night`, and lights in the textures themselves. Every CI texture is read back with the
+  render tile in force when its triangles draw (lists set tile 0 only when it changes, so a texture's own load is
+  often followed by no SETTILE or SETTILESIZE). A building texture (16 x 8 CI4: a wall color and a grid of window
+  texels, two or three entries, the darkest 5-45% of the texels, drawn on walls) gets 45% of its window texels lit;
+  the city ground (the 64 x 32 grey CI8 on what faces up) gets 6% of its texels lit, scattered. The lit texels are
+  a copy of the texture pointing at a TLUT entry none of its TLUT's textures uses, set to window light and made
+  opaque (the unused entry is usually 0, transparent). So the lights sit on the modeled windows. (Panes added as
+  geometry on the walls were rejected: they didn't line up with the textures' windows.)
+- **Trap:** the game draws models with texturing on and the dioramas' lists never turn it on themselves, so a
+  viewer that starts with texturing off shows them as white shaded plaster (`tools/menu_model_view.py` starts on).
+- **Chinatown** (`src/sfrush_ps1/ps1_diorama.cpp` `dress_paints`): its paints are made in code, so each is redone.
+  Snow: the up-facing paints (city ground, grass, roofs, tiles, foliage, deck, dome) get `cover` 50-95% snow in
+  wrapping noise patches, the rest `snow_cold`, plus 80 flakes as tetrahedra (it is near the 4,000-triangle
+  budget: 3,954). Night: walls light 45% of their windows (12% by day), the Transamerica pyramid 30% of its slots,
+  the city ground 6% of its texels (as the N64 ones' city), and everything else goes through `night`.
+- **Checking offline:** `tools/rush1/cpp_test/build.bat noref` builds the track select art into
+  `tools/rush1/cpp_test/out/asset3_rush1.bin`, and `python tools/menu_model_view.py <that> OUT.png R1TRACK3N R1TRACK3S
+  R1TRACK3K` draws a course's N64, SNOW and NIGHT models side by side (tracks 1-3 are the PS1's courses).
+  Chinatown: `tools/sfrush_ps1/cpp_test/build.bat OUT` and `tools/glb_view.py` on
+  `OUT/sfrush_ps1/tracks/chinatown_snow/diorama.glb`.
+
 ## Texture coordinates
 
 The PS1 point-samples: a face whose coordinates span texels 0 to 4 shows texels 0-3 whole. Rush 2 filters, so a
@@ -1064,8 +1112,8 @@ effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
   brightness and 25% turn snow white, and the same day color goes both ways: day grey (88, 88, 88) stays 63%, goes
   white 18%. A day-color table (4-bit bins, built from three tracks, tested on the fourth) is off by a median 24-30
   and over 48 on 23-31% of texels, its bins averaging white and bare into a muddy in-between; whether the face looks
-  up improves it by 1-2. So it can't snow the N64 dioramas; the PS1's snow texels can only be used where its own
-  pages are (Chinatown). The new snow's color: mean (195, 195, 223), 10th-90th percentile (173, 173, 198)-(222, 231,
+  up improves it by 1-2. So the snow dioramas use a rule instead ([Snow and night dioramas](#snow-and-night-dioramas)).
+  The new snow's color: mean (195, 195, 223), 10th-90th percentile (173, 173, 198)-(222, 231,
   255). **[V]**
 - **Night-only and day-only chunks:** the visible-chunk lists `track_draw_chunks` walks (static, in RUSH.EXE around
   0x8009C86C: u32 chunk id | flags, ended by -1) carry flags: 0x4000 = not drawn at night, 0x2000 = drawn only at
