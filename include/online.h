@@ -25,8 +25,8 @@ namespace rush2::online {
     constexpr uint16_t default_port = 47100;  // The host's port (UDP).
     constexpr uint16_t discovery_port = 47101; // LAN lobby beacons (UDP broadcast).
     constexpr int max_name_length = 16;
-    // Mod car slots (rush2::car_types::count_mod, types 57-72).
-    constexpr int max_mod_cars = 16;
+    // Mod car slots (rush2::car_types::count_mod, types 57-120).
+    constexpr int max_mod_cars = 64;
 
     // One player's controls for one game frame, as every machine applies them.
     struct PlayerInput {

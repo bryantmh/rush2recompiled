@@ -1,8 +1,8 @@
-"""Widening Rush 2's per-car-type tables from 22 to 73 types (Rush 2049 cars as types 23-35, California Speed's as
-36-56, mod cars as 57-72; 22 keeps its meaning as Rush 2's "no car" marker). Keep N_NEW and the layouts in step with
+"""Widening Rush 2's per-car-type tables from 22 to 121 types (Rush 2049 cars as types 23-35, California Speed's as
+36-56, mod cars as 57-120; 22 keeps its meaning as Rush 2's "no car" marker). Keep N_NEW and the layouts in step with
 include/car_types.h.
 
-Each table moves to a 73-wide copy in free RDRAM (NEW_BASE, one 64 KB page so every relocated `lui` gets the same
+Each table moves to a 121-wide copy in free RDRAM (NEW_BASE, one 64 KB page so every relocated `lui` gets the same
 high half). This script finds the instructions that address the old tables (lui + addiu/load/store pairs, through
 indexed `addu`), and the row-stride idioms (r * 22 as shift/subtract sequences) next to them, and prints us.toml
 `[[patches.instruction]]` entries plus a review list of everything it couldn't decide.
@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import names  # emitted func = "..." keys use the registry symbol names
 SYM = names.symbol_map()
 
-N_OLD, N_NEW = 22, 73
+N_OLD, N_NEW = 22, 121
 NEW_BASE = 0x80200000
 
 # (old address, element size, rows, meaning). Rows are: 0 = defaults/drones, 1 = player 1, 2 = player 2. The copies
@@ -154,16 +154,18 @@ REG = {n: i for i, n in enumerate(['zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', '
 
 
 def stride_new(t, r, size):
-    """r*N_NEW*size in the idiom's 5 slots: 73 = sll t,r,3 (8r); addu t,t,r (9r); sll t,t,3 (72r); addu t,t,r
-    (73r); sll t,t,(0|2). (57 was 8r - r = 7r, x 8, + r.)"""
+    """r*N_NEW*size in the idiom's 5 slots: N_NEW = k * 8 + 1 with k = 2^s +- 1: sll t,r,s; addu/subu t,t,r (k r);
+    sll t,t,3 (8k r); addu t,t,r (N_NEW r); sll t,t,(0|2). 121 = 15 * 8 + 1 (16r - r), 73 = 9 * 8 + 1 (8r + r),
+    57 = 7 * 8 + 1 (8r - r)."""
     T, R = REG[t.strip('$')], REG[r.strip('$')]
-    if N_NEW == 73:
-        second = enc_r(0x21, T, R, T, 0)
-    elif N_NEW == 57:
-        second = enc_r(0x23, T, R, T, 0)
+    k = (N_NEW - 1) // 8
+    for shift in range(1, 8):
+        if (N_NEW - 1) % 8 == 0 and k in ((1 << shift) + 1, (1 << shift) - 1):
+            second = enc_r(0x21 if k == (1 << shift) + 1 else 0x23, T, R, T, 0)
+            break
     else:
         raise ValueError('no shift idiom for %d types' % N_NEW)
-    return [enc_r(0x00, 0, R, T, 3), second, enc_r(0x00, 0, T, T, 3), enc_r(0x21, T, R, T, 0),
+    return [enc_r(0x00, 0, R, T, shift), second, enc_r(0x00, 0, T, T, 3), enc_r(0x21, T, R, T, 0),
             enc_r(0x00, 0, T, T, 2 if size == 4 else 0)]
 
 
@@ -329,13 +331,13 @@ def taint_patches(funcs, fnames):
 
 # ---------------------------------------------------------------------------------------------------------------
 # Car preview ids: the car select shows car type t for player p with preview "car" id = p * 22 + t (44 ids), which
-# indexes the race per-car arrays below. With 73 types the ids run to 146, so these arrays move to 146-entry copies
-# and every instruction addressing them is relocated (strides unchanged). They fill a 64 KB window (one lui value,
-# 0x8021: 0x80208000-0x80218000) in order and the ones past it go to a second (0x8023: from 0x8022A000). No lui is
-# shared by two arrays, so only each array's first entries (the ones code addresses) must stay in one window.
+# indexes the race per-car arrays below. With 121 types the ids run to 242, so these arrays move to 242-entry copies
+# and every instruction addressing them is relocated (strides unchanged). They follow each other from ID_START, in the
+# RDRAM the game heap left (0x80170CC0-0x80200000, src/assets.cpp). Code addresses only each array's first 8 entries
+# (lui + offset), so an array starts where those share one lui value (else at the next 0x...8000, where it changes);
+# the rest may run on past it. No lui is shared by two arrays (id_patches asserts it).
 ID_OLD, ID_NEW = 44, 2 * N_NEW
-ID_WINDOW = 0x80208000
-ID_WINDOW2 = 0x8022A000
+ID_START, ID_END = 0x80178000, 0x80200000
 ID_ARRAYS = [
     (0x8010C480, 0x4E, 'part handles (func_80086700)'),
     (0x8010F330, 0x1C, 'per-car callbacks'),
@@ -347,15 +349,20 @@ ID_ARRAYS = [
 ]
 
 
+def lui_of(at):
+    return (at + 0x8000) >> 16
+
+
 def id_layout():
-    out, at = [], ID_WINDOW
+    """As include/car_types.h id_array."""
+    out, at = [], ID_START
     for old, stride, m in ID_ARRAYS:
         size = (ID_NEW * stride + 15) & ~15
-        if at < ID_WINDOW2 and at + size > ID_WINDOW + 0x10000:
-            at = ID_WINDOW2
+        if lui_of(at) != lui_of(at + 8 * stride):
+            at = (lui_of(at) << 16) + 0x8000
         out.append((old, at, stride, m))
         at += size
-    assert at <= ID_WINDOW2 + 0xE000
+    assert at <= ID_END
     return out
 
 
@@ -393,7 +400,7 @@ def id_patches():
     return patches, review, funcs
 
 
-# Preview-id arithmetic: id = player * 22 + type, type = id % 22 -> 57 (the neighbour-prefetch wrap in
+# Preview-id arithmetic: id = player * 22 + type, type = id % 22 -> N_NEW (the neighbour-prefetch wrap in
 # func_8008813C at 0x800882C4 / 0x80088350 stays 22 so prefetching only walks Rush 2's cars), and the two reset
 # loops that stop at an id array's end.
 ID_IMM = {

@@ -6,7 +6,7 @@
 // The car types and where their per-type data lives in RDRAM (docs/rush2049_research/cars.md, Implementation).
 //
 // Rush 2's types are 0-21 and 22 is its "no car" marker; Rush 2049's cars are types 23-35 (src/rush2049/car2049.cpp),
-// California Speed's 36-56 (src/calspeed/calspeed_cars.cpp) and mod cars 57-72 (src/car_mods.cpp,
+// California Speed's 36-56 (src/calspeed/calspeed_cars.cpp) and mod cars 57-120 (src/car_mods.cpp,
 // docs/car_mods.md#new-cars). Rush 2 keeps its per-type data in tables of 22 entries, which us.toml points at wider
 // copies (tools/rush2049/cartypes.py generates those patches from the same layout as here: change one, regenerate the
 // other).
@@ -15,10 +15,13 @@ namespace rush2::car_types {
     constexpr int no_car = 22;
     constexpr int first_2049 = 23, count_2049 = 13;
     constexpr int first_calspeed = 36, count_calspeed = 21;
-    constexpr int first_mod = first_calspeed + count_calspeed, count_mod = 16;
-    constexpr int types = first_mod + count_mod; // 73
-    // The car select's preview ids: player * types + type, two panels.
+    constexpr int first_mod = first_calspeed + count_calspeed, count_mod = 64;
+    constexpr int types = first_mod + count_mod; // 121
+    // The game reads a car type as a byte, often signed (lb): every type stays below 128.
+    static_assert(types <= 128);
+    // The car select's preview ids: player * types + type, two panels. Read unsigned (us.toml), so up to 255.
     constexpr int preview_ids = 2 * types;
+    static_assert(preview_ids <= 256);
 
     constexpr bool is_2049(int type) { return type >= first_2049 && type < first_2049 + count_2049; }
     constexpr bool is_calspeed(int type) { return type >= first_calspeed && type < first_mod; }
@@ -89,12 +92,14 @@ namespace rush2::car_types {
                        main_color = 0x800C0ED0, accent_color = 0x800C0F14, stripe = 0x800C0F58,
                        stripe_color = 0x800C0F9C;
     static_assert(table(steer_base) == tables_base);
-    static_assert(tables_end() <= 0x80208000, "the type tables run into the preview id arrays");
+    static_assert(tables_end() <= 0x80208000, "the type tables run into the asset tables' page");
 
     // Race per-car arrays the car select also indexes by preview id: 44 entries moved to preview_ids (cartypes.py
-    // id_layout). They fill a 64 KB window (one lui value, 0x8021) from 0x80208000 in order, and the ones that don't
-    // fit go to a second (0x8023) from 0x8022A000: no lui is shared by two arrays. Only the first 8 entries (the race
-    // cars) were Rush 2's; the car select's ids past them indexed other variables.
+    // id_layout). They follow each other from id_start, in the RDRAM the game heap left when it moved
+    // (0x80170CC0-0x80200000, src/assets.cpp; nothing else uses it). Only the first 8 entries of each (the race cars)
+    // were Rush 2's, and only they are addressed by code (lui + offset); the car select's ids past them indexed other
+    // variables. So an array starts where its first 8 entries share one lui value (an array whose first 8 would cross
+    // the next 0x...8000 starts there instead); the rest may run on past it.
     struct IdArray {
         uint32_t old_base;
         uint32_t stride;
@@ -109,21 +114,23 @@ namespace rush2::car_types {
         { 0x800D97E8, 0x18 },  // car slot loads (func_80087CE4): +0xC the palette record
         { 0x80119858, 0x1 },   // per-car byte (func_8008582C)
     };
-    constexpr uint32_t id_window = 0x80208000, id_window2 = 0x8022A000;
+    constexpr uint32_t id_start = 0x80178000, id_end = 0x80200000;
     constexpr uint32_t id_size(const IdArray& a) {
         return (uint32_t(preview_ids) * a.stride + 15) & ~15u;
     }
+    // The lui value (high half, rounded for a signed low half) of an address.
+    constexpr uint32_t lui_of(uint32_t at) { return (at + 0x8000) >> 16; }
     // The copy of the array at old_base (old_base 0: the end of the last one).
     constexpr uint32_t id_array(uint32_t old_base) {
-        uint32_t at = id_window;
+        uint32_t at = id_start;
         for (const IdArray& a : id_arrays) {
-            if (at < id_window2 && at + id_size(a) > id_window + 0x10000) at = id_window2;
+            if (lui_of(at) != lui_of(at + 8 * a.stride)) at = (lui_of(at) << 16) + 0x8000;
             if (a.old_base == old_base) return at;
             at += id_size(a);
         }
         return old_base == 0 ? at : 0;
     }
-    static_assert(id_array(0) <= id_window2 + 0xE000, "the second preview id window needs one lui value");
+    static_assert(id_array(0) <= id_end, "the preview id arrays run into the type tables");
     constexpr uint32_t part_handles = id_array(0x8010C480);  // + id * 0x4E: the 39 part model handles
     // Part indices (func_80086700's suffixes, 0x800C6180): the frame and the intact body panels, four corners and the
     // roof; the hood-camera hood halves are 31-34.
@@ -140,21 +147,25 @@ namespace rush2::car_types {
     constexpr uint32_t car_palettes = car_palette_records + 0x14;
 
     // The car select's per-player car list (car i of player p at + 2 * i + p; moved from 0x803CB368) and carousel
-    // (0x18 bytes a car, 0x810 a player; moved from 0x803CB980, 0x210 a player): us.toml.
+    // (0x18 bytes a car, 0x1010 a player: us.toml computes player << 8 + player, << 4; moved from 0x803CB980, 0x210 a
+    // player): us.toml. Two players choose at a time (players 3 and 4 in their places, src/players4.cpp).
     constexpr uint32_t car_list = 0x80222000;
     constexpr uint32_t carousel = 0x80222100;
-    constexpr uint32_t carousel_stride = 0x810;
+    constexpr uint32_t carousel_stride = 0x1010;
+    static_assert(car_list + types * 2 <= carousel);
     static_assert(types * 0x18 <= int(carousel_stride));
+    static_assert(carousel + 2 * carousel_stride <= 0x80225000);
 
-    // The extra types' other data, in the RDRAM the preview id arrays moved out of (0x80218000-0x80222000: what us.toml
-    // addresses keeps 0x8022 as its lui value there), and the side slots after the car select's list and carousel
-    // (0x80222000-) and the race's descriptor copies (0x80225000-0x80225C00, src/rush2049/car2049.cpp).
+    // The extra types' other data, in the RDRAM 0x80208000-0x80222000 (us.toml addresses 0x80218000-0x80222000 with
+    // 0x8022 as its lui value), and the side slots after the car select's list and carousel (0x80222000-) and the
+    // race's descriptor copies (0x80225000-0x80225C00, src/rush2049/car2049.cpp).
+    constexpr uint32_t logo_names = 0x80208000;       // car select logo names of the extra types, 16 bytes each
     constexpr int asset_slots = 0x100;                // asset indices the moved asset tables have room for (u8)
     constexpr uint32_t asset_offsets = 0x80218000;    // ROM offset per asset (moved from 0x800C185C): us.toml
     constexpr uint32_t asset_sizes = 0x80218400;      // size per asset (moved from 0x8001CD64): us.toml
-    constexpr uint32_t desc_ptrs = 0x80219200;        // physics descriptor pointers (0x800C07BC), 64: us.toml
-    constexpr int max_descs = 64;
-    constexpr uint32_t tire_curves = 0x80219300;      // 6 floats each: 2049 front, rear
+    constexpr uint32_t desc_ptrs = 0x80219200;        // physics descriptor pointers (0x800C07BC), 112: us.toml
+    constexpr int max_descs = 112;
+    constexpr uint32_t tire_curves = 0x802193C0;      // 6 floats each: 2049 front, rear
     constexpr uint32_t car_names = 0x80219400;        // part name prefixes of the extra types, 8 bytes each
     // California Speed's tire curves, front and rear per car (6 floats each: its grip factors folded in).
     constexpr uint32_t calspeed_tire_curves = 0x80219840;
@@ -162,26 +173,26 @@ namespace rush2::car_types {
     constexpr uint32_t table16 = 0x8021A800;          // 16 bytes per type (0x800CADCC, entry 22 special): us.toml
     constexpr uint32_t prefixes = 0x8021B000;         // texture name prefix per type (0x800C64C4): us.toml
     constexpr uint32_t no_prefix = 0x8021B200;        // "R49X_": matches no texture
-    constexpr uint32_t logo_names = 0x8021B400;       // car select logo names of the extra types, 16 bytes each
     constexpr uint32_t descs = 0x8021B800;            // the extra types' descriptors (Rush 2's 0xEC-byte layout)
     constexpr uint32_t desc_size = 0xEC;
-    constexpr uint32_t side_slots = 0x80226000;       // player records' options for types 22-72 (car2049.cpp)
-    constexpr int side_slot_size = 0x2A0;             // (73 - 22) * 13 = 663, rounded up
+    constexpr uint32_t side_slots = 0x80226000;       // player records' options for types 22-120 (car2049.cpp)
+    constexpr int side_slot_size = 0x510;             // (121 - 22) * 13 = 1287, rounded up
     constexpr int max_side_slots = 16;
     // An online race's other players' side slots, 8.
     constexpr uint32_t guest_side_slots = side_slots + max_side_slots * side_slot_size;
     constexpr int max_guests = 8;
+    static_assert(logo_names + (types - rush2_types) * 16 <= asset_offsets);
     static_assert(asset_sizes + asset_slots * 4 <= desc_ptrs);
-    static_assert(desc_ptrs + max_descs * 4 <= tire_curves);
+    static_assert(desc_ptrs + max_descs * 4 <= tire_curves && tire_curves + 2 * 0x18 <= car_names);
     static_assert(car_names + (types - rush2_types) * 8 <= calspeed_tire_curves);
     static_assert(calspeed_tire_curves + count_calspeed * 2 * 0x18 <= boxes);
     static_assert(boxes + types * 16 <= table16 && table16 + types * 16 <= prefixes);
     static_assert(prefixes + types * 4 <= no_prefix);
-    static_assert(logo_names + (types - rush2_types) * 16 <= descs);
     static_assert(descs + (count_2049 + count_calspeed + count_mod) * desc_size <= car_list);
     static_assert(11 + count_2049 + count_calspeed + count_mod <= max_descs);
     static_assert(side_slot_size >= (types - rush2_types) * 13);
-    static_assert(guest_side_slots + max_guests * side_slot_size <= id_window2);
+    // 0x80238000-0x80240000 stays free (the players4 arrays start at 0x80240000).
+    static_assert(guest_side_slots + max_guests * side_slot_size <= 0x80238000);
 }
 
 #endif

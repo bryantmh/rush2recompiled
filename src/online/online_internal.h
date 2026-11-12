@@ -14,7 +14,7 @@
 namespace rush2::online {
     // Bumped whenever the messages below change; machines with different versions can't play together (it is part of
     // the compatibility key too, but the hello checks it first to give a clearer reason).
-    constexpr uint32_t protocol_version = 11; // 11: DEATHS' EXPLOSIVE and CHECKPOINTS' CLOCKS (their state in the resync); 10: race end notices, long snapshots; 9: the host's offered tracks; 8: setup check at load; 7: resyncs, mod cars (6: mod car types 57-72)
+    constexpr uint32_t protocol_version = 12; // 12: 64 mod car slots (types 57-120); 11: DEATHS' EXPLOSIVE and CHECKPOINTS' CLOCKS (their state in the resync); 10: race end notices, long snapshots; 9: the host's offered tracks; 8: setup check at load; 7: resyncs, mod cars (6: mod car types 57-72)
 
     // Messages, each starting with its type byte. Host -> client unless marked client -> host.
     enum class Msg : uint8_t {

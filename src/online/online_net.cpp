@@ -1654,7 +1654,7 @@ bool rush2::online::start_race(const RaceSettings& settings) {
     }
     // Every car is picked by now. A Rush 2049 car (types 23-35, src/rush2049/car2049.cpp) loads from the Rush 2049 ROM
     // on every machine, a California Speed car (36-56, src/calspeed/calspeed_cars.cpp) from its ROM (the cars options
-    // already match, with the rest of the gameplay settings). A mod's car (57-72, src/car_mods.cpp) races on every
+    // already match, with the rest of the gameplay settings). A mod's car (57-120, src/car_mods.cpp) races on every
     // machine, whatever mods it has: one without that car shows a stand-in with the car's physics
     // (docs/online.md#mod-cars).
     for (bool calspeed : { false, true }) {

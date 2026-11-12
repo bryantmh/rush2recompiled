@@ -14,7 +14,8 @@
 // 0x80400000 (include/scene_nodes.h; 3 MB of the heap was still free in the arcade Metro's race), below the Rush 2049 Menus' art at 0x80AA0000 (src/rush2049/menus2049.cpp), the world polygons at 0x80ACA000 (include/world_polygons.h), the 2D display lists at
 // 0x80AE0000 (src/hud.cpp) and the interpolation buffers at 0x80B00000, and within the RSP's 24-bit addresses. us.toml patches func_8009FB40 and func_800A62C0 to reset the
 // top to 0x80AA0000 instead of 0x803AA800/0x803DA800; the overlay no longer overlaps the
-// heap, so loading it doesn't need to lower the top.
+// heap, so loading it doesn't need to lower the top. The RDRAM the heap left from its old base holds the car select's
+// preview id arrays from 0x80178000 (include/car_types.h id_array).
 
 #include <atomic>
 #include <mutex>

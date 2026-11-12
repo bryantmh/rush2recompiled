@@ -286,9 +286,11 @@ rebuilt (a new Rush 2049 source).
 
 ### In the game
 
-- **Slots:** there are 16 new-car slots (car types 57-72). The enabled mods' cars fill them in mod order, then by
-  ID, and the car select lists them after California Speed's cars. A car past the 16th is left out, and the log
-  says so. Reordering or turning off mods can move a car to another slot: a player's saved choice on that slot then
+- **Slots:** there are 64 new-car slots (car types 57-120). The enabled mods' cars fill them in mod order, then by
+  ID, and the car select lists them after California Speed's cars. A car past the 64th is left out, and the log
+  says so (`[newcar] ... every mod car slot is taken`). Types stay below 128 because the game reads a car type as a
+  byte, often signed; the per-type RDRAM each extra type costs (about 2 KB) is laid out in `include/car_types.h`
+  (docs/rush2049_research/cars.md#8-implementation-v). Reordering or turning off mods can move a car to another slot: a player's saved choice on that slot then
   becomes the car now in it.
 - **Game Filter:** new cars count as CUSTOM.
 - **Car select rows:** a new car has no STRIPE or STRIPE COLOR row (no stripes are stamped on it). It shows MAIN

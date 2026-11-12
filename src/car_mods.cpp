@@ -17,7 +17,7 @@
 // decodes the mod's images.
 //
 // A mod's rush2/new_cars/<ID>.glb and <ID>.json add a car instead: the same container, as one of the mod car types
-// 57-72 (rush2::car2049::set_mod_car), with the physics, sounds and options of the Rush 2 car the .json names as its
+// 57-120 (rush2::car2049::set_mod_car), with the physics, sounds and options of the Rush 2 car the .json names as its
 // base and the wheels where it puts them.
 
 #include <algorithm>
@@ -1990,7 +1990,7 @@ namespace {
 
     // ---- new cars -------------------------------------------------------------------------------------------------
     // A mod's rush2/new_cars/<ID>.json and <ID>.glb add a car (docs/car_mods.md#new-cars): the enabled mods' cars, in
-    // mod order and then by ID, fill the 16 mod car types (include/car_types.h) in turn.
+    // mod order and then by ID, fill the 64 mod car types (include/car_types.h) in turn.
     struct NewCarFile {
         std::string id;  // <ID>, as the mod spells it
         size_t mod;

@@ -340,7 +340,7 @@ namespace {
                 n = slot_car[k] == 0 ? k : -1;
             }
             if (n < 0) {
-                continue;  // More different mod cars than slots: can't be, with 8 players and 16 slots.
+                continue;  // More different mod cars than slots: can't be, with 8 players and 64 slots.
             }
             if (slot_car[n] == 0) {
                 slot_car[n] = check;
