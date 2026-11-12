@@ -36,6 +36,7 @@
 #include "car2049.h"
 #include "car_probes.h"
 #include "scenery_fill.h"
+#include "car_lights.h"
 #include "control_profiles.h"
 #include "setup.h"
 
@@ -443,8 +444,39 @@ static void add_sky_fog_option(recomp::config::Config& config) {
         });
 }
 
-// Car Lights (src/car_lights.cpp, docs/graphics_effects.md#car-lights) is off and out of the menu until its tail light
-// lens glow works (TODO.txt); a saved "car_lights" value is ignored on load.
+namespace car_lights_option {
+    const std::string id = "car_lights";
+    enum class CarLights : uint32_t { Off, On };
+
+    void apply(recomp::config::ConfigValueVariant value) {
+        rush2::car_lights::set_enabled(static_cast<CarLights>(std::get<uint32_t>(value)) == CarLights::On);
+    }
+}
+
+// Car Lights: on night tracks every car's headlamps and tail lamps light the road from where they are and glow
+// (src/car_lights.cpp, lib/rt64 CarLightPS.hlsl, docs/graphics_effects.md#car-lights). Rush 2's own courses are never
+// night ones, so it leaves them as they are.
+static void add_car_lights_option(recomp::config::Config& config) {
+    using car_lights_option::CarLights;
+
+    config.add_enum_option(
+        car_lights_option::id,
+        "Car Lights",
+        "On night tracks, every car's headlights light up the road ahead of it and its tail lights glow red behind it, "
+        "brighter while it brakes. The lights shine from where they are on each car and glow when you look at them. "
+        "Rush 2's own tracks are never at night, so they look the same either way.",
+        {
+            { CarLights::Off, "Off", "Off" },
+            { CarLights::On, "On", "On" },
+        },
+        CarLights::Off
+    );
+
+    config.add_option_change_callback(car_lights_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            car_lights_option::apply(cur_value);
+        });
+}
 
 namespace scenery_fill_option {
     const std::string id = "scenery_fill";
@@ -1121,7 +1153,7 @@ void rush2::init_config() {
                            graphics::options::hr_option, graphics::options::rr_option, graphics::options::rr_manual_value,
                            graphics::options::api_option } },
             { "Quality", { graphics::options::msaa_option, anisotropy_option::id, mipmap_option::id, lod_option::id, draw_distance_option::id, font_option::id }, true },
-            { "Effects", { ambient_occlusion_option::id, sky_fog_option::id, scenery_fill_option::id, car_lighting_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
+            { "Effects", { ambient_occlusion_option::id, sky_fog_option::id, scenery_fill_option::id, car_lights_option::id, car_lighting_option::id, car_sheen_option::id, car_reflections_option::id, reflection_blur_option::id, reflection_rate_option::id } },
             { "Textures", { rush2::upscale::interface_option_id,
                             rush2::upscale::car_colors_option_id, rush2::upscale::mode_option_id,
                             rush2::upscale::command_option_id }, true },
@@ -1164,6 +1196,7 @@ void rush2::init_config() {
     add_anisotropy_option(graphics_config);
     add_ambient_occlusion_option(graphics_config);
     add_sky_fog_option(graphics_config);
+    add_car_lights_option(graphics_config);
     add_scenery_fill_option(graphics_config);
     add_car_lighting_option(graphics_config);
     add_car_sheen_option(graphics_config);
@@ -1203,6 +1236,7 @@ void rush2::init_config() {
     RT64::AmbientOcclusionStrength = ambient_occlusion_option::strength(
         loaded_graphics_config.get_option_value(ambient_occlusion_option::id));
     sky_fog_option::apply(loaded_graphics_config.get_option_value(sky_fog_option::id));
+    car_lights_option::apply(loaded_graphics_config.get_option_value(car_lights_option::id));
     scenery_fill_option::apply(loaded_graphics_config.get_option_value(scenery_fill_option::id));
     // Car Lighting is disabled for now (add_car_lighting_option): the cars keep Original lighting whatever is saved.
     rush2::probes::set_mode(rush2::probes::Mode::Original);

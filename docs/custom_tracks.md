@@ -407,6 +407,9 @@ car_light = "#454046"   # every car is drawn multiplied by this color
   Lighting settings (Graphics tab): with Light Probes the cars still darken under bridges and in tunnels, then take
   this color on top. Rush 2's own tunnel shading stays too.
 - The SF Rush PlayStation mod's NIGHT versions use it, with the PlayStation's night textures, fog and sky.
+- A track whose `fog_color` is near black (luminance under 0.1, as `"#0c1424"`) is a night track for Graphics > Car
+  Lights: every car's headlamps and tail lamps light it (docs/graphics_effects.md#car-lights). A lighter fog keeps
+  them off.
 
 ### Handling
 

@@ -1,6 +1,7 @@
 #ifndef __CAR2049_H__
 #define __CAR2049_H__
 
+#include "car_lights.h"
 #include <array>
 #include <cstdint>
 #include <map>
@@ -155,6 +156,8 @@ namespace rush2::car2049 {
         bool dust_hidden = false;      // "no_wheel_dust": its wheels throw no dust, smoke or spray (src/surface_fx.cpp)
         float shadow_radius = 0.0f;    // "round_shadow": a round shadow this many feet across the middle (src/mod_car_shadow.cpp); 0: the game's
         std::vector<uint8_t> logo;     // "logo": the car select name logo, an encoded 128 x 32 image; empty: lettered
+        // "lights": its headlamps and tail lamps for Car Lights (src/car_lights.cpp); empty: found on the body.
+        std::vector<rush2::car_lights::LampSpec> lamps;
     };
     // What race car `car`'s brake lights are drawn from while it brakes (src/car_lights.cpp): its textures' lit copies
     // (texels -> the lit copy, both RDRAM; the texels whose bytes differ are the lights), lit copies kept outside RDRAM
@@ -165,6 +168,7 @@ namespace rush2::car2049 {
         std::vector<std::pair<uint32_t, uint32_t>> lit_copies;
         std::vector<std::pair<uint32_t, std::vector<uint8_t>>> lit_bytes;
         std::vector<uint32_t> lists;
+        std::vector<uint32_t> switches;   // each list's switch (rush2::car2049::brake_switch) in the body's lists
         bool palette = true;
         uint32_t base = 0;   // the car copy's base (0: a Rush 2 car of its own)
     };

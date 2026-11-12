@@ -210,6 +210,7 @@ Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any 
 | `no_skid_marks` | `true`: the car's wheels lay no tire marks. Default `false`. |
 | `no_wheel_dust` | `true`: the car's wheels throw no dust, smoke or spray (its own effects, such as sparks, stay). Default `false`. |
 | `round_shadow` | A radius in feet: the car's shadow is a soft disc that wide around its middle (a hovering saucer's), on the ground under its wheels, in place of the box between them. Default: the game's shadow. |
+| `lights` | The car's lamps for [Car Lights](#car-lights): a list of `{"kind": "head" or "tail", "at": [x, y, z], "size": radius}` in the glb's space (1/16 ft units, as `wheels`), one entry per lamp (list both sides). The brightest texels within the radius glow as the lens, or with `"color": [r, g, b]` (the lens's color, 0-255) the texels near that color; `"lens": false` for a hidden lamp (no glow on the body). The headlamps or tail lamps listed replace the ones found on the body, kind by kind. Default: found on the body (tail lamps from the brake lights, headlamps from bright texels at the front, or else placed from the body's shape). |
 | `logo` | A 128 x 32 PNG in `rush2/new_cars/` drawn as the car's car select name logo instead of `name` in Rush 2049's lettering (the SF Rush PlayStation cars use it for SF Rush's lettering). Default: none. |
 | `box` | The box the car hits other cars with: front, rear, half width, height in feet. Default: from the mesh, about a quarter foot inside each end, at least 3 ft to a side, 3 ft high. Stock cars run 5.25 to 8 ft front and rear, half width 3 (the Caddy 3.25). |
 | `main_color`, `accent_color` | The colors a new player starts the car in, 0-31 (Rush 2's color list). Default: the base car's. Unused with `schemes`. |
@@ -401,6 +402,42 @@ ends by setting the body's mode and combiner back; a lit livery LOD sets G_LIGHT
 Test aid: `RUSH2_TEST_LIVERY=<style>` shows that STYLE on every car with liveries (JUST PLAY has no profile to keep one
 in): `tools/test_race.py 0 --cars 28 --env RUSH2_TEST_LIVERY=1 --script "14:A:5,19.2:B:3" --shots 18.8,19.6` brakes
 the Bruiser in the arcade's first Cuda livery.
+
+## Car lights
+
+On night tracks, with Graphics > Car Lights on (the Enhanced preset's default), every car's headlamps light the road
+ahead and its tail lamps glow red behind it, brighter while it brakes (docs/graphics_effects.md#car-lights). A lamp
+goes out once its corner of the car is damaged. A [new car](#new-cars) gets its lamps one of two ways:
+
+- **Found on the body** (no `lights` in its `.json`): tail lamps from its [brake lights](#brake-lights) glb, headlamps
+  from bright texels at the front of the body, or else placed from the body's shape. This works for a car with bright,
+  clearly textured lamps; dark or gray headlamps, or lamps only painted into one big texture, are often missed.
+- **Listed** in the `.json`'s `lights`, one entry per lamp (both sides):
+
+```json
+"lights": [
+    { "kind": "head", "at": [ 30, 18, 70], "size": 4 },
+    { "kind": "head", "at": [-30, 18, 70], "size": 4 },
+    { "kind": "tail", "at": [ 28, 22, -68], "size": 3, "color": [220, 40, 30] },
+    { "kind": "tail", "at": [-28, 22, -68], "size": 3, "color": [220, 40, 30] }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `"head"` or `"tail"`. |
+| `at` | The lamp's center on the body's surface, in the glb's space (1/16 ft, as `wheels`). |
+| `size` | The lens's radius, same units (default 4, a quarter of a foot). |
+| `color` | Optional. The lens's color, 0-255: only the texels near it glow (so paint of the same brightness round the lamp doesn't). Without it the brightest texels within `size` glow. |
+| `lens` | Optional, default true. `false` for a lamp the model doesn't show: it lights the road but nothing glows on the body. |
+
+Listed headlamps replace the ones found on the body, and listed tail lamps the found tail lamps, kind by kind, so a
+car can list just its headlamps and keep its tail lamps from the brake lights.
+
+Finding the numbers: `python tools/car_lamps.py glb <body>.glb tmp/x.json --key mod:<NAME>` turns the body into a
+dump, `sheet` draws it from the front and back with the lamps found, and `pick` measures a lamp from the texels in a
+box you give (docs/graphics_effects.md#reviewing-the-lamps). [Liveries](#liveries) have no `lights`: theirs are found
+on the livery's body and brake lights.
 
 ## Liveries
 

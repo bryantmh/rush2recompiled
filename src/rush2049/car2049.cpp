@@ -1720,6 +1720,7 @@ void rush2::car2049::set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car
     mod_schemes[n] = spec.schemes;
     mod_no_wheels[n] = spec.wheels_hidden;
     mod_shadow_radius[n] = spec.shadow_radius;
+    rush2::car_lights::set_mod_lamps(rush2::car_types::first_mod + n, spec.lamps);
     mod_no_wings[n] = spec.wings_hidden;
     mod_no_marks[n] = spec.marks_hidden;
     mod_no_dust[n] = spec.dust_hidden;
@@ -1746,6 +1747,7 @@ void rush2::car2049::clear_mod_car(uint8_t* rdram, int n) {
     mod_game[n] = int(ModGame::Custom);
     mod_no_wheels[n] = false;
     mod_shadow_radius[n] = 0.0f;
+    rush2::car_lights::set_mod_lamps(type, {});
     mod_no_wings[n] = false;
     mod_no_marks[n] = false;
     mod_no_dust[n] = false;
@@ -3500,13 +3502,16 @@ void rush2::car2049::brake_light_sources(uint8_t* rdram, int car, BrakeLightSour
             if (d.lit_damaged != 0 && d.damaged != 0) out.lit_copies.push_back({ base + d.damaged, base + d.lit_damaged });
         }
         for (const auto& [texels, lit] : p->tail_lit) out.lit_bytes.push_back({ base + texels, lit });
-        for (const Paint::BrakeBlock& b : p->brake_blocks) out.lists.push_back(base + b.list);
+        for (const Paint::BrakeBlock& b : p->brake_blocks) out.lists.push_back(base + b.list), out.switches.push_back(base + b.at);
     }
     uint32_t livery_base = 0;
     if (int livery = rush2::car_mods::livery_body(rdram, car, livery_base); livery >= 0) {
         std::lock_guard lock{ livery_mutex };
         if (livery < (int)livery_bodies.size()) {
-            for (const Paint::BrakeBlock& b : livery_bodies[livery].brake_blocks) out.lists.push_back(livery_base + b.list);
+            for (const Paint::BrakeBlock& b : livery_bodies[livery].brake_blocks) {
+                out.lists.push_back(livery_base + b.list);
+                out.switches.push_back(livery_base + b.at);
+            }
         }
     }
 }

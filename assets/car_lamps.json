@@ -1,0 +1,335 @@
+{
+  "about": "Car Lights' lamps by hand (src/car_lights.cpp, docs/graphics_effects.md#car-lights). Each car's list replaces the lamps found on its body, kind by kind (a list with only headlamps keeps the found tail lamps). Keys: rush2:<type 0-21>, rush2049:<car 0-12>, rush2049dc:<car 0-12>, calspeed:<car 0-20>, mod:<car name>, and <car key>/<livery file stem> for a livery. Positions in feet in the car's own axes (x across, y up, z forward), size the lens's radius in feet; the brightest texels within it glow as the lens or, with \"color\": [r, g, b] (the lens color pick measures), the texels near that color (\"lens\": false for a hidden lamp or a car without any, such as an open-wheel racer). tools/car_lamps.py pick measures an entry from a dump, and sheet --table draws every car with these over its lamps to check them.",
+  "cars": {
+    "calspeed:0": [
+      {"kind": "tail", "at": [1.9, 1.28, -5.04], "size": 0.3, "color": [255, 0, 0]},
+      {"kind": "tail", "at": [-1.95, 1.27, -5.0], "size": 0.33, "color": [255, 0, 0]},
+      {"kind": "tail", "at": [-0.05, 1.38, -5.44], "size": 0.67, "color": [224, 11, 11]}
+    ],
+    "calspeed:2": [
+      {"kind": "head", "at": [0.95, 0.58, 5.71], "size": 0.34, "color": [215, 215, 215]},
+      {"kind": "head", "at": [-0.97, 0.58, 5.71], "size": 0.33, "color": [216, 216, 216]}
+    ],
+    "calspeed:3": [
+      {"kind": "head", "at": [1.34, 0.37, 5.55], "size": 0.43, "color": [183, 183, 183]},
+      {"kind": "head", "at": [-1.34, 0.37, 5.55], "size": 0.43, "color": [184, 184, 184]}
+    ],
+    "calspeed:4": [
+      {"kind": "head", "at": [2.12, 0.91, 3.68], "size": 0.45, "color": [189, 189, 189]},
+      {"kind": "head", "at": [-2.12, 0.91, 3.68], "size": 0.45, "color": [189, 189, 189]}
+    ],
+    "calspeed:6": [
+      {"kind": "head", "at": [2.14, 2.01, 5.0], "size": 0.38, "color": [251, 251, 251]},
+      {"kind": "head", "at": [-2.17, 2.01, 5.0], "size": 0.39, "color": [252, 252, 252]},
+      {"kind": "tail", "at": [2.32, 2.3, -7.76], "size": 0.17, "color": [230, 16, 49]},
+      {"kind": "tail", "at": [-2.28, 2.29, -7.76], "size": 0.18, "color": [230, 16, 49]}
+    ],
+    "calspeed:7": [
+      {"kind": "head", "at": [0.92, 1.25, 4.24], "size": 0.27, "color": [201, 109, 201]},
+      {"kind": "head", "at": [-0.69, 1.25, 4.23], "size": 0.26, "color": [203, 112, 203]}
+    ],
+    "calspeed:11": [
+      {"kind": "head", "at": [0.98, 1.49, 1.74], "size": 0.25, "lens": false},
+      {"kind": "head", "at": [-1.08, 1.47, 1.71], "size": 0.25, "lens": false},
+      {"kind": "tail", "at": [0.88, 1.26, -2.95], "size": 0.25, "lens": false},
+      {"kind": "tail", "at": [-0.98, 1.26, -3.0], "size": 0.25, "lens": false}
+    ],
+    "calspeed:15": [
+      {"kind": "head", "at": [2.4, 1.14, 5.06], "size": 0.3, "color": [211, 211, 211]},
+      {"kind": "head", "at": [-2.39, 1.14, 5.06], "size": 0.3, "color": [213, 213, 213]}
+    ],
+    "calspeed:16": [
+      {"kind": "head", "at": [2.09, 1.38, 5.51], "size": 0.22, "color": [239, 239, 239]},
+      {"kind": "head", "at": [-1.93, 1.39, 5.58], "size": 0.22, "color": [246, 246, 246]}
+    ],
+    "calspeed:17": [
+      {"kind": "head", "at": [2.22, 1.58, 5.05], "size": 0.25, "color": [117, 111, 125]},
+      {"kind": "head", "at": [-2.24, 1.56, 5.05], "size": 0.25, "color": [197, 197, 197]}
+    ],
+    "calspeed:18": [
+      {"kind": "head", "at": [1.44, 1.84, 4.25], "size": 0.3, "color": [179, 179, 179]},
+      {"kind": "head", "at": [-1.51, 1.84, 4.25], "size": 0.3, "color": [180, 180, 180]}
+    ],
+    "calspeed:19": [
+      {"kind": "head", "at": [2.18, 1.54, 5.94], "size": 0.3, "lens": false},
+      {"kind": "head", "at": [-2.19, 1.58, 5.94], "size": 0.3, "lens": false},
+      {"kind": "tail", "at": [2.22, 1.18, -7.03], "size": 0.3, "lens": false},
+      {"kind": "tail", "at": [-2.22, 1.18, -7.03], "size": 0.3, "lens": false}
+    ],
+    "mod:CADDY": [
+      {"kind": "head", "at": [2.43, 0.64, 5.51], "size": 0.35, "color": [207, 207, 207]},
+      {"kind": "head", "at": [-2.49, 0.64, 5.52], "size": 0.37, "color": [206, 206, 206]}
+    ],
+    "mod:DEUCE": [
+      {"kind": "tail", "at": [1.37, 1.05, -5.3], "size": 0.3, "lens": false},
+      {"kind": "tail", "at": [-1.37, 1.05, -5.3], "size": 0.3, "lens": false}
+    ],
+    "mod:JEEP": [
+      {"kind": "tail", "at": [2.15, 1.75, -5.56], "size": 0.36, "color": [152, 71, 38]},
+      {"kind": "tail", "at": [-2.15, 1.75, -5.56], "size": 0.36, "color": [152, 71, 38]}
+    ],
+    "mod:JET CAR": [
+      {"kind": "tail", "at": [1.86, 1.52, -5.73], "size": 0.32, "color": [205, 102, 0]},
+      {"kind": "tail", "at": [-1.87, 1.53, -5.73], "size": 0.33, "color": [206, 103, 0]}
+    ],
+    "mod:MINI": [
+      {"kind": "head", "at": [1.94, 0.91, 4.46], "size": 0.4, "color": [185, 185, 185]},
+      {"kind": "head", "at": [-1.94, 0.91, 4.45], "size": 0.4, "color": [184, 184, 184]},
+      {"kind": "tail", "at": [2.25, 0.96, -4.26], "size": 0.42, "color": [138, 73, 12]},
+      {"kind": "tail", "at": [-2.25, 0.98, -4.27], "size": 0.43, "color": [139, 72, 11]}
+    ],
+    "mod:POLICE": [
+      {"kind": "tail", "at": [2.32, 1.21, -6.64], "size": 0.4, "color": [164, 90, 49]},
+      {"kind": "tail", "at": [-2.26, 1.21, -6.64], "size": 0.4, "color": [165, 89, 48]}
+    ],
+    "mod:STARSKY": [
+      {"kind": "tail", "at": [2.28, 1.46, -6.78], "size": 0.38, "color": [174, 65, 0]},
+      {"kind": "tail", "at": [-2.2, 1.46, -6.75], "size": 0.39, "color": [175, 66, 0]}
+    ],
+    "rush2:2": [
+      {"kind": "head", "at": [1.69, 1.37, 5.84], "size": 0.3, "lens": false},
+      {"kind": "head", "at": [-1.7, 1.37, 5.84], "size": 0.3, "lens": false}
+    ],
+    "rush2:6": [
+      {"kind": "head", "at": [1.82, 1.46, 5.87], "size": 0.47, "color": [131, 131, 131]},
+      {"kind": "head", "at": [-1.82, 1.46, 5.87], "size": 0.47, "color": [131, 131, 131]}
+    ],
+    "rush2:7": [
+      {"kind": "head", "at": [1.24, 0.78, 5.98], "size": 0.44, "color": [106, 106, 106]},
+      {"kind": "head", "at": [-1.24, 0.78, 5.98], "size": 0.44, "color": [106, 106, 106]}
+    ],
+    "rush2:9": [
+      {"kind": "head", "at": [2.08, 1.45, 5.37], "size": 0.4, "color": [91, 100, 91]},
+      {"kind": "head", "at": [-2.08, 1.45, 5.37], "size": 0.4, "color": [91, 100, 91]}
+    ],
+    "rush2:14": [
+      {"kind": "head", "at": [1.64, 1.35, 6.62], "size": 0.35, "color": [141, 132, 125]},
+      {"kind": "head", "at": [-1.61, 1.32, 6.63], "size": 0.35, "color": [134, 134, 134]}
+    ],
+    "rush2:16": [
+      {"kind": "head", "at": [2.14, 1.37, 6.15], "size": 0.36, "color": [176, 176, 176]},
+      {"kind": "head", "at": [-2.21, 1.36, 6.15], "size": 0.39, "color": [178, 178, 178]},
+      {"kind": "tail", "at": [2.55, 1.75, -6.53], "size": 0.37, "color": [176, 0, 0]},
+      {"kind": "tail", "at": [-2.59, 1.73, -6.53], "size": 0.37, "color": [176, 0, 0]}
+    ],
+    "rush2:17": [
+      {"kind": "head", "at": [2.06, 0.48, 4.2], "size": 0.38, "color": [197, 197, 197]},
+      {"kind": "head", "at": [-2.06, 0.48, 4.19], "size": 0.38, "color": [196, 196, 196]}
+    ],
+    "rush2:18": [
+      {"kind": "head", "at": [1.85, 0.75, 0.5], "size": 0.25, "lens": false},
+      {"kind": "head", "at": [-1.85, 0.75, 0.5], "size": 0.25, "lens": false},
+      {"kind": "tail", "at": [0.03, 0.89, -6.06], "size": 0.15, "color": [255, 0, 0]}
+    ],
+    "rush2:19": [
+      {"kind": "tail", "at": [0.55, 0.61, -5.31], "size": 0.15, "color": [255, 0, 0]},
+      {"kind": "tail", "at": [-0.59, 0.61, -5.31], "size": 0.15, "color": [255, 0, 0]}
+    ],
+    "rush2:20": [
+      {"kind": "head", "at": [1.42, 0.39, 5.35], "size": 0.25, "lens": false},
+      {"kind": "head", "at": [-1.42, 0.38, 5.41], "size": 0.25, "lens": false}
+    ],
+    "rush2:21": [
+      {"kind": "head", "at": [1.89, 1.23, -1.95], "size": 0.2, "lens": false},
+      {"kind": "head", "at": [-1.88, 1.23, -1.91], "size": 0.2, "lens": false},
+      {"kind": "tail", "at": [-0.01, 1.19, -4.86], "size": 0.15, "color": [255, 0, 0]}
+    ],
+    "rush2049:0": [
+      {"kind": "head", "at": [1.55, 0.66, 2.42], "size": 0.3, "color": [105, 70, 199]},
+      {"kind": "head", "at": [-1.55, 0.66, 2.42], "size": 0.3, "color": [105, 70, 199]}
+    ],
+    "rush2049:1/8BALL_COL1": [
+      {"kind": "tail", "at": [2.27, 1.73, -5.16], "size": 0.49, "color": [180, 62, 38]},
+      {"kind": "tail", "at": [-2.28, 1.73, -5.16], "size": 0.49, "color": [181, 68, 37]},
+      {"kind": "head", "at": [-1.93, 1.24, 5.87], "size": 0.23, "color": [82, 122, 118]},
+      {"kind": "head", "at": [1.93, 1.24, 5.87], "size": 0.23, "color": [82, 122, 118]}
+    ],
+    "rush2049:1/8BALL_COL3": [
+      {"kind": "tail", "at": [2.29, 1.73, -5.16], "size": 0.49, "color": [186, 62, 36]},
+      {"kind": "tail", "at": [-2.26, 1.73, -5.16], "size": 0.51, "color": [184, 68, 42]},
+      {"kind": "head", "at": [-1.96, 1.24, 5.88], "size": 0.19, "color": [87, 88, 117]},
+      {"kind": "head", "at": [1.96, 1.24, 5.88], "size": 0.19, "color": [87, 88, 117]}
+    ],
+    "rush2049:2": [
+      {"kind": "head", "at": [1.2, 0.7, 5.44], "size": 0.36, "color": [130, 130, 130]},
+      {"kind": "head", "at": [-1.2, 0.7, 5.44], "size": 0.36, "color": [130, 130, 130]}
+    ],
+    "rush2049:3": [
+      {"kind": "head", "at": [2.09, 0.55, 6.04], "size": 0.31, "color": [130, 130, 130]},
+      {"kind": "head", "at": [-2.09, 0.55, 6.04], "size": 0.31, "color": [130, 130, 130]}
+    ],
+    "rush2049:3/MAGNUM_COL4": [
+      {"kind": "head", "at": [2.24, 0.68, 6.11], "size": 0.21, "color": [8, 124, 219]},
+      {"kind": "head", "at": [-2.25, 0.68, 6.11], "size": 0.21, "color": [8, 124, 219]},
+      {"kind": "head", "at": [2.18, 0.32, 6.35], "size": 0.34, "color": [8, 144, 233]},
+      {"kind": "head", "at": [-2.19, 0.32, 6.35], "size": 0.34, "color": [8, 144, 233]},
+      {"kind": "tail", "at": [1.67, 1.78, -5.69], "size": 0.45, "color": [200, 42, 36]},
+      {"kind": "tail", "at": [-1.68, 1.78, -5.69], "size": 0.45, "color": [200, 42, 36]},
+      {"kind": "tail", "at": [2.24, 1.64, -5.59], "size": 0.37, "color": [156, 11, 6]},
+      {"kind": "tail", "at": [-2.25, 1.64, -5.59], "size": 0.37, "color": [156, 11, 6]}
+    ],
+    "rush2049:3/MAGNUM_COL6": [
+      {"kind": "head", "at": [2.35, 0.69, 6.11], "size": 0.2, "color": [68, 107, 161]},
+      {"kind": "head", "at": [-2.22, 0.7, 6.1], "size": 0.19, "color": [69, 108, 162]},
+      {"kind": "head", "at": [2.25, 0.32, 6.35], "size": 0.29, "color": [76, 114, 168]},
+      {"kind": "head", "at": [-2.14, 0.32, 6.35], "size": 0.29, "color": [76, 115, 168]}
+    ],
+    "rush2049:3/MAGNUM_COL7": [
+      {"kind": "head", "at": [2.17, 0.51, 6.23], "size": 0.3, "color": [138, 194, 66]},
+      {"kind": "head", "at": [-2.28, 0.51, 6.23], "size": 0.3, "color": [138, 194, 66]},
+      {"kind": "tail", "at": [2.13, 1.63, -5.62], "size": 0.4, "color": [185, 1, 2]},
+      {"kind": "tail", "at": [-2.23, 1.63, -5.62], "size": 0.4, "color": [185, 1, 2]}
+    ],
+    "rush2049:4": [
+      {"kind": "head", "at": [1.4, 1.21, 5.62], "size": 0.27, "color": [137, 137, 137]},
+      {"kind": "head", "at": [-1.4, 1.21, 5.62], "size": 0.27, "color": [137, 137, 137]}
+    ],
+    "rush2049:4/SUPERGT_COL5": [
+      {"kind": "head", "at": [1.71, 0.95, 5.8], "size": 0.41, "color": [180, 171, 169]},
+      {"kind": "head", "at": [-1.63, 0.95, 5.8], "size": 0.41, "color": [180, 171, 169]},
+      {"kind": "tail", "at": [2.13, 1.49, -6.01], "size": 0.36, "color": [124, 57, 51]},
+      {"kind": "tail", "at": [-2.05, 1.49, -6.01], "size": 0.36, "color": [124, 57, 51]}
+    ],
+    "rush2049:4/SUPERGT_COL7": [
+      {"kind": "head", "at": [1.61, 0.97, 5.93], "size": 0.39, "color": [122, 140, 141]},
+      {"kind": "head", "at": [-1.67, 0.97, 5.93], "size": 0.39, "color": [121, 140, 141]},
+      {"kind": "tail", "at": [2.21, 1.6, -5.87], "size": 0.41, "color": [121, 20, 10]},
+      {"kind": "tail", "at": [-2.28, 1.6, -5.87], "size": 0.41, "color": [122, 20, 10]}
+    ],
+    "rush2049:5": [
+      {"kind": "head", "at": [2.3, 1.33, 6.89], "size": 0.34, "color": [108, 108, 108]},
+      {"kind": "head", "at": [-2.3, 1.33, 6.89], "size": 0.34, "color": [108, 108, 108]}
+    ],
+    "rush2049:5/BRUISER_COL1": [
+      {"kind": "head", "at": [1.7, 1.5, 6.96], "size": 0.22, "color": [180, 184, 180]},
+      {"kind": "head", "at": [-1.73, 1.5, 6.96], "size": 0.22, "color": [180, 184, 180]},
+      {"kind": "head", "at": [2.27, 1.51, 6.95], "size": 0.22, "color": [183, 187, 183]},
+      {"kind": "head", "at": [-2.31, 1.51, 6.95], "size": 0.22, "color": [183, 187, 183]},
+      {"kind": "tail", "at": [1.57, 1.95, -6.54], "size": 0.22, "color": [114, 72, 58]},
+      {"kind": "tail", "at": [-1.64, 1.97, -6.54], "size": 0.22, "color": [109, 56, 59]},
+      {"kind": "tail", "at": [2.12, 1.92, -6.53], "size": 0.22, "color": [115, 73, 56]},
+      {"kind": "tail", "at": [-2.16, 1.96, -6.52], "size": 0.22, "color": [120, 62, 63]}
+    ],
+    "rush2049:5/BRUISER_COL2": [
+      {"kind": "head", "at": [1.64, 1.51, 6.89], "size": 0.22, "color": [182, 189, 186]},
+      {"kind": "head", "at": [-1.64, 1.51, 6.89], "size": 0.22, "color": [182, 189, 186]},
+      {"kind": "head", "at": [2.25, 1.44, 6.9], "size": 0.22, "color": [179, 187, 182]},
+      {"kind": "head", "at": [-2.26, 1.44, 6.9], "size": 0.22, "color": [179, 187, 182]},
+      {"kind": "tail", "at": [1.63, 1.81, -6.55], "size": 0.22, "color": [148, 51, 37]},
+      {"kind": "tail", "at": [-1.65, 1.82, -6.55], "size": 0.22, "color": [140, 47, 36]},
+      {"kind": "tail", "at": [2.16, 1.77, -6.54], "size": 0.22, "color": [168, 59, 41]},
+      {"kind": "tail", "at": [-2.17, 1.79, -6.54], "size": 0.22, "color": [163, 57, 40]}
+    ],
+    "rush2049:5/BRUISER_COL3": [
+      {"kind": "head", "at": [1.72, 1.51, 7.05], "size": 0.22, "color": [163, 167, 165]},
+      {"kind": "head", "at": [-1.81, 1.52, 7.05], "size": 0.22, "color": [181, 184, 181]},
+      {"kind": "head", "at": [2.34, 1.55, 7.03], "size": 0.22, "color": [189, 193, 186]},
+      {"kind": "head", "at": [-2.4, 1.55, 7.03], "size": 0.22, "color": [189, 193, 186]},
+      {"kind": "tail", "at": [1.68, 1.97, -6.61], "size": 0.22, "color": [115, 55, 51]},
+      {"kind": "tail", "at": [-1.71, 1.98, -6.61], "size": 0.22, "color": [120, 45, 44]},
+      {"kind": "tail", "at": [2.24, 1.95, -6.6], "size": 0.22, "color": [125, 63, 59]},
+      {"kind": "tail", "at": [-2.29, 1.94, -6.6], "size": 0.22, "color": [123, 51, 49]}
+    ],
+    "rush2049:5/BRUISER_COL5": [
+      {"kind": "head", "at": [1.72, 1.43, 6.91], "size": 0.22, "color": [162, 166, 164]},
+      {"kind": "head", "at": [-1.69, 1.43, 6.91], "size": 0.22, "color": [162, 166, 164]},
+      {"kind": "head", "at": [2.33, 1.47, 6.89], "size": 0.22, "color": [184, 187, 182]},
+      {"kind": "head", "at": [-2.3, 1.47, 6.89], "size": 0.22, "color": [184, 187, 182]},
+      {"kind": "tail", "at": [1.7, 1.9, -6.38], "size": 0.22, "color": [120, 57, 54]},
+      {"kind": "tail", "at": [-1.66, 1.88, -6.39], "size": 0.22, "color": [115, 54, 48]},
+      {"kind": "tail", "at": [2.25, 1.87, -6.37], "size": 0.22, "color": [123, 58, 54]},
+      {"kind": "tail", "at": [-2.22, 1.87, -6.37], "size": 0.22, "color": [125, 58, 53]}
+    ],
+    "rush2049:5/BRUISER_COL6": [
+      {"kind": "head", "at": [1.7, 1.4, 6.94], "size": 0.22, "color": [141, 147, 154]},
+      {"kind": "head", "at": [-1.74, 1.41, 6.94], "size": 0.22, "color": [143, 150, 157]},
+      {"kind": "head", "at": [2.31, 1.43, 6.91], "size": 0.22, "color": [147, 154, 160]},
+      {"kind": "head", "at": [-2.34, 1.43, 6.91], "size": 0.22, "color": [146, 153, 159]},
+      {"kind": "tail", "at": [1.62, 1.83, -6.59], "size": 0.22, "color": [152, 35, 32]},
+      {"kind": "tail", "at": [-1.63, 1.84, -6.59], "size": 0.22, "color": [151, 36, 32]},
+      {"kind": "tail", "at": [2.18, 1.88, -6.56], "size": 0.22, "color": [136, 43, 39]},
+      {"kind": "tail", "at": [-2.2, 1.87, -6.56], "size": 0.22, "color": [139, 43, 39]}
+    ],
+    "rush2049:5/BRUISER_COL7": [
+      {"kind": "head", "at": [1.69, 1.47, 6.93], "size": 0.22, "color": [172, 167, 165]},
+      {"kind": "head", "at": [-1.76, 1.47, 6.92], "size": 0.22, "color": [181, 177, 174]},
+      {"kind": "head", "at": [2.33, 1.51, 6.91], "size": 0.22, "color": [186, 184, 177]},
+      {"kind": "head", "at": [-2.37, 1.52, 6.91], "size": 0.22, "color": [187, 184, 178]},
+      {"kind": "tail", "at": [1.61, 1.66, -6.54], "size": 0.22, "color": [155, 62, 39]},
+      {"kind": "tail", "at": [-1.66, 1.64, -6.54], "size": 0.22, "color": [154, 58, 29]},
+      {"kind": "tail", "at": [2.2, 1.72, -6.52], "size": 0.22, "color": [140, 58, 41]},
+      {"kind": "tail", "at": [-2.25, 1.74, -6.52], "size": 0.22, "color": [137, 57, 35]}
+    ],
+    "rush2049:5/BRUISER_COL8": [
+      {"kind": "head", "at": [1.74, 1.54, 6.77], "size": 0.22, "color": [181, 188, 192]},
+      {"kind": "head", "at": [-1.76, 1.54, 6.77], "size": 0.22, "color": [181, 188, 192]},
+      {"kind": "head", "at": [2.32, 1.54, 6.75], "size": 0.22, "color": [182, 187, 189]},
+      {"kind": "head", "at": [-2.33, 1.53, 6.75], "size": 0.22, "color": [183, 187, 189]},
+      {"kind": "tail", "at": [1.74, 1.82, -6.53], "size": 0.22, "color": [114, 53, 51]},
+      {"kind": "tail", "at": [-1.76, 1.82, -6.53], "size": 0.22, "color": [113, 51, 45]},
+      {"kind": "tail", "at": [2.28, 1.81, -6.52], "size": 0.22, "color": [125, 58, 52]},
+      {"kind": "tail", "at": [-2.27, 1.82, -6.52], "size": 0.22, "color": [126, 57, 49]}
+    ],
+    "rush2049:6": [
+      {"kind": "head", "at": [1.6, 0.87, 5.89], "size": 0.11, "color": [98, 98, 98]},
+      {"kind": "head", "at": [-1.6, 0.87, 5.89], "size": 0.11, "color": [98, 98, 98]}
+    ],
+    "rush2049:7/GX2_COL6": [
+      {"kind": "head", "at": [1.87, 1.1, 5.78], "size": 0.36, "color": [36, 58, 87]},
+      {"kind": "head", "at": [-1.88, 1.1, 5.78], "size": 0.36, "color": [36, 58, 87]},
+      {"kind": "tail", "at": [2.22, 1.76, -4.55], "size": 0.54, "color": [147, 43, 3]},
+      {"kind": "tail", "at": [-2.23, 1.76, -4.55], "size": 0.54, "color": [147, 43, 3]}
+    ],
+    "rush2049:10": [
+      {"kind": "head", "at": [2.14, 2.17, 7.25], "size": 0.45, "color": [136, 136, 136]},
+      {"kind": "head", "at": [-2.14, 2.17, 7.25], "size": 0.45, "color": [136, 136, 136]},
+      {"kind": "tail", "at": [3.06, 3.11, -8.91], "size": 0.33, "color": [225, 0, 0]},
+      {"kind": "tail", "at": [-3.06, 3.11, -8.91], "size": 0.33, "color": [225, 0, 0]},
+      {"kind": "tail", "at": [0.0, 2.41, -9.22], "size": 0.24, "color": [222, 0, 0]}
+    ],
+    "rush2049:11": [
+      {"kind": "head", "at": [1.65, 1.1, 5.55], "size": 0.4, "color": [153, 153, 153]},
+      {"kind": "head", "at": [-1.65, 1.1, 5.55], "size": 0.4, "color": [153, 153, 153]}
+    ],
+    "rush2049:12": [
+      {"kind": "head", "at": [2.08, 1.41, 4.56], "size": 0.31, "color": [153, 153, 153]},
+      {"kind": "head", "at": [-2.08, 1.41, 4.56], "size": 0.31, "color": [153, 153, 153]}
+    ],
+    "rush2049dc:0": [
+      {"kind": "head", "at": [1.68, 1.91, 3.17], "size": 0.25, "color": [197, 208, 213]},
+      {"kind": "head", "at": [-1.68, 1.91, 3.17], "size": 0.25, "color": [197, 208, 213]}
+    ],
+    "rush2049dc:1": [
+      {"kind": "head", "at": [2.05, 1.41, 5.83], "size": 0.2, "color": [90, 90, 90]},
+      {"kind": "head", "at": [-2.05, 1.41, 5.83], "size": 0.2, "color": [90, 90, 90]}
+    ],
+    "rush2049dc:3": [
+      {"kind": "head", "at": [2.11, 0.62, 5.99], "size": 0.31, "color": [151, 181, 66]},
+      {"kind": "head", "at": [-2.11, 0.62, 5.99], "size": 0.31, "color": [151, 181, 66]}
+    ],
+    "rush2049dc:5": [
+      {"kind": "head", "at": [2.2, 1.09, 6.85], "size": 0.35, "color": [116, 116, 131]},
+      {"kind": "head", "at": [-2.2, 1.09, 6.85], "size": 0.35, "color": [116, 116, 131]}
+    ],
+    "rush2049dc:8": [
+      {"kind": "head", "at": [1.78, 1.36, 4.38], "size": 0.25, "color": [133, 128, 116]},
+      {"kind": "head", "at": [-1.78, 1.36, 4.38], "size": 0.25, "color": [133, 128, 116]}
+    ],
+    "rush2049dc:9": [
+      {"kind": "tail", "at": [2.35, 1.99, -6.7], "size": 0.4, "color": [167, 28, 12]},
+      {"kind": "tail", "at": [-2.35, 1.99, -6.7], "size": 0.4, "color": [167, 28, 12]}
+    ],
+    "rush2049dc:10": [
+      {"kind": "head", "at": [2.17, 2.18, 7.24], "size": 0.45, "color": [145, 139, 151]},
+      {"kind": "head", "at": [-2.17, 2.18, 7.24], "size": 0.45, "color": [145, 139, 151]}
+    ],
+    "rush2049dc:11": [
+      {"kind": "head", "at": [1.93, 1.29, 5.33], "size": 0.4, "color": [172, 161, 166]},
+      {"kind": "head", "at": [-1.93, 1.29, 5.33], "size": 0.4, "color": [172, 161, 166]}
+    ],
+    "rush2049dc:12": [
+      {"kind": "head", "at": [2.12, 1.29, 5.06], "size": 0.31, "color": [126, 132, 155]},
+      {"kind": "head", "at": [-2.12, 1.29, 5.06], "size": 0.31, "color": [126, 132, 155]}
+    ]
+  }
+}

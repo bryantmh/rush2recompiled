@@ -1109,6 +1109,7 @@ namespace {
         int id = -1;
     };
     std::map<std::pair<int, int>, LiveryBody> livery_bodies;
+    std::map<int, std::string> livery_body_files;   // livery body id -> its livery's file (Car Lights' key)
 
     std::string livery_prefix(int v) {
         char p[8];
@@ -1282,6 +1283,7 @@ namespace {
         for (size_t v = 0; v < it->second.size(); v++) {
             LiveryBody& b = livery_bodies[{ index, int(v) + 1 }];
             b.id = rush2::car2049::add_livery_body(b.id, out, livery_prefix(int(v) + 1), scuffs, loads_start, loads_end);
+            if (b.id >= 0) livery_body_files[b.id] = std::filesystem::path(it->second[v].file).stem().string();
         }
         return true;
     }
@@ -1428,6 +1430,15 @@ int rush2::car_mods::livery_body(uint8_t* rdram, int id, uint32_t& base) {
     }
     base = copy;
     return s->second.body;
+}
+
+std::string rush2::car_mods::livery_name(uint8_t* rdram, int id) {
+    uint32_t base = 0;
+    const int body = livery_body(rdram, id, base);
+    if (body < 0) return std::string();
+    std::lock_guard lock{ livery_tables_mutex };
+    auto it = livery_body_files.find(body);
+    return it != livery_body_files.end() ? it->second : std::string();
 }
 
 void rush2::car_mods::paint_livery(uint8_t* rdram, int id) {
@@ -2110,6 +2121,36 @@ namespace {
                 return false;
             }
             spec.shadow_radius = std::min(j["round_shadow"].get<float>(), 20.0f);
+        }
+        // Car Lights' lamps (src/car_lights.cpp): [{"kind": "head" | "tail", "at": [x, y, z], "size": r}], in the glb's
+        // space as "wheels" (1/16 ft, its x the game's turned over).
+        spec.lamps.clear();
+        if (j.contains("lights")) {
+            const char* lights_error = "\"lights\" is a list of {\"kind\": \"head\" or \"tail\", \"at\": [x, y, z], \"size\": radius} in the glb's space";
+            if (!j["lights"].is_array()) {
+                error = lights_error;
+                return false;
+            }
+            for (const auto& e : j["lights"]) {
+                float at[3];
+                if (!e.is_object() || !e.contains("at") || !vec(e["at"], at, 3) || !e.contains("kind") || !e["kind"].is_string() ||
+                    (e["kind"] != "head" && e["kind"] != "tail") || (e.contains("size") && !e["size"].is_number())) {
+                    error = lights_error;
+                    return false;
+                }
+                rush2::car_lights::LampSpec lamp;
+                lamp.head = e["kind"] == "head";
+                lamp.at[0] = -at[0] / 16.0f;
+                lamp.at[1] = at[1] / 16.0f;
+                lamp.at[2] = at[2] / 16.0f;
+                lamp.size = e.contains("size") ? std::clamp(e["size"].get<float>() / 16.0f, 0.05f, 2.0f) : 0.25f;
+                if (e.contains("lens") && e["lens"].is_boolean()) lamp.lens = e["lens"].get<bool>();
+                if (e.contains("color") && e["color"].is_array() && e["color"].size() == 3) {
+                    lamp.has_color = true;
+                    for (int k = 0; k < 3; k++) lamp.color[k] = e["color"][k].is_number() ? e["color"][k].get<float>() : 0.0f;
+                }
+                spec.lamps.push_back(lamp);
+            }
         }
         // The car select's name logo: a 128 x 32 image in rush2/new_cars/ (read by load_new_cars into spec.logo).
         logo_file.clear();

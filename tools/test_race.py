@@ -28,7 +28,7 @@ default; --turbo runs the race as fast as the machine goes from its first tick (
 The run is closed after --seconds (by its PID). race_watch.py does the watching: DIR/samples.jsonl, DIR/events.txt,
 DIR/run.log (the game's output).
 """
-import argparse, json, math, os, shutil, subprocess, sys, zipfile
+import argparse, json, math, os, shutil, subprocess, sys, time, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -55,11 +55,19 @@ def link(src, dst):
 
 
 def remove_link(path):
-    """Removes a junction, link or linked file without touching what it points to."""
-    if os.path.isjunction(path) or os.path.islink(path):
-        os.rmdir(path) if os.path.isdir(path) else os.unlink(path)
-    elif os.path.isfile(path):
-        os.remove(path)
+    """Removes a junction, link or linked file without touching what it points to. A file still held for a moment
+    (the last run's game closing, a virus scan of a fresh copy) is retried for up to 10 s."""
+    for attempt in range(41):
+        try:
+            if os.path.isjunction(path) or os.path.islink(path):
+                os.rmdir(path) if os.path.isdir(path) else os.unlink(path)
+            elif os.path.isfile(path):
+                os.remove(path)
+            return
+        except PermissionError:
+            if attempt == 40:
+                raise
+            time.sleep(0.25)
 
 
 def mod_name(entry):

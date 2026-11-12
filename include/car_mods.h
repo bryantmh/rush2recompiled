@@ -47,6 +47,8 @@ namespace rush2::car_mods {
     void paint_livery(uint8_t* rdram, int id);
     // The livery body (rush2::car2049::add_livery_body id) car `id`'s copy shows, and the copy's base; -1 for none.
     int livery_body(uint8_t* rdram, int id, uint32_t& base);
+    // The file name (no folder or extension) of the livery car `id`'s copy shows, "" for none (Car Lights' key).
+    std::string livery_name(uint8_t* rdram, int id);
 }
 
 // Files in the enabled mods (car models, HUD placements).
