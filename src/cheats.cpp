@@ -873,7 +873,7 @@ extern "C" void rush2_cheats_kill_floor(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     int32_t car = MEM_W(0x138, ctx->r29);
-    if (MEM_BU(car_kind, car) == 2) {
+    if (MEM_BU(0, (int32_t)(car + car_kind)) == 2) {
         ctx->r3 = 0;
     }
 }
@@ -893,7 +893,7 @@ extern "C" int rush2_cheats_no_damage(uint8_t* rdram, uint32_t car) {
     if (index >= 8 || offset % car_physics_size != 0) {
         return -1;
     }
-    if (MEM_B(car_kind, (int32_t)car) == 2 && MEM_B(0, (int32_t)invincible) != 0) {
+    if (MEM_B(0, (int32_t)(car + car_kind)) == 2 && MEM_B(0, (int32_t)invincible) != 0) {
         return 1;
     }
     if (MEM_B(0, (int32_t)no_damage) == 0) {
