@@ -279,7 +279,7 @@ left, the game's x points left) green. Checked 2026-10-14: the cube on a Rush 2 
 
 Car Lights = **On** in the Enhanced preset, **Off** in Original and as the option's own default (setup rule `car_lights`, src/setup.cpp; GitHub issue 65): on a night track every race car's headlamps and tail lamps light
 the road and whatever else is round them from where the lamps really are on the car, and the lamps themselves glow
-(src/car_lights.cpp, lib/rt64 `CarLightPS.hlsl` and `CarLightCompositePS.hlsl`, `FramebufferRenderer::carLightOf` and
+(src/car_lights.cpp, lib/rt64 `CarLightPS.hlsl`, `CarGlowPS.hlsl` and `CarLightCompositePS.hlsl`, `FramebufferRenderer::carLightOf` and
 `submitCarLights`). It is hot-swappable. Stock Rush 2 courses are never night ones, so it changes nothing there.
 
 - **Night tracks:** `rush2::track2049::night_race`, a converted course (Rush 2049, custom, arcade) whose fog color is
@@ -375,9 +375,14 @@ camera through the reconstruction Sky Fog uses (`viewReconOf`); a headlamp point
 degrees, a tail lamp straight back. Once the view's 3D draws end (its next 2D draw or the end of the scene, after
 ambient occlusion):
 
-1. Each lamp's pass (`CarLightPS`, over the screen box of the cube round its reach and its glow) adds into two float
-   targets of the color target's size (R16G16B16A16, no multisampling, cleared over the lamps' area first):
-   - **light:** intensity x shape x Lambert (normal from the depth buffer) / (d^2 + 1), d in feet, windowed to
+1. The lamps add into two float targets (R16G16B16A16, no multisampling, cleared over the lamps' area first):
+   - **light** (`CarLightPS`, at half the color target's resolution each way, over the screen box of the cube round
+     the lamp's reach): each half resolution pixel stands for the full resolution pixel at twice its position (its
+     2 x 2 block's top left). A car's mirrored lamps (two headlamps, two tail lamps: same kind and color, x turned
+     over, y and z within 2 units; `carLightOf`) light in one pass: both shaded, from their midpoint and half the gap
+     along the car's side (`dirW.w`), one march toward the midpoint. Light under 0.002 (brightest channel) is dropped,
+     and light under 0.03 skips the march (its shadow wouldn't show on a night track's dark surfaces).
+     Intensity x shape x Lambert (normal from the depth buffer) / (d^2 + 1), d in feet, windowed to
      nothing at the reach ((1 - (d / reach)^4)^2). Intensities: headlamp 15000, tail lamp 14 (braking). A headlamp is
      a low-beam spot: Gaussian falloff in tangents off its axis, 0.52 across, 0.065 below, 0.025 above (a sharp top
      cut), so the long pool on the road comes from the grazing angle. A tail lamp is a lobe ((0.3 + 0.7 cos)^2)
@@ -387,12 +392,17 @@ ambient occlusion):
      depth buffer sample is more than 0.5 ft (plus 1% of the distance) and less than 7 ft in front of the ray blocks
      it, softly at both ends, three blocks a full shadow. No jitter (it stippled the pool). A car ahead shadows the
      beam.
-   - **glow:** a halo at the lamp's pixel (a Gaussian core the lens's size and a faint short bloom, 8% out to 6
+   - **glow** (`CarGlowPS`, full resolution, one pass per lamp over the box its 6 radii reach): a halo at the lamp's
+     pixel (a Gaussian core the lens's size and a faint short bloom, 8% out to 6
      radii: a wide one tinted the car's paint round its brake lights), scaled by how
      squarely the lamp faces the camera (a headlamp glares straight on) and kept only where the depth buffer at and
      round the lamp shows nothing nearer than it.
 2. The scene is copied (`copyTexture`, same format and samples) and `CarLightCompositePS` writes scene + albedo x
-   light + glow over the lamps' area, per sample with multisampling, leaving pixels no lamp reached alone. The albedo
+   light + glow over the lamps' area, per sample with multisampling, leaving pixels no lamp reached alone. The light
+   is upsampled from the half resolution pixels round each pixel (the one at half its position, and on an odd row or
+   column the next along): their average where they agree within a tenth, otherwise each weighed by how near its own
+   pixel's depth is to this one's (exp(-40 x relative w gap), the nearest alone if none is near), so light doesn't
+   bleed across a car's outline. The albedo
    is estimated: scene / level (the marker's, 110 / 255), never under 0.015, so a black surface still lifts a little.
    The light is first compressed, light / (1 + its brightest channel / 1.5), so a surface right in front of a lamp is
    lit to at most 1.5 times its albedo instead of going flat white (the beam washed the scene out without it). A
@@ -402,6 +412,17 @@ ambient occlusion):
 
 The pipelines are made with the shader library at startup and the targets on a view's first lamps, so nothing hitches
 when a light first appears.
+
+### Car lights GPU cost
+
+`RUSH2_GPU_LOG=1` prints a `[gpu]` line to the game log every 120 workloads: the workload's GPU time and the car
+lights' part of it, split into light, glow, scene copy and composite (timestamps round `submitCarLights`, read in
+`WorkloadQueue`). Measure with `tools/test_race.py 17 --user-settings --show --env RUSH2_GPU_LOG=1 --data <own dir>`
+(Presidio, night) and compare car lights over the rest of the workload: the GPU's clock changes between runs (other
+games running), so milliseconds alone don't compare. The first version (every lamp full resolution, light and glow in
+one pass) cost 1.42 times the rest of the frame at the start and 0.65 later in the race (1600 x 900, MSAA 4x); half
+resolution light, the glow's own small passes and mirrored pairs bring that to 0.33 and 0.25. Of what's left later
+in the race, about half is the scene copy and the composite, which run over the lamps' whole area.
 
 ### Reviewing the lamps
 

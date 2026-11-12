@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 79dfc38..e588883 100644
+index 79dfc38..c539fdf 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -504,6 +504,8 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
@@ -19,7 +19,7 @@ index 79dfc38..e588883 100644
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl")
  build_compute_shader(rt64 "src/shaders/RSPVertexTestZCS.hlsl" "src/shaders/RSPVertexTestZCSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/RtCopyColorToDepthPS.hlsl")
-@@ -550,7 +553,20 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
+@@ -550,7 +553,22 @@ build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/Video
  build_pixel_shader(  rt64 "src/shaders/VideoInterfacePS.hlsl" "src/shaders/VideoInterfacePSPixel.hlsl" "-D PIXEL_ANTIALIASING")
  build_vertex_shader( rt64 "src/shaders/FullScreenVS.hlsl")
  build_vertex_shader( rt64 "src/shaders/Im3DVS.hlsl")
@@ -35,6 +35,8 @@ index 79dfc38..e588883 100644
 +build_pixel_shader(  rt64 "src/shaders/SkyFogPS.hlsl" "src/shaders/SkyFogPSMS.hlsl" "-D MULTISAMPLING")
 +build_pixel_shader(  rt64 "src/shaders/CarLightPS.hlsl")
 +build_pixel_shader(  rt64 "src/shaders/CarLightPS.hlsl" "src/shaders/CarLightPSMS.hlsl" "-D MULTISAMPLING")
++build_pixel_shader(  rt64 "src/shaders/CarGlowPS.hlsl")
++build_pixel_shader(  rt64 "src/shaders/CarGlowPS.hlsl" "src/shaders/CarGlowPSMS.hlsl" "-D MULTISAMPLING")
 +build_pixel_shader(  rt64 "src/shaders/CarLightCompositePS.hlsl")
 +build_pixel_shader(  rt64 "src/shaders/CarLightCompositePS.hlsl" "src/shaders/CarLightCompositePSMS.hlsl" "-D MULTISAMPLING")
  build_pixel_shader(  rt64 "src/shaders/DebugPS.hlsl")
@@ -1200,10 +1202,20 @@ index 7a8c13b..c1aaabd 100644
          GameConfiguration gameConfig;
          uint32_t displayListAddress;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 5a331aa..35ab5c9 100644
+index 5a331aa..122eafc 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
-@@ -49,6 +49,7 @@ namespace RT64 {
+@@ -11,6 +11,9 @@
+ #define ENABLE_HIGH_RESOLUTION_RENDERER 1
+ 
+ namespace RT64 {
++    // Rush 2 recomp: RUSH2_GPU_LOG logs GPU times (WorkloadQueue::threadLoop).
++    static const bool gpuLog = (getenv("RUSH2_GPU_LOG") != nullptr);
++
+     // WorkloadQueue
+ 
+     WorkloadQueue::WorkloadQueue() {
+@@ -49,6 +52,7 @@ namespace RT64 {
  
      void WorkloadQueue::advanceToNextWorkload() {
          int nextWriteCursor = (writeCursor + 1) % workloads.size();
@@ -1211,7 +1223,17 @@ index 5a331aa..35ab5c9 100644
  
          // Stall the thread until the barrier is lifted if we're trying to write on a workload being used by the GPU.
          bool waitForBarrier;
-@@ -214,8 +215,10 @@ namespace RT64 {
+@@ -102,7 +106,8 @@ namespace RT64 {
+         vertexProcessor = std::make_unique<VertexProcessor>(ext.device);
+         framebufferRenderer = std::make_unique<FramebufferRenderer>(ext.workloadGraphicsWorker, true, ext.createdGraphicsAPI, ext.shaderLibrary);
+         renderFramebufferManager = std::make_unique<RenderFramebufferManager>(ext.device);
+-        queryPool = ext.device->createQueryPool(2);
++        // Rush 2 recomp: and five per car lights submit for RUSH2_GPU_LOG.
++        queryPool = ext.device->createQueryPool(2 + CarLightQueryLimit * CarLightQueryStride);
+ 
+         projectionProcessor.setup(ext.workloadGraphicsWorker);
+         transformProcessor.setup(ext.workloadGraphicsWorker);
+@@ -214,8 +219,10 @@ namespace RT64 {
  
          // Find the target refresh rate from the configuration.
          const auto refreshRate = ext.sharedResources->userConfig.refreshRate;
@@ -1222,7 +1244,54 @@ index 5a331aa..35ab5c9 100644
              workloadConfig.targetRate = ext.sharedResources->swapChainRate;
              break;
          case UserConfiguration::RefreshRate::Manual:
-@@ -888,6 +891,16 @@ namespace RT64 {
+@@ -699,7 +706,9 @@ namespace RT64 {
+ 
+             workerMutex.lock();
+             ext.workloadGraphicsWorker->commandList->begin();
+-            ext.workloadGraphicsWorker->commandList->resetQueryPool(queryPool.get(), 0, 2);
++            ext.workloadGraphicsWorker->commandList->resetQueryPool(queryPool.get(), 0, queryPool->getCount());
++            framebufferRenderer->carLightQueryPool = gpuLog ? queryPool.get() : nullptr;
++            framebufferRenderer->carLightQueryCount = 0;
+             ext.workloadGraphicsWorker->commandList->writeTimestamp(queryPool.get(), 0);
+             framebufferRenderer->endFramebuffers(ext.workloadGraphicsWorker, &workload.drawBuffers, &workload.outputBuffers, workloadConfig.raytracingEnabled);
+             framebufferRenderer->recordSetup(ext.workloadGraphicsWorker, bufferUploaders, processRSP ? rspProcessor.get() : nullptr, processWorldVertices ? vertexProcessor.get() : nullptr, &workload.outputBuffers, workloadConfig.raytracingEnabled);
+@@ -849,6 +858,35 @@ namespace RT64 {
+             const uint64_t *frameTimestamps = queryPool->getResults();
+             rendererGPUProfiler.log(double(frameTimestamps[1] - frameTimestamps[0]) / 1000000.0);
+ 
++            // Rush 2 recomp: RUSH2_GPU_LOG prints the workloads' mean GPU time every 120 and the car lights' part of it
++            // (FramebufferRenderer::submitCarLights), as "[gpu]" lines in the game log.
++            if (gpuLog) {
++                static double gpuSum = 0.0, lightSum = 0.0, partSum[4] = {};
++                static uint32_t gpuCount = 0, lightCount = 0;
++                gpuSum += double(frameTimestamps[1] - frameTimestamps[0]) / 1000000.0;
++                for (uint32_t q = 0; q < framebufferRenderer->carLightQueryCount; q++) {
++                    const uint64_t *t = &frameTimestamps[2 + q * CarLightQueryStride];
++                    lightSum += double(t[4] - t[0]) / 1000000.0;
++                    for (uint32_t k = 0; k < 4; k++) {
++                        partSum[k] += double(t[k + 1] - t[k]) / 1000000.0;
++                    }
++                }
++
++                lightCount += (framebufferRenderer->carLightQueryCount > 0) ? 1 : 0;
++                if (++gpuCount == 120) {
++                    fprintf(stderr, "[gpu] workload %.3f ms, car lights %.3f ms (light %.3f, glow %.3f, copy %.3f, composite %.3f; %u of %u workloads)\n",
++                        gpuSum / gpuCount, lightSum / gpuCount, partSum[0] / gpuCount, partSum[1] / gpuCount, partSum[2] / gpuCount, partSum[3] / gpuCount, lightCount, gpuCount);
++                    gpuSum = 0.0;
++                    lightSum = 0.0;
++                    for (double &v : partSum) {
++                        v = 0.0;
++                    }
++
++                    gpuCount = 0;
++                    lightCount = 0;
++                }
++            }
++
+             // Indicate to the texture cache it's safe to delete the textures if no locks are active.
+             ext.textureCache->decrementLock();
+         }
+@@ -888,6 +926,16 @@ namespace RT64 {
          uint32_t displayRateForTicks = 0;
          int processCursor = -1;
          bool frameReduction = false;
@@ -1239,7 +1308,7 @@ index 5a331aa..35ab5c9 100644
          while (threadsRunning) {
              {
                  std::unique_lock<std::mutex> cursorLock(cursorMutex);
-@@ -997,9 +1010,40 @@ namespace RT64 {
+@@ -997,9 +1045,40 @@ namespace RT64 {
                      }
                  }
  
@@ -1281,7 +1350,7 @@ index 5a331aa..35ab5c9 100644
                      logicalTicks += workloadConfig.targetRate;
                      displayFrames = uint32_t((logicalTicks - displayTicks) / workload.viOriginalRate);
                      deltaTimeMs = 1.0f / float(workloadConfig.targetRate);
-@@ -1040,6 +1084,7 @@ namespace RT64 {
+@@ -1040,6 +1119,7 @@ namespace RT64 {
                  curFrameCounters.skipped = false;
                  curFrameCounters.presented = 0;
                  curFrameCounters.available = 0;
@@ -1289,7 +1358,7 @@ index 5a331aa..35ab5c9 100644
                  curFrameCounters.count = displayFrames;
  
                  // Create as many render targets as required to store the interpolated targets.
-@@ -1064,9 +1109,10 @@ namespace RT64 {
+@@ -1064,9 +1144,10 @@ namespace RT64 {
                  uint32_t targetIndex = 0;
                  uint32_t framesRendered = 0;
                  int64_t renderTimeTotalMicro = 0;
@@ -1301,7 +1370,7 @@ index 5a331aa..35ab5c9 100644
                          const int64_t currentTimeMicro = workloadTimer.elapsedMicroseconds() - setupTimeMicro;
                          const int64_t expectedTimeMicro = frame * maxTimePerFrameMicro;
                          const int64_t measuredFrameMicro = renderTimeTotalMicro / framesRendered;
-@@ -1079,11 +1125,81 @@ namespace RT64 {
+@@ -1079,11 +1160,81 @@ namespace RT64 {
  
                      RenderTarget *overrideTarget = nullptr;
                      uint32_t overrideModifier = 0;
@@ -1384,7 +1453,7 @@ index 5a331aa..35ab5c9 100644
                          // Override the render target.
                          if (usingMSAA || (frame > 0)) {
                              overrideTarget = interpolatedTargets[targetIndex].get();
-@@ -1132,7 +1248,7 @@ namespace RT64 {
+@@ -1132,7 +1283,7 @@ namespace RT64 {
                      if (generateInterpolatedFrames && (usingMSAA || (frame > 0))) {
                          {
                              std::scoped_lock<std::mutex> cursorLock(cursorMutex);
@@ -1393,7 +1462,7 @@ index 5a331aa..35ab5c9 100644
                          }
  
                          {
-@@ -1150,8 +1266,16 @@ namespace RT64 {
+@@ -1150,8 +1301,16 @@ namespace RT64 {
                      }
  
                      framesRendered++;
@@ -1439,24 +1508,27 @@ index bde2f03..b92a1c4 100644
          int writeCursor;
          int barrierCursor;
 diff --git a/src/render/rt64_descriptor_sets.h b/src/render/rt64_descriptor_sets.h
-index 69a82ac..768e633 100644
+index 69a82ac..6657001 100644
 --- a/src/render/rt64_descriptor_sets.h
 +++ b/src/render/rt64_descriptor_sets.h
-@@ -643,6 +643,61 @@ namespace RT64 {
+@@ -643,6 +643,64 @@ namespace RT64 {
          }
      };
  
-+    // Rush 2 recomp: car lights' composite (CarLightCompositePS.hlsl): the scene's copy, the lamps' light and glow.
++    // Rush 2 recomp: car lights' composite (CarLightCompositePS.hlsl): the scene's copy, the lamps' light and glow, and
++    // the depth target (to upsample the light by).
 +    struct CarLightCompositeDescriptorSet : RenderDescriptorSetBase {
 +        uint32_t gScene;
 +        uint32_t gLight;
 +        uint32_t gGlow;
++        uint32_t gDepth;
 +
 +        CarLightCompositeDescriptorSet(RenderDevice *device = nullptr) {
 +            builder.begin();
 +            gScene = builder.addTexture(1);
 +            gLight = builder.addTexture(2);
 +            gGlow = builder.addTexture(3);
++            gDepth = builder.addTexture(4);
 +            builder.end();
 +
 +            if (device != nullptr) {
@@ -1505,7 +1577,7 @@ index 69a82ac..768e633 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..af8202a 100644
+index 9fae0d4..24346b6 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,14 +4,20 @@
@@ -1604,7 +1676,7 @@ index 9fae0d4..af8202a 100644
              }
          }
      }
-@@ -508,14 +539,339 @@ namespace RT64 {
+@@ -508,14 +539,412 @@ namespace RT64 {
              }
          };
  
@@ -1740,9 +1812,11 @@ index 9fae0d4..af8202a 100644
 +        };
 +
 +        // Rush 2 recomp: car lights. The car markers met so far shine once the 3D draws they are among end (at a 2D
-+        // draw or the end of the scene), after ambient occlusion: each lamp adds its light and glow into the storage's
-+        // float targets over the screen box it can reach (CarLightPS.hlsl), then one composite puts them on the scene
-+        // from a copy of it (CarLightCompositePS.hlsl).
++        // draw or the end of the scene), after ambient occlusion: each lamp adds its light into a float target at half
++        // resolution over the screen box it can reach (CarLightPS.hlsl) and its glow into a full resolution one over the
++        // glow's small box (CarGlowPS.hlsl), then one composite upsamples the light by depth and puts both on the scene
++        // from a copy of it (CarLightCompositePS.hlsl). The light is most of the cost (a headlamp reaches most of the
++        // screen, with a depth march per pixel), hence its half resolution: a quarter of the pixels.
 +        std::vector<int32_t> pendingCarLights;
 +        auto submitCarLights = [&]() {
 +            RenderTarget *colorTarget = fbStorage->colorTarget;
@@ -1754,54 +1828,82 @@ index 9fae0d4..af8202a 100644
 +
 +            const int32_t width = int32_t(colorTarget->width);
 +            const int32_t height = int32_t(colorTarget->height);
++            const int32_t halfWidth = (width + 1) / 2;
++            const int32_t halfHeight = (height + 1) / 2;
++            auto grow = [](RenderRect &total, bool &any, const RenderRect &r) {
++                if (!any) {
++                    total = r;
++                    any = true;
++                }
++                else {
++                    total.left = std::min(total.left, r.left);
++                    total.top = std::min(total.top, r.top);
++                    total.right = std::max(total.right, r.right);
++                    total.bottom = std::max(total.bottom, r.bottom);
++                }
++            };
++
++            // Each pass's boxes clipped to the target, the light's then in half resolution pixels (its full resolution
++            // box halved outward). area: every full resolution pixel either reaches (the composite's).
 +            RenderRect area;
-+            bool anyArea = false;
++            bool anyArea = false, anyLight = false;
 +            float level = 1.0f;
++            const interop::CarLightCB *anyCB = nullptr;
 +            for (int32_t group : pendingCarLights) {
 +                const CarLightGroup &g = carLightGroups[group];
 +                level = g.level;
 +                for (uint32_t k = 0; k < g.count; k++) {
 +                    CarLightPass &pass = carLightPasses[g.first + k];
++                    anyCB = &pass.cb;
 +                    pass.rect = RenderRect(std::max(pass.rect.left, 0), std::max(pass.rect.top, 0), std::min(pass.rect.right, width), std::min(pass.rect.bottom, height));
-+                    if (pass.rect.isEmpty()) {
-+                        continue;
++                    pass.glowRect = RenderRect(std::max(pass.glowRect.left, 0), std::max(pass.glowRect.top, 0), std::min(pass.glowRect.right, width), std::min(pass.glowRect.bottom, height));
++                    if (!pass.rect.isEmpty()) {
++                        grow(area, anyArea, pass.rect);
++                        pass.rect = RenderRect(pass.rect.left / 2, pass.rect.top / 2, (pass.rect.right + 1) / 2, (pass.rect.bottom + 1) / 2);
++                        anyLight = true;
 +                    }
 +
-+                    if (!anyArea) {
-+                        area = pass.rect;
-+                        anyArea = true;
-+                    }
-+                    else {
-+                        area.left = std::min(area.left, pass.rect.left);
-+                        area.top = std::min(area.top, pass.rect.top);
-+                        area.right = std::max(area.right, pass.rect.right);
-+                        area.bottom = std::max(area.bottom, pass.rect.bottom);
++                    if (!pass.glowRect.isEmpty()) {
++                        grow(area, anyArea, pass.glowRect);
 +                    }
 +                }
 +            }
 +
-+            if (!anyArea) {
++            if (!anyArea || (anyCB == nullptr)) {
 +                pendingCarLights.clear();
 +                return;
 +            }
 +
++            // The composite reads the light's pixels round each of its own, one past its half of the area: cleared too.
++            const RenderRect lightClear(std::max(area.left / 2 - 1, 0), std::max(area.top / 2 - 1, 0), std::min((area.right + 1) / 2 + 1, halfWidth), std::min((area.bottom + 1) / 2 + 1, halfHeight));
++
++            const bool timed = (carLightQueryPool != nullptr) && (carLightQueryCount < CarLightQueryLimit);
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, 2 + carLightQueryCount * CarLightQueryStride);
++            }
++
 +            RenderDevice *device = worker->device;
 +            if ((fbStorage->carLightTexture == nullptr) || (fbStorage->carLightWidth != colorTarget->width) || (fbStorage->carLightHeight != colorTarget->height) ||
-+                (fbStorage->carLightColorTexture != colorTarget->texture.get())) {
++                (fbStorage->carLightColorTexture != colorTarget->texture.get()) || (fbStorage->carLightDepthTexture != depthTarget->texture.get())) {
 +                fbStorage->carLightCompositeSet.reset();
 +                fbStorage->carLightFramebuffer.reset();
-+                fbStorage->carLightTexture = device->createTexture(RenderTextureDesc::ColorTarget(colorTarget->width, colorTarget->height, RenderFormat::R16G16B16A16_FLOAT));
++                fbStorage->carGlowFramebuffer.reset();
++                fbStorage->carLightTexture = device->createTexture(RenderTextureDesc::ColorTarget(uint32_t(halfWidth), uint32_t(halfHeight), RenderFormat::R16G16B16A16_FLOAT));
 +                fbStorage->carGlowTexture = device->createTexture(RenderTextureDesc::ColorTarget(colorTarget->width, colorTarget->height, RenderFormat::R16G16B16A16_FLOAT));
 +                fbStorage->carSceneTexture = device->createTexture(RenderTextureDesc::ColorTarget(colorTarget->width, colorTarget->height, colorTarget->format, colorTarget->multisampling));
-+                const RenderTexture *lightTargets[2] = { fbStorage->carLightTexture.get(), fbStorage->carGlowTexture.get() };
-+                fbStorage->carLightFramebuffer = device->createFramebuffer(RenderFramebufferDesc(lightTargets, 2));
++                const RenderTexture *lightTexture = fbStorage->carLightTexture.get();
++                const RenderTexture *glowTexture = fbStorage->carGlowTexture.get();
++                fbStorage->carLightFramebuffer = device->createFramebuffer(RenderFramebufferDesc(&lightTexture, 1));
++                fbStorage->carGlowFramebuffer = device->createFramebuffer(RenderFramebufferDesc(&glowTexture, 1));
 +                fbStorage->carLightCompositeSet = std::make_unique<CarLightCompositeDescriptorSet>(device);
 +                fbStorage->carLightCompositeSet->setTexture(fbStorage->carLightCompositeSet->gScene, fbStorage->carSceneTexture.get(), RenderTextureLayout::SHADER_READ);
 +                fbStorage->carLightCompositeSet->setTexture(fbStorage->carLightCompositeSet->gLight, fbStorage->carLightTexture.get(), RenderTextureLayout::SHADER_READ);
 +                fbStorage->carLightCompositeSet->setTexture(fbStorage->carLightCompositeSet->gGlow, fbStorage->carGlowTexture.get(), RenderTextureLayout::SHADER_READ);
++                fbStorage->carLightCompositeSet->setTexture(fbStorage->carLightCompositeSet->gDepth, depthTarget->texture.get(), RenderTextureLayout::DEPTH_READ, depthTarget->textureView.get());
 +                fbStorage->carLightWidth = colorTarget->width;
 +                fbStorage->carLightHeight = colorTarget->height;
 +                fbStorage->carLightColorTexture = colorTarget->texture.get();
++                fbStorage->carLightDepthTexture = depthTarget->texture.get();
 +            }
 +
 +            if (fbStorage->colorOnly == nullptr) {
@@ -1814,38 +1916,72 @@ index 9fae0d4..af8202a 100644
 +                fbStorage->occlusionDepthSet->setTexture(fbStorage->occlusionDepthSet->gInput, depthTarget->texture.get(), RenderTextureLayout::DEPTH_READ, depthTarget->textureView.get());
 +            }
 +
-+            const RenderViewport targetViewport(0.0f, 0.0f, float(colorTarget->width), float(colorTarget->height));
++            const RenderViewport targetViewport(0.0f, 0.0f, float(width), float(height));
++            const RenderViewport halfViewport(0.0f, 0.0f, float(halfWidth), float(halfHeight));
 +            const bool depthMS = (depthTarget->multisampling.sampleCount > 1);
 +            const ShaderRecord &lightShader = depthMS ? shaderLibrary->carLightMS : shaderLibrary->carLight;
++            const ShaderRecord &glowShader = depthMS ? shaderLibrary->carGlowMS : shaderLibrary->carGlow;
 +            submitDepthAccess(worker, fbStorage, true, depthState);
 +
-+            // The lamps, into the light and glow targets.
 +            RenderTextureBarrier lightWrite[] = {
 +                RenderTextureBarrier(fbStorage->carLightTexture.get(), RenderTextureLayout::COLOR_WRITE),
 +                RenderTextureBarrier(fbStorage->carGlowTexture.get(), RenderTextureLayout::COLOR_WRITE)
 +            };
 +
 +            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, lightWrite, uint32_t(std::size(lightWrite)));
++
++            // The lamps' light, at half resolution.
 +            worker->commandList->setFramebuffer(fbStorage->carLightFramebuffer.get());
++            worker->commandList->clearColor(0, RenderColor(0.0f, 0.0f, 0.0f, 0.0f), &lightClear, 1);
++            if (anyLight) {
++                worker->commandList->setViewports(halfViewport);
++                worker->commandList->setPipeline(lightShader.pipeline.get());
++                worker->commandList->setGraphicsPipelineLayout(lightShader.pipelineLayout.get());
++                worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionDepthSet->get(), 0);
++                worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
++                for (int32_t group : pendingCarLights) {
++                    const CarLightGroup &g = carLightGroups[group];
++                    for (uint32_t k = 0; k < g.count; k++) {
++                        const CarLightPass &pass = carLightPasses[g.first + k];
++                        if (pass.rect.isEmpty()) {
++                            continue;
++                        }
++
++                        worker->commandList->setScissors(pass.rect);
++                        worker->commandList->setGraphicsPushConstants(0, &pass.cb);
++                        worker->commandList->drawInstanced(3, 1, 0, 0);
++                    }
++                }
++            }
++
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, 2 + carLightQueryCount * CarLightQueryStride + 1);
++            }
++
++            // Their glow, at full resolution.
++            worker->commandList->setFramebuffer(fbStorage->carGlowFramebuffer.get());
 +            worker->commandList->clearColor(0, RenderColor(0.0f, 0.0f, 0.0f, 0.0f), &area, 1);
-+            worker->commandList->clearColor(1, RenderColor(0.0f, 0.0f, 0.0f, 0.0f), &area, 1);
 +            worker->commandList->setViewports(targetViewport);
-+            worker->commandList->setPipeline(lightShader.pipeline.get());
-+            worker->commandList->setGraphicsPipelineLayout(lightShader.pipelineLayout.get());
++            worker->commandList->setPipeline(glowShader.pipeline.get());
++            worker->commandList->setGraphicsPipelineLayout(glowShader.pipelineLayout.get());
 +            worker->commandList->setGraphicsDescriptorSet(fbStorage->occlusionDepthSet->get(), 0);
 +            worker->commandList->setVertexBuffers(0, nullptr, 0, nullptr);
 +            for (int32_t group : pendingCarLights) {
 +                const CarLightGroup &g = carLightGroups[group];
 +                for (uint32_t k = 0; k < g.count; k++) {
 +                    const CarLightPass &pass = carLightPasses[g.first + k];
-+                    if (pass.rect.isEmpty()) {
++                    if (pass.glowRect.isEmpty()) {
 +                        continue;
 +                    }
 +
-+                    worker->commandList->setScissors(pass.rect);
++                    worker->commandList->setScissors(pass.glowRect);
 +                    worker->commandList->setGraphicsPushConstants(0, &pass.cb);
 +                    worker->commandList->drawInstanced(3, 1, 0, 0);
 +                }
++            }
++
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, 2 + carLightQueryCount * CarLightQueryStride + 2);
 +            }
 +
 +            // The scene's copy.
@@ -1865,12 +2001,17 @@ index 9fae0d4..af8202a 100644
 +
 +            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, afterCopy, uint32_t(std::size(afterCopy)));
 +
-+            // The composite, onto the scene.
-+            interop::CarLightCompositeCB compositeCB;
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, 2 + carLightQueryCount * CarLightQueryStride + 3);
++            }
++
++            // The composite, onto the scene. The depth to w constants are the view's (every lamp's alike).
++            interop::CarLightCompositeCB compositeCB = {};
 +            compositeCB.invLevel = 1.0f / std::max(level, 0.05f);
 +            compositeCB.albedoFloor = 0.015f;
 +            compositeCB.knee = 0.8f;
-+            compositeCB.padding = 0.0f;
++            compositeCB.depthA = anyCB->dirX.w;
++            compositeCB.depthB = anyCB->dirY.w;
 +            const ShaderRecord &compositeShader = shaderLibrary->carLightComposite;
 +            worker->commandList->setFramebuffer(fbStorage->colorOnly.get());
 +            worker->commandList->setViewports(targetViewport);
@@ -1881,6 +2022,10 @@ index 9fae0d4..af8202a 100644
 +            worker->commandList->setGraphicsPushConstants(0, &compositeCB);
 +            worker->commandList->drawInstanced(3, 1, 0, 0);
 +            pendingCarLights.clear();
++            if (timed) {
++                worker->commandList->writeTimestamp(carLightQueryPool, 2 + carLightQueryCount * CarLightQueryStride + 4);
++                carLightQueryCount++;
++            }
 +
 +            // Back to the scene's framebuffer, with the depth buffer still read only.
 +            worker->commandList->setFramebuffer(fbStorage->colorWriteDepthRead.get());
@@ -1946,7 +2091,7 @@ index 9fae0d4..af8202a 100644
              case InstanceDrawCall::Type::RawTriangles:
              case InstanceDrawCall::Type::RegularRect: {
                  assert(fbStorage->colorTarget != nullptr);
-@@ -550,6 +906,23 @@ namespace RT64 {
+@@ -550,6 +979,23 @@ namespace RT64 {
                      continue;
                  }
  
@@ -1970,7 +2115,7 @@ index 9fae0d4..af8202a 100644
                  // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
                  const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
                  bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
-@@ -578,6 +951,20 @@ namespace RT64 {
+@@ -578,6 +1024,20 @@ namespace RT64 {
  
                  drawCallTriangles(drawCall);
  
@@ -1991,7 +2136,7 @@ index 9fae0d4..af8202a 100644
                  // Simulate dither noise.
                  if (triangles.postBlendDitherNoise) {
                      if (triangles.postBlendDitherNoiseNegative) {
-@@ -638,6 +1025,10 @@ namespace RT64 {
+@@ -638,6 +1098,10 @@ namespace RT64 {
              }
          }
  
@@ -2002,7 +2147,7 @@ index 9fae0d4..af8202a 100644
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -1316,6 +1707,533 @@ namespace RT64 {
+@@ -1316,6 +1780,533 @@ namespace RT64 {
      }
  #endif
  
@@ -2536,7 +2681,7 @@ index 9fae0d4..af8202a 100644
      void FramebufferRenderer::addFramebuffer(const DrawParams &p) {
          assert(p.fbStorage != nullptr);
          
-@@ -1450,8 +2368,18 @@ namespace RT64 {
+@@ -1450,8 +2441,18 @@ namespace RT64 {
          uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
@@ -2555,7 +2700,7 @@ index 9fae0d4..af8202a 100644
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2434,358 @@ namespace RT64 {
+@@ -1506,6 +2507,441 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -2767,6 +2912,18 @@ index 9fae0d4..af8202a 100644
 +                CarLightGroup group;
 +                group.first = uint32_t(carLightPasses.size());
 +                group.level = level;
++
++                // The marker's lamps: where each is from the camera, where on the car, its color and kind.
++                struct Lamp {
++                    float rel[3];
++                    float m[3];
++                    const uint8_t *c;
++                    bool head;
++                    float glowRadius;
++                    bool paired;
++                };
++
++                std::vector<Lamp> lamps;
 +                const uint32_t faceStart = call.meshDesc.faceIndicesStart;
 +                const uint32_t faceEnd = std::min(faceStart + call.callDesc.triangleCount * 3, uint32_t(drawData.faceIndices.size()));
 +                std::vector<uint32_t> seen;
@@ -2782,53 +2939,131 @@ index 9fae0d4..af8202a 100644
 +                        continue;
 +                    }
 +
-+                    const bool head = (c[3] & 0x80) != 0;
-+                    const float glowRadius = float(c[3] & 0x7F) / 32.0f * 16.0f;
-+                    const float *m = &drawData.posFloats[v * 3];
-+                    float rel[3];
-+                    for (uint32_t j = 0; j < 3; j++) {
-+                        rel[j] = (m[0] * world[0][j] + m[1] * world[1][j] + m[2] * world[2][j] + world[3][j]) / ow - view.camera[j];
-+                    }
-+
-+                    const float range = head ? headRange : tailRange;
-+                    if (range <= 0.0f) {
++                    Lamp l;
++                    l.c = c;
++                    l.head = (c[3] & 0x80) != 0;
++                    l.glowRadius = float(c[3] & 0x7F) / 32.0f * 16.0f;
++                    l.paired = false;
++                    if ((l.head ? headRange : tailRange) <= 0.0f) {
 +                        continue;
 +                    }
 +
-+                    const float *axis = head ? headAxis : tailAxis;
-+                    const float intensity = head ? HeadIntensity : TailIntensity;
-+                    CarLightPass pass;
-+                    pass.cb.dirX = interop::float4(view.dirX.x, view.dirX.y, view.dirX.z, projDepthA);
-+                    pass.cb.dirY = interop::float4(view.dirY.x, view.dirY.y, view.dirY.z, projDepthB);
-+                    pass.cb.dirW = interop::float4(view.dirW.x, view.dirW.y, view.dirW.z, 1.0f);
-+                    pass.cb.light = interop::float4(rel[0], rel[1], rel[2], range);
-+                    pass.cb.color = interop::float4(float(c[0]) / 255.0f * intensity, float(c[1]) / 255.0f * intensity, float(c[2]) / 255.0f * intensity, head ? 1.0f : 0.0f);
-+                    pass.cb.direction = interop::float4(axis[0], axis[1], axis[2], glowRadius);
++                    const float *m = &drawData.posFloats[v * 3];
++                    for (uint32_t j = 0; j < 3; j++) {
++                        l.m[j] = m[j];
++                        l.rel[j] = (m[0] * world[0][j] + m[1] * world[1][j] + m[2] * world[2][j] + world[3][j]) / ow - view.camera[j];
++                    }
 +
-+                    // The lamp on screen, and how many pixels a world unit spans there.
++                    lamps.push_back(l);
++                }
++
++                const float viewLeft = view.rect.x, viewTop = view.rect.y, viewRight = view.rect.x + view.rect.width, viewBottom = view.rect.y + view.rect.height;
++                auto lampCB = [&](const Lamp &l, const float rel[3]) {
++                    const float *axis = l.head ? headAxis : tailAxis;
++                    const float intensity = l.head ? HeadIntensity : TailIntensity;
++                    interop::CarLightCB cb;
++                    cb.dirX = interop::float4(view.dirX.x, view.dirX.y, view.dirX.z, projDepthA);
++                    cb.dirY = interop::float4(view.dirY.x, view.dirY.y, view.dirY.z, projDepthB);
++                    cb.dirW = interop::float4(view.dirW.x, view.dirW.y, view.dirW.z, 0.0f);
++                    cb.light = interop::float4(rel[0], rel[1], rel[2], l.head ? headRange : tailRange);
++                    cb.color = interop::float4(float(l.c[0]) / 255.0f * intensity, float(l.c[1]) / 255.0f * intensity, float(l.c[2]) / 255.0f * intensity, l.head ? 1.0f : 0.0f);
++                    cb.direction = interop::float4(axis[0], axis[1], axis[2], l.glowRadius);
++                    cb.up = interop::float4(up[0], up[1], up[2], 0.0f);
++                    cb.screen = interop::float4(0.0f, 0.0f, 0.0f, 0.0f);
++                    return cb;
++                };
++
++                // Each lamp's glow (CarGlowPS.hlsl): its pixel, how many pixels a world unit spans there, and the box its
++                // 6 radii reach.
++                for (const Lamp &l : lamps) {
 +                    float lampX = 0.0f, lampY = 0.0f, lampW = 0.0f, pixelsPerUnit = 0.0f;
-+                    const bool onScreen = project(rel, lampX, lampY, lampW);
-+                    if (onScreen) {
-+                        float side[3] = { rel[1] * up[2] - rel[2] * up[1], rel[2] * up[0] - rel[0] * up[2], rel[0] * up[1] - rel[1] * up[0] };
-+                        if (unit(side)) {
-+                            const float beside[3] = { rel[0] + side[0] * 16.0f, rel[1] + side[1] * 16.0f, rel[2] + side[2] * 16.0f };
-+                            float sx = 0.0f, sy = 0.0f, sw = 0.0f;
-+                            if (project(beside, sx, sy, sw)) {
-+                                pixelsPerUnit = std::sqrt((sx - lampX) * (sx - lampX) + (sy - lampY) * (sy - lampY)) / 16.0f;
-+                            }
++                    if (!project(l.rel, lampX, lampY, lampW)) {
++                        continue;
++                    }
++
++                    float side[3] = { l.rel[1] * up[2] - l.rel[2] * up[1], l.rel[2] * up[0] - l.rel[0] * up[2], l.rel[0] * up[1] - l.rel[1] * up[0] };
++                    if (unit(side)) {
++                        const float beside[3] = { l.rel[0] + side[0] * 16.0f, l.rel[1] + side[1] * 16.0f, l.rel[2] + side[2] * 16.0f };
++                        float sx = 0.0f, sy = 0.0f, sw = 0.0f;
++                        if (project(beside, sx, sy, sw)) {
++                            pixelsPerUnit = std::sqrt((sx - lampX) * (sx - lampX) + (sy - lampY) * (sy - lampY)) / 16.0f;
 +                        }
 +                    }
 +
-+                    pass.cb.up = interop::float4(up[0], up[1], up[2], onScreen ? lampW : 0.0f);
-+                    pass.cb.screen = interop::float4(lampX, lampY, pixelsPerUnit, (head ? HeadGlow : TailGlow) / intensity);
++                    const float glowReach = std::max(l.glowRadius * pixelsPerUnit, 0.75f) * 6.0f + 2.0f;
++                    const float glowLeft = std::max(viewLeft, std::floor(lampX - glowReach));
++                    const float glowTop = std::max(viewTop, std::floor(lampY - glowReach));
++                    const float glowRight = std::min(viewRight, std::ceil(lampX + glowReach) + 1.0f);
++                    const float glowBottom = std::min(viewBottom, std::ceil(lampY + glowReach) + 1.0f);
++                    if ((glowRight <= glowLeft) || (glowBottom <= glowTop)) {
++                        continue;
++                    }
 +
-+                    // The screen box of the cube round the lamp's reach (the whole view if any of it is behind the
-+                    // camera), and of its glow.
-+                    float left = view.rect.x, top = view.rect.y, right = view.rect.x + view.rect.width, bottom = view.rect.y + view.rect.height;
++                    CarLightPass pass;
++                    pass.cb = lampCB(l, l.rel);
++                    pass.cb.dirW.w = 1.0f;
++                    pass.cb.up.w = lampW;
++                    pass.cb.screen = interop::float4(lampX, lampY, pixelsPerUnit, (l.head ? HeadGlow : TailGlow) / (l.head ? HeadIntensity : TailIntensity));
++                    pass.rect = RenderRect(0, 0, 0, 0);
++                    pass.glowRect = RenderRect(int32_t(glowLeft), int32_t(glowTop), int32_t(glowRight), int32_t(glowBottom));
++                    carLightPasses.push_back(pass);
++                }
++
++                // The light (CarLightPS.hlsl). A lamp and its mirror image across the car (the same kind and color, x
++                // turned over, y and z within 2 units) light in one pass: both are shaded, from their midpoint (light)
++                // and half the gap between them along the car's side (dirW.w, signed), with one march toward the
++                // midpoint. Most cars' lamps are such pairs, so this halves the passes, which read the depth and march
++                // over most of the screen each.
++                for (size_t i = 0; i < lamps.size(); i++) {
++                    Lamp &l = lamps[i];
++                    if (l.paired) {
++                        continue;
++                    }
++
++                    l.paired = true;
++                    const Lamp *mate = nullptr;
++                    for (size_t j = i + 1; j < lamps.size(); j++) {
++                        const Lamp &o = lamps[j];
++                        if (!o.paired && (o.head == l.head) && (o.c[0] == l.c[0]) && (o.c[1] == l.c[1]) && (o.c[2] == l.c[2]) &&
++                            (std::fabs(o.m[0] + l.m[0]) < 2.0f) && (std::fabs(o.m[0]) > 1.0f) && (std::fabs(o.m[1] - l.m[1]) < 2.0f) && (std::fabs(o.m[2] - l.m[2]) < 2.0f)) {
++                            lamps[j].paired = true;
++                            mate = &lamps[j];
++                            break;
++                        }
++                    }
++
++                    float mid[3] = { l.rel[0], l.rel[1], l.rel[2] };
++                    float halfGap = 0.0f;
++                    const float *axis = l.head ? headAxis : tailAxis;
++                    if (mate != nullptr) {
++                        // The shader's side: cross(up, axis), unit length.
++                        float side[3] = { up[1] * axis[2] - up[2] * axis[1], up[2] * axis[0] - up[0] * axis[2], up[0] * axis[1] - up[1] * axis[0] };
++                        unit(side);
++                        float gap = 0.0f;
++                        for (uint32_t j = 0; j < 3; j++) {
++                            mid[j] = (l.rel[j] + mate->rel[j]) * 0.5f;
++                            gap += (mate->rel[j] - l.rel[j]) * side[j];
++                        }
++
++                        halfGap = gap * 0.5f;
++                    }
++
++                    const float range = (l.head ? headRange : tailRange) + std::fabs(halfGap);
++                    CarLightPass pass;
++                    pass.cb = lampCB(l, mid);
++                    pass.cb.dirW.w = halfGap;
++                    float midX = 0.0f, midY = 0.0f, midW = 0.0f;
++                    if (project(mid, midX, midY, midW)) {
++                        pass.cb.up.w = midW;
++                        pass.cb.screen = interop::float4(midX, midY, 0.0f, 0.0f);
++                    }
++
++                    // The screen box of the cube round the pair's reach (the whole view if any of it is behind the camera).
++                    float left = viewLeft, top = viewTop, right = viewRight, bottom = viewBottom;
 +                    float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
 +                    bool behind = false;
 +                    for (uint32_t k = 0; (k < 8) && !behind; k++) {
-+                        const float corner[3] = { rel[0] + ((k & 1) ? range : -range), rel[1] + ((k & 2) ? range : -range), rel[2] + ((k & 4) ? range : -range) };
++                        const float corner[3] = { mid[0] + ((k & 1) ? range : -range), mid[1] + ((k & 2) ? range : -range), mid[2] + ((k & 4) ? range : -range) };
 +                        float px = 0.0f, py = 0.0f, pw = 0.0f;
 +                        if (!project(corner, px, py, pw)) {
 +                            behind = true;
@@ -2842,14 +3077,6 @@ index 9fae0d4..af8202a 100644
 +                    }
 +
 +                    if (!behind) {
-+                        if (onScreen) {
-+                            const float glowReach = std::max(glowRadius * pixelsPerUnit, 0.75f) * 8.0f + 2.0f;
-+                            minX = std::min(minX, lampX - glowReach);
-+                            maxX = std::max(maxX, lampX + glowReach);
-+                            minY = std::min(minY, lampY - glowReach);
-+                            maxY = std::max(maxY, lampY + glowReach);
-+                        }
-+
 +                        left = std::max(left, std::floor(minX));
 +                        top = std::max(top, std::floor(minY));
 +                        right = std::min(right, std::ceil(maxX) + 1.0f);
@@ -2861,6 +3088,7 @@ index 9fae0d4..af8202a 100644
 +                    }
 +
 +                    pass.rect = RenderRect(int32_t(left), int32_t(top), int32_t(right), int32_t(bottom));
++                    pass.glowRect = RenderRect(0, 0, 0, 0);
 +                    carLightPasses.push_back(pass);
 +                }
 +
@@ -2914,7 +3142,7 @@ index 9fae0d4..af8202a 100644
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +2903,20 @@ namespace RT64 {
+@@ -1623,6 +3059,20 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -2935,7 +3163,7 @@ index 9fae0d4..af8202a 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +3041,45 @@ namespace RT64 {
+@@ -1747,6 +3197,45 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -2981,7 +3209,7 @@ index 9fae0d4..af8202a 100644
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +3087,8 @@ namespace RT64 {
+@@ -1754,6 +3243,8 @@ namespace RT64 {
              }
          }
  
@@ -2991,7 +3219,7 @@ index 9fae0d4..af8202a 100644
          checkRtScene(rtScene);
  #   endif
 diff --git a/src/render/rt64_framebuffer_renderer.h b/src/render/rt64_framebuffer_renderer.h
-index 3add9c3..8b1f383 100644
+index 3add9c3..ef273a7 100644
 --- a/src/render/rt64_framebuffer_renderer.h
 +++ b/src/render/rt64_framebuffer_renderer.h
 @@ -5,12 +5,17 @@
@@ -3012,7 +3240,7 @@ index 3add9c3..8b1f383 100644
  #include "shared/rt64_frame_params.h"
  #include "shared/rt64_gpu_tile.h"
  #include "shared/rt64_render_indices.h"
-@@ -58,6 +63,74 @@ namespace RT64 {
+@@ -58,6 +63,81 @@ namespace RT64 {
          uint32_t indexCount;
      };
  
@@ -3069,15 +3297,22 @@ index 3add9c3..8b1f383 100644
 +        bool done = false;
 +    };
 +
-+    // Rush 2 recomp: car lights (CarLightPS.hlsl). One per lamp of a car marker (gEXSetCarLight): run once the view's
-+    // 3D draws end (its next 2D draw, or the end of the scene), over the screen area the lamp can reach.
++    // Rush 2 recomp: car lights (CarLightPS.hlsl, CarGlowPS.hlsl). One per lamp of a car marker (gEXSetCarLight): run
++    // once the view's 3D draws end (its next 2D draw, or the end of the scene), its light over the screen area the lamp
++    // can reach (rect) and its glow over the glow's box (glowRect, empty when the lamp is off screen), in full
++    // resolution pixels.
 +    struct CarLightPass {
 +        interop::CarLightCB cb;
 +        RenderRect rect;
++        RenderRect glowRect;
 +    };
 +
 +    // Rush 2 recomp: a car marker's lamps (carLightPasses first to first + count) and the light level its track draws
 +    // surfaces at (CarLightCompositePS.hlsl).
++    // Rush 2 recomp: the car lights submits a workload times (RUSH2_GPU_LOG), timestamps each: start, after the light, the glow, the copy, and the end.
++    static const uint32_t CarLightQueryLimit = 16;
++    static const uint32_t CarLightQueryStride = 5;
++
 +    struct CarLightGroup {
 +        uint32_t first = 0;
 +        uint32_t count = 0;
@@ -3087,7 +3322,7 @@ index 3add9c3..8b1f383 100644
      struct FramebufferRenderer {
          std::vector<uint32_t> textureCacheVersions;
          std::vector<Texture *> textureCacheTextures;
-@@ -67,6 +140,12 @@ namespace RT64 {
+@@ -67,6 +147,15 @@ namespace RT64 {
          uint32_t textureCacheGlobalVersion = 0;
          bool textureCacheReplacementMapEnabled = false;
          std::vector<InstanceDrawCall> instanceDrawCallVector;
@@ -3097,10 +3332,13 @@ index 3add9c3..8b1f383 100644
 +        std::vector<SkyFogPass> skyFogPasses; // Rush 2 recomp.
 +        std::vector<CarLightPass> carLightPasses; // Rush 2 recomp.
 +        std::vector<CarLightGroup> carLightGroups; // Rush 2 recomp.
++        // Rush 2 recomp: RUSH2_GPU_LOG's timestamps round each car lights submit (WorkloadQueue), from query 2 on.
++        RenderQueryPool *carLightQueryPool = nullptr;
++        uint32_t carLightQueryCount = 0;
          std::vector<RenderPipelineProgram> hitGroupVector;
          std::vector<interop::RenderIndices> renderIndicesVector;
          std::vector<DynamicTextureView> dynamicTextureViewVector;
-@@ -165,6 +244,9 @@ namespace RT64 {
+@@ -165,6 +254,9 @@ namespace RT64 {
          void submitRSPSmoothNormalCompute(RenderWorker *worker, const OutputBuffers *outputBuffers);
          bool submitDepthAccess(RenderWorker *worker, RenderFramebufferStorage *fbStorage, bool readOnly, bool &depthState);
          void submitRasterScene(RenderWorker *worker, const Framebuffer &framebuffer, RenderFramebufferStorage *fbStorage, const RasterScene &rasterScene, bool &depthState);
@@ -3893,7 +4131,7 @@ index 5c40c18..2e33dae 100644
 \ No newline at end of file
 +};
 diff --git a/src/render/rt64_render_target_manager.h b/src/render/rt64_render_target_manager.h
-index 7368711..9bb5a57 100644
+index 7368711..006576f 100644
 --- a/src/render/rt64_render_target_manager.h
 +++ b/src/render/rt64_render_target_manager.h
 @@ -9,6 +9,7 @@
@@ -3904,7 +4142,7 @@ index 7368711..9bb5a57 100644
  #include "rt64_render_target.h"
  
  namespace RT64 {
-@@ -56,6 +57,27 @@ namespace RT64 {
+@@ -56,6 +57,30 @@ namespace RT64 {
          uint64_t colorTargetRevision = 0;
          uint64_t depthTargetRevision = 0;
  
@@ -3918,11 +4156,14 @@ index 7368711..9bb5a57 100644
 +        uint32_t occlusionWidth = 0;
 +        uint32_t occlusionHeight = 0;
 +
-+        // Rush 2 recomp: car lights (FramebufferRenderer::submitCarLights), made when first used: the lamps' light and
-+        // glow (float, the color target's size, no multisampling), the scene's copy the composite reads, and what reads them.
++        // Rush 2 recomp: car lights (FramebufferRenderer::submitCarLights), made when first used: the lamps' light (float,
++        // half the color target's size each way) and glow (float, the color target's size), neither multisampled, the
++        // scene's copy the composite reads, and what reads them.
 +        std::unique_ptr<RenderTexture> carLightTexture;
 +        std::unique_ptr<RenderTexture> carGlowTexture;
 +        std::unique_ptr<RenderFramebuffer> carLightFramebuffer;
++        std::unique_ptr<RenderFramebuffer> carGlowFramebuffer;
++        const RenderTexture *carLightDepthTexture = nullptr;
 +        std::unique_ptr<RenderTexture> carSceneTexture;
 +        std::unique_ptr<CarLightCompositeDescriptorSet> carLightCompositeSet;
 +        const RenderTexture *carLightColorTexture = nullptr;
@@ -3933,7 +4174,7 @@ index 7368711..9bb5a57 100644
      };
  
 diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
-index d1c5273..75b27a4 100644
+index d1c5273..9f3e355 100644
 --- a/src/render/rt64_shader_library.cpp
 +++ b/src/render/rt64_shader_library.cpp
 @@ -5,6 +5,9 @@
@@ -3946,7 +4187,7 @@ index d1c5273..75b27a4 100644
  #include "shared/rt64_render_target_copy.h"
  #include "shared/rt64_rsp_vertex_test_z.h"
  
-@@ -49,6 +52,18 @@
+@@ -49,6 +52,20 @@
  #include "shaders/FullScreenVS.hlsl.spirv.h"
  #include "shaders/Im3DVS.hlsl.spirv.h"
  #include "shaders/ComposePS.hlsl.spirv.h"
@@ -3960,12 +4201,14 @@ index d1c5273..75b27a4 100644
 +#include "shaders/SkyFogPSMS.hlsl.spirv.h"
 +#include "shaders/CarLightPS.hlsl.spirv.h"
 +#include "shaders/CarLightPSMS.hlsl.spirv.h"
++#include "shaders/CarGlowPS.hlsl.spirv.h"
++#include "shaders/CarGlowPSMS.hlsl.spirv.h"
 +#include "shaders/CarLightCompositePS.hlsl.spirv.h"
 +#include "shaders/CarLightCompositePSMS.hlsl.spirv.h"
  #include "shaders/DebugPS.hlsl.spirv.h"
  #include "shaders/Im3DPS.hlsl.spirv.h"
  #include "shaders/PostProcessPS.hlsl.spirv.h"
-@@ -95,6 +110,18 @@
+@@ -95,6 +112,20 @@
  #   include "shaders/FullScreenVS.hlsl.dxil.h"
  #   include "shaders/Im3DVS.hlsl.dxil.h"
  #   include "shaders/ComposePS.hlsl.dxil.h"
@@ -3979,12 +4222,14 @@ index d1c5273..75b27a4 100644
 +#   include "shaders/SkyFogPSMS.hlsl.dxil.h"
 +#   include "shaders/CarLightPS.hlsl.dxil.h"
 +#   include "shaders/CarLightPSMS.hlsl.dxil.h"
++#   include "shaders/CarGlowPS.hlsl.dxil.h"
++#   include "shaders/CarGlowPSMS.hlsl.dxil.h"
 +#   include "shaders/CarLightCompositePS.hlsl.dxil.h"
 +#   include "shaders/CarLightCompositePSMS.hlsl.dxil.h"
  #   include "shaders/DebugPS.hlsl.dxil.h"
  #   include "shaders/Im3DPS.hlsl.dxil.h"
  #   include "shaders/PostProcessPS.hlsl.dxil.h"
-@@ -140,6 +167,18 @@
+@@ -140,6 +171,20 @@
  #   include "shaders/FullScreenVS.hlsl.metal.h"
  #   include "shaders/Im3DVS.hlsl.metal.h"
  #   include "shaders/ComposePS.hlsl.metal.h"
@@ -3998,12 +4243,14 @@ index d1c5273..75b27a4 100644
 +#   include "shaders/SkyFogPSMS.hlsl.metal.h"
 +#   include "shaders/CarLightPS.hlsl.metal.h"
 +#   include "shaders/CarLightPSMS.hlsl.metal.h"
++#   include "shaders/CarGlowPS.hlsl.metal.h"
++#   include "shaders/CarGlowPSMS.hlsl.metal.h"
 +#   include "shaders/CarLightCompositePS.hlsl.metal.h"
 +#   include "shaders/CarLightCompositePSMS.hlsl.metal.h"
  #   include "shaders/DebugPS.hlsl.metal.h"
  #   include "shaders/Im3DPS.hlsl.metal.h"
  #   include "shaders/PostProcessPS.hlsl.metal.h"
-@@ -148,6 +187,7 @@
+@@ -148,6 +193,7 @@
  #include "shared/rt64_fb_common.h"
  #include "shared/rt64_fb_reinterpret.h"
  #include "shared/rt64_texture_copy.h"
@@ -4011,7 +4258,7 @@ index d1c5273..75b27a4 100644
  #include "shared/rt64_video_interface.h"
  
  #include "rt64_descriptor_sets.h"
-@@ -535,6 +575,20 @@ namespace RT64 {
+@@ -535,6 +581,20 @@ namespace RT64 {
              rspSmoothNormal.pipeline = device->createComputePipeline(pipelineDesc);
          }
  
@@ -4032,7 +4279,7 @@ index d1c5273..75b27a4 100644
          // RSP World.
          {
              RSPWorldDescriptorSet descriptorSet;
-@@ -573,7 +627,7 @@ namespace RT64 {
+@@ -573,7 +633,7 @@ namespace RT64 {
          {
              TextureDecodeDescriptorSet descriptorSet;
              layoutBuilder.begin();
@@ -4041,7 +4288,7 @@ index d1c5273..75b27a4 100644
              layoutBuilder.addDescriptorSet(descriptorSet);
              layoutBuilder.end();
              textureDecode.pipelineLayout = layoutBuilder.create(device);
-@@ -851,7 +905,207 @@ namespace RT64 {
+@@ -851,7 +911,218 @@ namespace RT64 {
              pipelineDesc.multisampling = multisampling;
              postProcess.pipeline = device->createGraphicsPipeline(pipelineDesc);
          }
@@ -4129,9 +4376,10 @@ index d1c5273..75b27a4 100644
 +            skyFogMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
 +        }
 +
-+        // Rush 2 recomp: car lights (CarLightPS.hlsl). Each lamp's pass reads the depth target and adds its light and
-+        // its glow into two float targets of their own, without multisampling; the composite (CarLightCompositePS.hlsl)
-+        // reads a copy of the scene and both, and writes the scene's color target, per sample with multisampling.
++        // Rush 2 recomp: car lights (CarLightPS.hlsl, CarGlowPS.hlsl). Each lamp's passes read the depth target and add
++        // its light (at half resolution) and its glow into float targets of their own, without multisampling; the
++        // composite (CarLightCompositePS.hlsl) reads a copy of the scene, both and the depth target, and writes the
++        // scene's color target, per sample with multisampling.
 +        {
 +            TextureCopyDescriptorSet descriptorSet;
 +            layoutBuilder.begin();
@@ -4140,9 +4388,13 @@ index d1c5273..75b27a4 100644
 +            layoutBuilder.end();
 +            carLight.pipelineLayout = layoutBuilder.create(device);
 +            carLightMS.pipelineLayout = layoutBuilder.create(device);
++            carGlow.pipelineLayout = layoutBuilder.create(device);
++            carGlowMS.pipelineLayout = layoutBuilder.create(device);
 +
 +            std::unique_ptr<RenderShader> carLightShader = device->createShader(CREATE_SHADER_INPUTS(CarLightPSBlobDXIL, CarLightPSBlobSPIRV, CarLightPSBlobMSL, "PSMain", shaderFormat));
 +            std::unique_ptr<RenderShader> carLightMSShader = device->createShader(CREATE_SHADER_INPUTS(CarLightPSMSBlobDXIL, CarLightPSMSBlobSPIRV, CarLightPSMSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> carGlowShader = device->createShader(CREATE_SHADER_INPUTS(CarGlowPSBlobDXIL, CarGlowPSBlobSPIRV, CarGlowPSBlobMSL, "PSMain", shaderFormat));
++            std::unique_ptr<RenderShader> carGlowMSShader = device->createShader(CREATE_SHADER_INPUTS(CarGlowPSMSBlobDXIL, CarGlowPSMSBlobSPIRV, CarGlowPSMSBlobMSL, "PSMain", shaderFormat));
 +            RenderBlendDesc addBlend;
 +            addBlend.blendEnabled = true;
 +            addBlend.srcBlend = RenderBlend::ONE;
@@ -4154,10 +4406,8 @@ index d1c5273..75b27a4 100644
 +            addBlend.renderTargetWriteMask = uint8_t(RenderColorWriteEnable::ALL);
 +            RenderGraphicsPipelineDesc pipelineDesc;
 +            pipelineDesc.renderTargetBlend[0] = addBlend;
-+            pipelineDesc.renderTargetBlend[1] = addBlend;
 +            pipelineDesc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
-+            pipelineDesc.renderTargetFormat[1] = RenderFormat::R16G16B16A16_FLOAT;
-+            pipelineDesc.renderTargetCount = 2;
++            pipelineDesc.renderTargetCount = 1;
 +            pipelineDesc.vertexShader = fullScreenVertexShader.get();
 +            pipelineDesc.pipelineLayout = carLight.pipelineLayout.get();
 +            pipelineDesc.pixelShader = carLightShader.get();
@@ -4166,6 +4416,14 @@ index d1c5273..75b27a4 100644
 +            pipelineDesc.pipelineLayout = carLightMS.pipelineLayout.get();
 +            pipelineDesc.pixelShader = carLightMSShader.get();
 +            carLightMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            pipelineDesc.pipelineLayout = carGlow.pipelineLayout.get();
++            pipelineDesc.pixelShader = carGlowShader.get();
++            carGlow.pipeline = device->createGraphicsPipeline(pipelineDesc);
++
++            pipelineDesc.pipelineLayout = carGlowMS.pipelineLayout.get();
++            pipelineDesc.pixelShader = carGlowMSShader.get();
++            carGlowMS.pipeline = device->createGraphicsPipeline(pipelineDesc);
 +        }
 +
 +        {
@@ -4251,10 +4509,10 @@ index d1c5273..75b27a4 100644
          {
              FramebufferRendererDescriptorCommonSet descriptorCommonSet(samplerLibrary, deviceCapabilities.raytracing);
 diff --git a/src/render/rt64_shader_library.h b/src/render/rt64_shader_library.h
-index 641f3ec..3183d85 100644
+index 641f3ec..33ce7a9 100644
 --- a/src/render/rt64_shader_library.h
 +++ b/src/render/rt64_shader_library.h
-@@ -18,7 +18,17 @@ namespace RT64 {
+@@ -18,7 +18,19 @@ namespace RT64 {
          bool usesHardwareResolve = false;
  
          // All shaders.
@@ -4268,6 +4526,8 @@ index 641f3ec..3183d85 100644
 +        ShaderRecord skyFogMS;
 +        ShaderRecord carLight;
 +        ShaderRecord carLightMS;
++        ShaderRecord carGlow;
++        ShaderRecord carGlowMS;
 +        ShaderRecord carLightComposite;
          ShaderRecord boxFilter;
          ShaderRecord compose;
@@ -5968,91 +6228,21 @@ index 0000000..74862a7
 +    ambient = lerp(1.0f, ambient, fade);
 +    return float2(ambient, w);
 +}
-diff --git a/src/shaders/CarLightCompositePS.hlsl b/src/shaders/CarLightCompositePS.hlsl
+diff --git a/src/shaders/CarGlowPS.hlsl b/src/shaders/CarGlowPS.hlsl
 new file mode 100644
-index 0000000..fcb5be9
+index 0000000..1e2be1e
 --- /dev/null
-+++ b/src/shaders/CarLightCompositePS.hlsl
-@@ -0,0 +1,57 @@
++++ b/src/shaders/CarGlowPS.hlsl
+@@ -0,0 +1,93 @@
 +//
 +// RT64
 +//
 +
-+// Rush 2 recomp: car lights' composite (FramebufferRenderer::submitCarLights). After a view's lamps have added their
-+// light and glow (CarLightPS.hlsl), each pixel becomes scene + albedo x light + glow. The albedo is estimated: the
-+// scene's color over the light level the track draws its surfaces at, never under a small floor so a black surface
-+// still lifts a little. Then a shoulder over the brightest channel scales all three alike, so a red light on a gray
-+// road rolls off toward a brighter red instead of clipping to pink. Run per sample with multisampling, from a copy of
-+// the scene made just before; pixels no lamp reached are left as they are.
-+
-+#include "shared/rt64_car_light.h"
-+
-+[[vk::push_constant]] ConstantBuffer<CarLightCompositeCB> gConstants : register(b0);
-+
-+#ifdef MULTISAMPLING
-+Texture2DMS<float4> gScene : register(t1);
-+#else
-+Texture2D<float4> gScene : register(t1);
-+#endif
-+Texture2D<float4> gLight : register(t2);
-+Texture2D<float4> gGlow : register(t3);
-+
-+float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0
-+#ifdef MULTISAMPLING
-+    , in uint sampleIndex : SV_SampleIndex
-+#endif
-+) : SV_TARGET {
-+    const int2 pixel = int2(pos.xy);
-+    const float3 light = gLight.Load(int3(pixel, 0)).rgb;
-+    const float3 glow = gGlow.Load(int3(pixel, 0)).rgb;
-+    if (max(max(light.r, light.g), max(light.b, max(glow.r, max(glow.g, glow.b)))) < (1.0f / 1024.0f)) {
-+        discard;
-+    }
-+
-+#ifdef MULTISAMPLING
-+    const float4 scene = gScene.Load(pixel, sampleIndex);
-+#else
-+    const float4 scene = gScene.Load(int3(pixel, 0));
-+#endif
-+    // The light compressed toward at most 1.5 times the albedo (its brightest channel; the others alike), so a
-+    // surface close in front of a lamp is brightly lit without going flat white.
-+    const float lightPeak = max(light.r, max(light.g, light.b));
-+    const float3 lit = light / (1.0f + lightPeak / 1.5f);
-+    const float3 albedo = max(scene.rgb * gConstants.invLevel, gConstants.albedoFloor);
-+    float3 color = scene.rgb + albedo * lit + glow;
-+    // The shoulder starts no lower than the scene's own brightest channel, so a surface already bright isn't dimmed.
-+    const float peak = max(color.r, max(color.g, color.b));
-+    const float knee = max(gConstants.knee, max(scene.r, max(scene.g, scene.b)));
-+    if ((peak > knee) && (knee < 1.0f)) {
-+        const float room = 1.0f - knee;
-+        const float rolled = knee + room * (1.0f - exp(-(peak - knee) / room));
-+        color *= rolled / peak;
-+    }
-+
-+    return float4(color, scene.a);
-+}
-diff --git a/src/shaders/CarLightPS.hlsl b/src/shaders/CarLightPS.hlsl
-new file mode 100644
-index 0000000..ace7e3d
---- /dev/null
-+++ b/src/shaders/CarLightPS.hlsl
-@@ -0,0 +1,218 @@
-+//
-+// RT64
-+//
-+
-+// Rush 2 recomp: car lights, one lamp's pass (gEXSetCarLight; FramebufferRenderer::submitCarLights). Two targets, both
-+// added into (float):
-+//   0 its light: what lands on the surface the depth buffer holds at each pixel, before that surface's own color
-+//     (CarLightCompositePS multiplies it by the surface's albedo).
-+//   1 its glow: the halo round the lamp itself, as seen from the camera, added to the scene as it is.
-+// The light: inverse square falloff (distances in feet) windowed to nothing at its reach, Lambert shading by the
-+// surface's normal (from the depth buffer), and the lamp's shape: a headlamp is a spot wide across and narrow up and
-+// down, with a sharp top edge (a low beam), aimed a little down by the caller, so its long pool on the road comes from
-+// the grazing angle; a tail lamp is a wide lobe backward. A short march over the depth buffer from the surface toward
-+// the lamp finds what stands between them (a car ahead shadows the beam).
-+// The glow: an analytic halo at the lamp's pixel, scaled by how squarely the lamp faces the camera and kept only
-+// where the depth buffer shows nothing nearer than the lamp (a lamp behind a wall doesn't glow through it).
++// Rush 2 recomp: car lights, one lamp's glow (gEXSetCarLight; FramebufferRenderer::submitCarLights), added into a
++// float target at the color target's resolution over the glow's box only: the halo round the lamp itself, as seen from
++// the camera, added to the scene as it is (CarLightCompositePS.hlsl). An analytic halo at the lamp's pixel, scaled by how
++// squarely the lamp faces the camera and kept only where the depth buffer shows nothing nearer than the lamp (a lamp
++// behind a wall doesn't glow through it). The light it casts is CarLightPS.hlsl.
 +
 +#include "shared/rt64_car_light.h"
 +
@@ -6066,17 +6256,6 @@ index 0000000..ace7e3d
 +
 +// World units are 1/16 ft.
 +static const float UnitsPerFoot = 16.0f;
-+// A headlamp's spot, as tangents off its axis: across (about 24 degrees to its half strength), below (about 3) and
-+// above (a sharp cut, about 1.5). Most of a low beam goes just under the horizon, toward the road far ahead, and far
-+// less down at the road close in front, which is what keeps the pool even from near to far despite the grazing angle.
-+static const float SpotAcross = 0.52f;
-+static const float SpotBelow = 0.065f;
-+static const float SpotAbove = 0.025f;
-+// The depth march: steps, how near the lamp it stops (world units: past its own car's body), and how far in front of
-+// the ray (world units) something may be and still block it: about a car's size.
-+static const int MarchSteps = 14;
-+static const float MarchOwnCar = 9.0f * 16.0f;
-+static const float MarchThickness = 7.0f * 16.0f;
 +
 +uint2 depthSize() {
 +    uint width, height;
@@ -6105,38 +6284,12 @@ index 0000000..ace7e3d
 +    return !((depth < 0.99999f) && (w > 0.0f));
 +}
 +
-+struct PSOutput {
-+    float4 light : SV_TARGET0;
-+    float4 glow : SV_TARGET1;
-+};
-+
-+PSOutput PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) {
-+    PSOutput output;
-+    output.light = float4(0.0f, 0.0f, 0.0f, 0.0f);
-+    output.glow = float4(0.0f, 0.0f, 0.0f, 0.0f);
-+
-+    const int2 pixel = int2(pos.xy);
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
 +    const int2 maxPixel = int2(depthSize()) - 1;
-+    const float depth = depthAt(pixel);
-+    const float w = wOf(depth);
-+    const bool sky = isSky(depth, w);
-+    const float3 p = (pos.x * gConstants.dirX.xyz + pos.y * gConstants.dirY.xyz + gConstants.dirW.xyz) * max(w, 0.0f);
-+
-+    // The surface's normal from its neighbors (taken before any branch, so the derivatives are whole), turned toward
-+    // the camera.
-+    float3 n = cross(ddx(p), ddy(p));
-+    const float nLength = length(n);
-+    n = (nLength > 1e-12f) ? n / nLength : float3(0.0f, 1.0f, 0.0f);
-+    if (dot(n, p) > 0.0f) {
-+        n = -n;
-+    }
-+
 +    const bool headlamp = gConstants.color.w > 0.5f;
 +    const float3 axis = gConstants.direction.xyz;
 +    const float lampW = gConstants.up.w;
 +    const float2 lampPixel = gConstants.screen.xy;
-+
-+    // The glow.
 +    if (lampW > 0.0f) {
 +        const float radius = max(gConstants.direction.w * gConstants.screen.z, 0.75f);
 +        const float distance = length(pos.xy - lampPixel);
@@ -6168,20 +6321,238 @@ index 0000000..ace7e3d
 +            const float core = exp(-x * x * 2.0f);
 +            // A faint bloom round it, kept short: a wide one tinted the car's own paint round its brake lights.
 +            const float bloom = 0.08f / (1.0f + x * x) * saturate(1.0f - x / 6.0f);
-+            output.glow.rgb = gConstants.color.rgb * gConstants.screen.w * gConstants.dirW.w * seen * faced * (core + bloom);
++            return float4(gConstants.color.rgb * gConstants.screen.w * gConstants.dirW.w * seen * faced * (core + bloom), 0.0f);
 +        }
 +    }
 +
-+    if (sky) {
-+        return output;
++    return float4(0.0f, 0.0f, 0.0f, 0.0f);
++}
+diff --git a/src/shaders/CarLightCompositePS.hlsl b/src/shaders/CarLightCompositePS.hlsl
+new file mode 100644
+index 0000000..7203492
+--- /dev/null
++++ b/src/shaders/CarLightCompositePS.hlsl
+@@ -0,0 +1,135 @@
++//
++// RT64
++//
++
++// Rush 2 recomp: car lights' composite (FramebufferRenderer::submitCarLights). After a view's lamps have added their
++// light (CarLightPS.hlsl, half resolution) and glow (CarGlowPS.hlsl), each pixel becomes scene + albedo x light + glow.
++// The light is upsampled: of the (up to four) half resolution pixels round this one, each stands for the full
++// resolution pixel at twice its position, and counts by how near that pixel's depth is to this one's, so light doesn't
++// bleed across a car's outline onto what's behind it or the other way. The albedo is estimated: the scene's color over
++// the light level the track draws its surfaces at, never under a small floor so a black surface still lifts a little.
++// Then a shoulder over the brightest channel scales all three alike, so a red light on a gray road rolls off toward a
++// brighter red instead of clipping to pink. Run per sample with multisampling, from a copy of the scene made just
++// before; pixels no lamp reached are left as they are.
++
++#include "shared/rt64_car_light.h"
++
++[[vk::push_constant]] ConstantBuffer<CarLightCompositeCB> gConstants : register(b0);
++
++#ifdef MULTISAMPLING
++Texture2DMS<float4> gScene : register(t1);
++#else
++Texture2D<float4> gScene : register(t1);
++#endif
++Texture2D<float4> gLight : register(t2);
++Texture2D<float4> gGlow : register(t3);
++#ifdef MULTISAMPLING
++Texture2DMS<float> gDepth : register(t4);
++#else
++Texture2D<float> gDepth : register(t4);
++#endif
++
++float depthAt(int2 pixel, uint sampleIndex) {
++#ifdef MULTISAMPLING
++    return gDepth.Load(pixel, sampleIndex);
++#else
++    return gDepth.Load(int3(pixel, 0));
++#endif
++}
++
++// A depth buffer value's w, a huge one for the sky (no surface).
++float wOf(float depth) {
++    const float w = gConstants.depthB / (depth - gConstants.depthA);
++    return ((depth < 0.99999f) && (w > 0.0f)) ? w : 1e9f;
++}
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0
++#ifdef MULTISAMPLING
++    , in uint sampleIndex : SV_SampleIndex
++#endif
++) : SV_TARGET {
++    const int2 pixel = int2(pos.xy);
++#ifndef MULTISAMPLING
++    const uint sampleIndex = 0;
++#endif
++    const float3 glow = gGlow.Load(int3(pixel, 0)).rgb;
++
++    // The light's half resolution pixels round this one: the one at half its position and, on an odd row or column,
++    // the next one along, halfway between.
++    uint lightWidth, lightHeight;
++    gLight.GetDimensions(lightWidth, lightHeight);
++    const int2 lightMax = int2(lightWidth, lightHeight) - 1;
++    const int2 base = pixel / 2;
++    const int2 odd = pixel & 1;
++    float3 lights[4];
++    float peak = 0.0f, low = 1e30f;
++    float3 average = float3(0.0f, 0.0f, 0.0f);
++    float used = 0.0f;
++    for (int k = 0; k < 4; k++) {
++        const int2 step = int2(k & 1, k >> 1);
++        lights[k] = (any(step > odd)) ? float3(0.0f, 0.0f, 0.0f) : gLight.Load(int3(min(base + step, lightMax), 0)).rgb;
++        if (!any(step > odd)) {
++            const float bright = max(lights[k].r, max(lights[k].g, lights[k].b));
++            peak = max(peak, bright);
++            low = min(low, bright);
++            average += lights[k];
++            used += 1.0f;
++        }
 +    }
 +
-+    // The light.
-+    const float3 toLight = gConstants.light.xyz - p;
++    if (max(peak, max(glow.r, max(glow.g, glow.b))) < (1.0f / 1024.0f)) {
++        discard;
++    }
++
++    // Where they agree (within a tenth, as on open road) their average; otherwise each weighed by how near its own
++    // pixel's depth is to this one's (relative to the distance), the nearest kept if none is near (an edge one pixel
++    // wide).
++    float3 light = average / used;
++    if ((peak - low) > 0.1f * peak) {
++        const float w = wOf(depthAt(pixel, sampleIndex));
++        float3 weighed = float3(0.0f, 0.0f, 0.0f);
++        float weights = 0.0f;
++        float3 nearest = float3(0.0f, 0.0f, 0.0f);
++        float nearestGap = 1e30f;
++        for (int k = 0; k < 4; k++) {
++            const int2 step = int2(k & 1, k >> 1);
++            if (any(step > odd)) {
++                continue;
++            }
++
++            const int2 at = min(base + step, lightMax);
++            const float gap = abs(wOf(depthAt(at * 2, 0)) - w) / max(w, 1.0f);
++            const float weight = exp(-gap * 40.0f);
++            weighed += lights[k] * weight;
++            weights += weight;
++            if (gap < nearestGap) {
++                nearestGap = gap;
++                nearest = lights[k];
++            }
++        }
++
++        light = (weights > 0.05f) ? weighed / weights : nearest;
++    }
++
++#ifdef MULTISAMPLING
++    const float4 scene = gScene.Load(pixel, sampleIndex);
++#else
++    const float4 scene = gScene.Load(int3(pixel, 0));
++#endif
++    // The light compressed toward at most 1.5 times the albedo (its brightest channel; the others alike), so a
++    // surface close in front of a lamp is brightly lit without going flat white.
++    const float lightPeak = max(light.r, max(light.g, light.b));
++    const float3 lit = light / (1.0f + lightPeak / 1.5f);
++    const float3 albedo = max(scene.rgb * gConstants.invLevel, gConstants.albedoFloor);
++    float3 color = scene.rgb + albedo * lit + glow;
++    // The shoulder starts no lower than the scene's own brightest channel, so a surface already bright isn't dimmed.
++    const float colorPeak = max(color.r, max(color.g, color.b));
++    const float knee = max(gConstants.knee, max(scene.r, max(scene.g, scene.b)));
++    if ((colorPeak > knee) && (knee < 1.0f)) {
++        const float room = 1.0f - knee;
++        const float rolled = knee + room * (1.0f - exp(-(colorPeak - knee) / room));
++        color *= rolled / colorPeak;
++    }
++
++    return float4(color, scene.a);
++}
+diff --git a/src/shaders/CarLightPS.hlsl b/src/shaders/CarLightPS.hlsl
+new file mode 100644
+index 0000000..9928db5
+--- /dev/null
++++ b/src/shaders/CarLightPS.hlsl
+@@ -0,0 +1,193 @@
++//
++// RT64
++//
++
++// Rush 2 recomp: car lights, the light of one lamp or of a mirrored pair (a car's two headlamps or two tail lamps,
++// shaded each but marched for shadow once, from their midpoint) (gEXSetCarLight; FramebufferRenderer::carLightOf and
++// submitCarLights), added into a
++// float target at half the color target's resolution: what lands on the surface the depth buffer holds at each pixel,
++// before that surface's own color (CarLightCompositePS.hlsl upsamples it by depth and multiplies it by the surface's
++// albedo). Each half resolution pixel stands for the full resolution pixel at twice its position (the top left of its
++// 2 x 2 block), whose depth the composite reads again to weigh it. The lamp's glow is a pass of its own at full
++// resolution over the glow's small box (CarGlowPS.hlsl).
++// The light: inverse square falloff (distances in feet) windowed to nothing at its reach, Lambert shading by the
++// surface's normal (from the depth buffer), and the lamp's shape: a headlamp is a spot wide across and narrow up and
++// down, with a sharp top edge (a low beam), aimed a little down by the caller, so its long pool on the road comes from
++// the grazing angle; a tail lamp is a wide lobe backward. A short march over the depth buffer from the surface toward
++// the lamp finds what stands between them (a car ahead shadows the beam).
++
++#include "shared/rt64_car_light.h"
++
++[[vk::push_constant]] ConstantBuffer<CarLightCB> gConstants : register(b0);
++
++#ifdef MULTISAMPLING
++Texture2DMS<float> gDepth : register(t1);
++#else
++Texture2D<float> gDepth : register(t1);
++#endif
++
++// World units are 1/16 ft.
++static const float UnitsPerFoot = 16.0f;
++// A headlamp's spot, as tangents off its axis: across (about 24 degrees to its half strength), below (about 3) and
++// above (a sharp cut, about 1.5). Most of a low beam goes just under the horizon, toward the road far ahead, and far
++// less down at the road close in front, which is what keeps the pool even from near to far despite the grazing angle.
++static const float SpotAcross = 0.52f;
++static const float SpotBelow = 0.065f;
++static const float SpotAbove = 0.025f;
++// The depth march: steps, how near the lamp it stops (world units: past its own car's body), and how far in front of
++// the ray (world units) something may be and still block it: about a car's size.
++static const int MarchSteps = 14;
++static const float MarchOwnCar = 9.0f * 16.0f;
++static const float MarchThickness = 7.0f * 16.0f;
++// The least light (brightest channel) drawn, and the least that is marched for its shadow.
++static const float MinLight = 0.002f;
++static const float MinShadowLight = 0.03f;
++
++uint2 depthSize() {
++    uint width, height;
++#ifdef MULTISAMPLING
++    uint samples;
++    gDepth.GetDimensions(width, height, samples);
++#else
++    gDepth.GetDimensions(width, height);
++#endif
++    return uint2(width, height);
++}
++
++float depthAt(int2 pixel) {
++#ifdef MULTISAMPLING
++    return gDepth.Load(pixel, 0);
++#else
++    return gDepth.Load(int3(pixel, 0));
++#endif
++}
++
++float wOf(float depth) {
++    return gConstants.dirY.w / (depth - gConstants.dirX.w);
++}
++
++bool isSky(float depth, float w) {
++    return !((depth < 0.99999f) && (w > 0.0f));
++}
++
++// One lamp at lampPos (from the camera) on the surface point p with normal n: its light before any shadow.
++float3 lampLight(float3 lampPos, float3 p, float3 n, float3 axis, float3 side, bool headlamp) {
++    const float3 toLight = lampPos - p;
 +    const float distance = length(toLight);
 +    const float range = gConstants.light.w;
 +    if ((distance >= range) || (distance <= 1e-3f)) {
-+        return output;
++        return float3(0.0f, 0.0f, 0.0f);
 +    }
 +
 +    const float3 l = toLight / distance;
@@ -6191,7 +6562,6 @@ index 0000000..ace7e3d
 +    const float along = dot(d, axis);
 +    if (headlamp) {
 +        if (along > 0.05f) {
-+            const float3 side = normalize(cross(gConstants.up.xyz, axis));
 +            const float3 upright = cross(axis, side);
 +            const float across = dot(d, side) / along;
 +            const float upward = dot(d, upright) / along;
@@ -6215,25 +6585,68 @@ index 0000000..ace7e3d
 +    const float ratio2 = ratio * ratio;
 +    const float window = saturate(1.0f - ratio2 * ratio2);
 +    const float feet = distance / UnitsPerFoot;
-+    const float3 irradiance = gConstants.color.rgb * (shape * lambert * window * window / (feet * feet + 1.0f));
-+    if (max(irradiance.r, max(irradiance.g, irradiance.b)) < 1e-4f) {
-+        return output;
++    return gConstants.color.rgb * (shape * lambert * window * window / (feet * feet + 1.0f));
++}
++
++float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
++    const int2 maxPixel = int2(depthSize()) - 1;
++    // The full resolution pixel this one stands for.
++    const int2 pixel = min(int2(pos.xy) * 2, maxPixel);
++    const float2 fullPos = float2(pixel) + 0.5f;
++    const float depth = depthAt(pixel);
++    const float w = wOf(depth);
++    const bool sky = isSky(depth, w);
++    const float3 p = (fullPos.x * gConstants.dirX.xyz + fullPos.y * gConstants.dirY.xyz + gConstants.dirW.xyz) * max(w, 0.0f);
++
++    // The surface's normal from its neighbors (taken before any branch, so the derivatives are whole), turned toward
++    // the camera.
++    float3 n = cross(ddx(p), ddy(p));
++    const float nLength = length(n);
++    n = (nLength > 1e-12f) ? n / nLength : float3(0.0f, 1.0f, 0.0f);
++    if (dot(n, p) > 0.0f) {
++        n = -n;
 +    }
 +
-+    // What stands between: points along the straight line to the lamp (evenly in 3D, each found on screen through
-+    // its w, which is linear along it), blocked by what the depth buffer holds nearer than the point. The last
++    const bool headlamp = gConstants.color.w > 0.5f;
++    const float3 axis = gConstants.direction.xyz;
++    const float3 side = normalize(cross(gConstants.up.xyz, axis));
++    const float lampW = gConstants.up.w;
++    const float2 lampPixel = gConstants.screen.xy;
++    if (sky) {
++        return float4(0.0f, 0.0f, 0.0f, 0.0f);
++    }
++
++    // The lamp, or a pair of lamps either side of light.xyz (dirW.w: half the gap along the car's side, 0 for one).
++    const float halfGap = gConstants.dirW.w;
++    float3 irradiance = lampLight(gConstants.light.xyz - side * halfGap, p, n, axis, side, headlamp);
++    if (halfGap != 0.0f) {
++        irradiance += lampLight(gConstants.light.xyz + side * halfGap, p, n, axis, side, headlamp);
++    }
++
++    // Too faint to show (the composite adds albedo x light: under 0.002 is under a tenth of an 8-bit step even on white).
++    const float peak = max(irradiance.r, max(irradiance.g, irradiance.b));
++    if (peak < MinLight) {
++        return float4(0.0f, 0.0f, 0.0f, 0.0f);
++    }
++
++    const float distance = length(gConstants.light.xyz - p);
++
++    // What stands between: points along the straight line to the lamp (a pair's midpoint: one march for both), evenly
++    // in 3D, each found on screen through its w, which is linear along it, blocked by what the depth buffer holds
++    // nearer than the point. The last
 +    // MarchOwnCar of the way is left out: from behind, the lamp's own car covers the lamp on screen, and its hood and
 +    // roof would shadow its own beam. Each block counts by how clearly it is one (soft at both ends), so the shadow's
-+    // edge is soft without per-pixel noise.
++    // edge is soft without per-pixel noise. The march is most of the pass's cost, so light too faint for its shadow to
++    // show (MinShadowLight: at most a few 8-bit steps on a night track's dark surfaces) skips it.
 +    float shadow = 1.0f;
-+    if (lampW > 0.0f) {
++    if ((lampW > 0.0f) && (peak >= MinShadowLight)) {
 +        const float end = saturate(1.0f - MarchOwnCar / distance);
 +        float blocked = 0.0f;
 +        for (int i = 1; i <= MarchSteps; i++) {
 +            const float s = end * float(i) / float(MarchSteps + 1);
 +            const float rayW = lerp(w, lampW, s);
 +            const float t = s * lampW / max(rayW, 1e-3f);
-+            const int2 atPixel = int2(lerp(pos.xy, lampPixel, t));
++            const int2 atPixel = int2(lerp(fullPos, lampPixel, t));
 +            if (any(atPixel < int2(0, 0)) || any(atPixel > maxPixel) || all(atPixel == pixel)) {
 +                continue;
 +            }
@@ -6252,8 +6665,7 @@ index 0000000..ace7e3d
 +        shadow = saturate(1.0f - blocked / 3.0f);
 +    }
 +
-+    output.light.rgb = irradiance * shadow;
-+    return output;
++    return float4(irradiance * shadow, 0.0f);
 +}
 diff --git a/src/shaders/CarReflection.hlsli b/src/shaders/CarReflection.hlsli
 new file mode 100644
@@ -7025,10 +7437,10 @@ index 0000000..72efb10
 +#endif
 diff --git a/src/shared/rt64_car_light.h b/src/shared/rt64_car_light.h
 new file mode 100644
-index 0000000..7474281
+index 0000000..66b078b
 --- /dev/null
 +++ b/src/shared/rt64_car_light.h
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,56 @@
 +//
 +// RT64
 +//
@@ -7047,11 +7459,12 @@ index 0000000..7474281
 +    struct CarLightCB {
 +        // A pixel's position from the camera, in the space the view's world transforms put vertices in (y up), per unit
 +        // of w: (pixel.x * dirX + pixel.y * dirY + dirW) * w, as SkyFogCB's direction. dirX.w and dirY.w: depth
-+        // buffer value d to w, w = dirY.w / (d - dirX.w). dirW.w: the glow's strength.
++        // buffer value d to w, w = dirY.w / (d - dirX.w). dirW.w: the glow's strength (a glow pass,
++        // CarGlowPS) or half the gap between a pair's lamps along the car's side (a light pass, CarLightPS; 0 for one).
 +        float4 dirX;
 +        float4 dirY;
 +        float4 dirW;
-+        // The lamp's position from the camera in the same space (xyz) and how far its light reaches (w).
++        // The lamp's position from the camera in the same space (xyz; a pair's midpoint) and how far its light reaches (w).
 +        float4 light;
 +        // The light's color times its intensity (rgb: what a surface square to the lamp a foot away gets, times its
 +        // own color) and the lamp's kind (w: 1 a headlamp, a spot; 0 a tail lamp, a wide lobe).
@@ -7075,6 +7488,11 @@ index 0000000..7474281
 +        // Where the shoulder starts (0 to 1): brighter than this rolls off toward 1 with its hue kept.
 +        float knee;
 +        float padding;
++        // Depth buffer value d to w: w = depthB / (d - depthA) (CarLightCB's dirY.w and dirX.w), for upsampling the
++        // light by depth.
++        float depthA;
++        float depthB;
++        float padding2[2];
 +    };
 +#ifdef HLSL_CPU
 +};
