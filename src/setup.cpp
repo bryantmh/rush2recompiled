@@ -85,6 +85,8 @@ namespace {
               "Holes show where a track's scenery ends", "Ground and walls fill the holes past the scenery" },
             { Cfg::Graphics, "car_lights", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2,
               "Cars have no lamps on night tracks", "Headlights and tail lights shine on night tracks" },
+            { Cfg::Graphics, "falling_snow", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2,
+              "No snow falls on snow tracks", "Snow falls on snow tracks, heavier in thicker fog" },
             { Cfg::General, "default_steering", static_cast<uint32_t>(SteeringResponse::Original),
               static_cast<uint32_t>(SteeringResponse::Linear), 0, nullptr, nullptr, true },
             { Cfg::General, "pause_menu_extras", false, true, 1, "Rush 2's pause menu",

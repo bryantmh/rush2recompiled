@@ -99,6 +99,9 @@ namespace rush2::track_mod {
         // [look] car_light: every car on the track is drawn multiplied by this color (a night track's darkness, the
         // PS1 SF Rush's night: src/rush2049/track2049_movers.cpp, src/car_probes.cpp). Unset: the cars' own lighting.
         std::optional<std::array<uint8_t, 3>> car_light;
+        // [look] snowfall: snow falls in the race (src/snowfall.cpp), this much of it (0 none, 1 the PS1 SF Rush mod's
+        // SNOW versions, up to 3), thicker with each step of the FOG option.
+        float snowfall = 0.0f;
         // [handling] traction: [speed in mph, factor] steps, in rising speed: a car at or past a step's speed has its
         // push along the ground (engine, brakes, tires, drag; not gravity) times that factor, the last step reached
         // counting (src/track_traction.cpp; the PS1 SF Rush's snow). Empty: Rush 2's.

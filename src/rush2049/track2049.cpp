@@ -118,6 +118,7 @@ namespace {
     std::atomic_bool applied_smooth_height = false; // Its averaged road height ([track] smooth_height).
     std::atomic_uint32_t applied_car_light = 0;     // Its [look] car_light as 0xRRGGBBFF, 0 for none.
     std::atomic<float> applied_air_gravity = 1.0f;  // Its [handling] air_gravity, 1 for none.
+    std::atomic<float> applied_snowfall = 0.0f;     // Its [look] snowfall, 0 for none.
     std::atomic_bool applied_stunts = false;        // Its [track] stunts.
     std::mutex traction_mutex;
     std::vector<std::array<float, 2>> applied_traction; // Its [handling] traction steps (mph, factor), under traction_mutex.
@@ -446,6 +447,7 @@ namespace {
                   (uint32_t((*mod_settings.car_light)[2]) << 8) | 0xFFu
             : 0u;
         applied_air_gravity = mod ? mod_settings.air_gravity : 1.0f;
+        applied_snowfall = mod ? mod_settings.snowfall : 0.0f;
         applied_stunts = mod && mod_settings.stunts;
         {
             std::lock_guard lock{ traction_mutex };
@@ -482,6 +484,7 @@ namespace {
         applied_road_hold = false;
         applied_car_light = 0;
         applied_air_gravity = 1.0f;
+        applied_snowfall = 0.0f;
         applied_stunts = false;
         {
             std::lock_guard lock{ traction_mutex };
@@ -617,6 +620,11 @@ float rush2::track2049::mod_traction(uint8_t* rdram, float mph) {
         if (mph >= step[0]) factor = step[1];
     }
     return factor;
+}
+
+float rush2::track2049::mod_snowfall(uint8_t* rdram) {
+    int s = applied_slot;
+    return s >= 0 && MEM_BU(0, (int32_t)track_id) == s ? applied_snowfall.load() : 0.0f;
 }
 
 float rush2::track2049::mod_air_gravity(uint8_t* rdram) {

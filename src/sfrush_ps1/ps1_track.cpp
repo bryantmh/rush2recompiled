@@ -3440,7 +3440,9 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         // The PS1's fog: clut_upload_shaded (0x80014F38) steps each channel of a texture's CLUT up by one a band
         // to 26 of 31 (day and snow), so distant scenery fades to 214 grey. The sky is Rush 2's cloud dome, scrolling
         // at 0.2 as on most Rush 2 tracks and the N64 SF Rush ones (src/rush1/track1.cpp).
-        look_toml = "[look]\nfog_color = \"#d6d6d6\"\nsky = \"clouds\"\ncloud_scroll = 0.2\n\n";
+        // Snow: falling snow (src/snowfall.cpp), which the PS1 doesn't have (user's request, 2026-11-12).
+        look_toml = std::string("[look]\nfog_color = \"#d6d6d6\"\nsky = \"clouds\"\ncloud_scroll = 0.2\n") +
+                    (cond.condition == Condition::snow ? "snowfall = 1\n" : "") + "\n";
     }
     if (cond.condition == Condition::snow) {
         // car_integrate (0x8005D190), in snow: every car's horizontal forces for the frame (thrust and the tires'

@@ -149,7 +149,7 @@ namespace {
     // 0x80E10000-0x80E14040 and 0x80E15600-0x80E15660, src/time_sprint.cpp 0x80E14040-0x80E14FA0,
     // src/arcade2049/arcade_checkpoints.cpp
     // 0x80E1E000-0x80E1EA00, include/collision_polys.h (leaf_lists) 0x80E1EA00-0x80E1F200, src/car_lights.cpp
-    // 0x80E1F200-0x80E1F300,
+    // 0x80E1F200-0x80E1F300, src/snowfall.cpp 0x80E1F300-0x80E1F380,
     // src/rush2049/battle_render.cpp 0x80E20000-0x80F18000,
     // src/rush2049/stunt2049.cpp 0x80F18000-0x80F20000, src/rush2049/car2049.cpp (car lighting) 0x80F20000-0x80F80000.
     constexpr uint32_t glyph_images = 0x80C00000;

@@ -37,28 +37,32 @@ namespace {
     }
 
     // ---- textures ------------------------------------------------------------------------------------------------
-    // Painted in the N64 SF Rush dioramas' manner: small, noisy, a few flat colors. 64 x 64 RGBA, deterministic.
+    // Painted in the N64 SF Rush dioramas' manner: small, noisy, a few flat colors, deterministic. Painted at
+    // 64 x 64 RGBA, then most are shrunk to the N64 dioramas' texture sizes (`reduce`: 16, the pyramid 32), so their
+    // texels are as coarse on the menu as the N64 ones'; the city ground (16) and grass (8) are painted at their size.
     constexpr int tex_size = 64;
     struct Paint {
-        std::vector<uint8_t> px = std::vector<uint8_t>(tex_size * tex_size * 4, 255);
-        std::vector<uint8_t> lit = std::vector<uint8_t>(tex_size * tex_size, 0);   // lit windows (kept bright at night)
+        int n;                                       // width and height
+        std::vector<uint8_t> px;
+        std::vector<uint8_t> lit;                    // lit windows (kept bright at night)
         uint32_t seed;
-        explicit Paint(uint32_t s) : seed(s * 2654435761u + 12345u) {}
+        explicit Paint(uint32_t s, int size = tex_size)
+            : n(size), px(size_t(size * size * 4), 255), lit(size_t(size * size), 0), seed(s * 2654435761u + 12345u) {}
         double rnd() {
             seed = seed * 1664525u + 1013904223u;
             return (seed >> 8) / double(1 << 24);
         }
         void set(int x, int y, std::array<int, 3> c, int a = 255) {
-            x = ((x % tex_size) + tex_size) % tex_size;
-            y = ((y % tex_size) + tex_size) % tex_size;
-            uint8_t* p = &px[size_t(y * tex_size + x) * 4];
+            x = ((x % n) + n) % n;
+            y = ((y % n) + n) % n;
+            uint8_t* p = &px[size_t(y * n + x) * 4];
             for (int k = 0; k < 3; k++) p[k] = uint8_t(std::clamp(c[k], 0, 255));
             p[3] = uint8_t(a);
         }
         std::array<int, 3> get(int x, int y) const {
-            x = ((x % tex_size) + tex_size) % tex_size;
-            y = ((y % tex_size) + tex_size) % tex_size;
-            const uint8_t* p = &px[size_t(y * tex_size + x) * 4];
+            x = ((x % n) + n) % n;
+            y = ((y % n) + n) % n;
+            const uint8_t* p = &px[size_t(y * n + x) * 4];
             return { p[0], p[1], p[2] };
         }
         void rect(int x0, int y0, int w, int h, std::array<int, 3> c) {
@@ -66,12 +70,12 @@ namespace {
         }
         void light(int x0, int y0, int w, int h) {
             for (int y = y0; y < y0 + h; y++) for (int x = x0; x < x0 + w; x++) {
-                lit[size_t(((y % tex_size) + tex_size) % tex_size * tex_size + ((x % tex_size) + tex_size) % tex_size)] = 1;
+                lit[size_t(((y % n) + n) % n * n + ((x % n) + n) % n)] = 1;
             }
         }
         // Every texel jittered by up to +-amount (the same for the three channels).
         void noise(int amount) {
-            for (int y = 0; y < tex_size; y++) for (int x = 0; x < tex_size; x++) {
+            for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) {
                 std::array<int, 3> c = get(x, y);
                 int d = int((rnd() * 2 - 1) * amount);
                 set(x, y, { c[0] + d, c[1] + d, c[2] + d });
@@ -83,36 +87,48 @@ namespace {
         return { int(a[0] + (b[0] - a[0]) * f), int(a[1] + (b[1] - a[1]) * f), int(a[2] + (b[2] - a[2]) * f) };
     }
 
-    // City seen from above: grey blocks of roofs in a grid of darker streets, a few colored roofs.
-    Paint city_ground() {
-        Paint p(1);
-        p.rect(0, 0, tex_size, tex_size, { 96, 96, 100 });
-        for (int by = 0; by < tex_size; by += 16) for (int bx = 0; bx < tex_size; bx += 16) {
-            for (int k = 0; k < 6; k++) {
-                int w = 3 + int(p.rnd() * 6), h = 3 + int(p.rnd() * 6);
-                int x = bx + 2 + int(p.rnd() * (13 - w)), y = by + 2 + int(p.rnd() * (13 - h));
-                double r = p.rnd();
-                std::array<int, 3> c = r < 0.55 ? std::array<int, 3>{ 150, 150, 152 } : r < 0.8 ? std::array<int, 3>{ 190, 188, 182 }
-                                     : r < 0.9 ? std::array<int, 3>{ 160, 120, 100 } : std::array<int, 3>{ 120, 135, 150 };
-                c = mix(c, { 210, 210, 210 }, p.rnd() * 0.3);
-                p.rect(x, y, w, h, c);
-                p.rect(x + w, y + 1, 1, h, { 70, 70, 74 });   // its shadow
-                p.rect(x + 1, y + h, w, 1, { 70, 70, 74 });
+    // A paint shrunk to n x n (box average; a texel is lit when half its block is).
+    Paint reduce(const Paint& src, int n) {
+        if (n >= src.n) return src;
+        Paint out(0, n);
+        const int k = src.n / n;
+        for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) {
+            int sum[3] = { 0, 0, 0 }, lit = 0;
+            for (int dy = 0; dy < k; dy++) for (int dx = 0; dx < k; dx++) {
+                std::array<int, 3> c = src.get(x * k + dx, y * k + dy);
+                for (int i = 0; i < 3; i++) sum[i] += c[i];
+                lit += src.lit[size_t((y * k + dy) * src.n + x * k + dx)];
             }
+            out.set(x, y, { sum[0] / (k * k), sum[1] / (k * k), sum[2] / (k * k) });
+            out.lit[size_t(y * n + x)] = uint8_t(lit * 2 >= k * k);
         }
-        p.noise(14);
+        return out;
+    }
+
+    // The city seen from above at the N64 dioramas' grain (their city ground is a 64 x 32 field of grey blocks with a
+    // few tinted ones): 16 x 16, blocks of 2 x 2 texels in greys, some teal, brick or green, jittered.
+    Paint city_coarse() {
+        Paint p(17, 16);
+        for (int by = 0; by < 16; by += 2) for (int bx = 0; bx < 16; bx += 2) {
+            double r = p.rnd();
+            std::array<int, 3> c = r < 0.78 ? std::array<int, 3>{ 0, 0, 0 } : r < 0.86 ? std::array<int, 3>{ 120, 165, 170 }
+                                 : r < 0.94 ? std::array<int, 3>{ 150, 112, 100 } : std::array<int, 3>{ 92, 128, 92 };
+            if (c[0] == 0) { int g = 80 + int(p.rnd() * 120); c = { g, g + 2, g + 4 }; }
+            p.rect(bx, by, 2, 2, c);
+        }
+        p.noise(12);
         return p;
     }
 
-    Paint grass() {
-        Paint p(2);
-        p.rect(0, 0, tex_size, tex_size, { 60, 130, 44 });
-        for (int k = 0; k < 90; k++) {
-            int x = int(p.rnd() * tex_size), y = int(p.rnd() * tex_size), r = 1 + int(p.rnd() * 3);
-            std::array<int, 3> c = p.rnd() < 0.5 ? std::array<int, 3>{ 40, 100, 34 } : std::array<int, 3>{ 90, 160, 60 };
-            for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r) p.set(x + dx, y + dy, c);
+    // Grass at the N64 dioramas' grain (their grass is 8 x 8): greens texel by texel.
+    Paint grass_coarse() {
+        Paint p(18, 8);
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) {
+            double r = p.rnd();
+            p.set(x, y, r < 0.4 ? std::array<int, 3>{ 46, 110, 36 } : r < 0.75 ? std::array<int, 3>{ 62, 132, 46 }
+                                : r < 0.9 ? std::array<int, 3>{ 34, 88, 28 } : std::array<int, 3>{ 92, 156, 62 });
         }
-        p.noise(16);
+        p.noise(8);
         return p;
     }
 
@@ -249,18 +265,19 @@ namespace {
         for (auto& [name, p] : paints) {
             auto it = cover.find(name);
             seed++;
-            for (int y = 0; y < tex_size; y++) for (int x = 0; x < tex_size; x++) {
+            const int patch_cell = std::max(1, p.n / 4), tone_cell = std::max(1, p.n / 16);
+            for (int y = 0; y < p.n; y++) for (int x = 0; x < p.n; x++) {
                 dl::Rgb c = p.get(x, y), out;
                 if (dl::is_route_red(c)) continue;
                 if (look == 2) {
-                    // The city seen from above gets its lights too: about 6% of its texels, scattered, as the N64
+                    // The city seen from above gets its lights too: about a tenth of its texels, scattered, as the N64
                     // dioramas' city ground (src/rush1/track1_convert.cpp dress_look).
-                    if (name == "city" && dl::hash01(x, y, seed + 99) < 0.06) p.lit[size_t(y * tex_size + x)] = 1;
-                    out = p.lit[size_t(y * tex_size + x)] ?dl::window_light(dl::hash01(x / 4, y / 4, seed)) : dl::night(c);
+                    if (name == "city" && dl::hash01(x, y, seed + 99) < 0.1) p.lit[size_t(y * p.n + x)] = 1;
+                    out = p.lit[size_t(y * p.n + x)] ?dl::window_light(dl::hash01(x / 4, y / 4, seed)) : dl::night(c);
                 }
                 else if (it != cover.end()) {
-                    double patch = tile_noise(x / 16.0, y / 16.0, tex_size / 16, seed);
-                    double tone = tile_noise(x / 4.0, y / 4.0, tex_size / 4, seed + 7);
+                    double patch = tile_noise(x / double(patch_cell), y / double(patch_cell), p.n / patch_cell, seed);
+                    double tone = tile_noise(x / double(tone_cell), y / double(tone_cell), p.n / tone_cell, seed + 7);
                     double amount = it->second * std::clamp((patch - 0.15) / 0.35, 0.0, 1.0);
                     out = dl::mix(dl::snow_cold(c), dl::snow_white(tone), amount);
                 }
@@ -339,7 +356,7 @@ namespace {
             if (it != material_of.end()) return it->second;
             auto pi = paints.find(name);
             if (pi == paints.end()) throw std::runtime_error("no texture " + name);
-            int image = g.image(name, a49::png(pi->second.px, tex_size, tex_size));
+            int image = g.image(name, a49::png(pi->second.px, pi->second.n, pi->second.n));
             a49::Glb::Prim p;
             p.material = g.material(name, image, "OPAQUE", false, { 10497, 10497 });
             prims.push_back(std::move(p));
@@ -577,8 +594,8 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
     }
 
     Model m;
-    m.paints.emplace("city", city_ground());
-    m.paints.emplace("grass", grass());
+    m.paints.emplace("city", city_coarse());
+    m.paints.emplace("grass", grass_coarse());
     m.paints.emplace("dirt", dirt());
     m.paints.emplace("water", water());
     m.paints.emplace("route", route());
@@ -598,7 +615,7 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
     };
     uint32_t seed = 20;
     for (const auto& [name, c] : walls) {
-        m.paints.emplace("wall_" + name, wall(seed++, c.first, c.second, name == "glass" ? 8 : 4, name == "glass" ? 8 : 4,
+        m.paints.emplace("wall_" + name, wall(seed++, c.first, c.second, name == "glass" ? 4 : 2, name == "glass" ? 4 : 2,
                                               look == 2 ? 0.45 : 0.12));
     }
     m.paints.emplace("roof_flat", roof(40, { 120, 116, 110 }));
@@ -606,6 +623,8 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
     m.paints.emplace("tiles_red", tiles(42, { 170, 40, 30 }));
     m.paints.emplace("tiles_green", tiles(43, { 50, 130, 80 }));
     m.paints.emplace("tiles_grey", tiles(44, { 110, 110, 116 }));
+    // The N64 dioramas' texture sizes (above), then the condition at that grain.
+    for (auto& [name, p] : m.paints) p = reduce(p, name == "pyramid" ? 32 : 16);
     if (look != 0) dress_paints(m.paints, look);
 
     // The route: a closed loop, thinned to a point where it turns or every route_step meters.
@@ -1108,12 +1127,15 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
     }
 
     if (look == 1) {
-        // Flakes over the island, as the N64 dioramas' SNOW versions have (src/rush1/track1_convert.cpp dress_look):
-        // small tetrahedra (seen from any side in 4 triangles), between the ground and half the island's radius above.
+        // Flakes over the island, the same as the N64 dioramas' SNOW versions' (src/rush1/track1_convert.cpp
+        // dress_look): 160, three crossed squares each (one always faces the camera enough), both sides drawn, 1.1% of
+        // the island's radius, between the ground and half the radius above it. Material SNOWFLAKES, which the custom
+        // track converter tags for Graphics > Falling Snow (include/snowfall.h). (80 tetrahedra looked sparse and
+        // triangular next to the N64 ones: user, 2026-11-12.)
         namespace dl = rush2::diorama_look;
         Paint flake(16);
         flake.rect(0, 0, tex_size, tex_size, dl::snow_white(0.9));
-        m.paints.emplace("flake", flake);
+        m.paints.emplace("SNOWFLAKES", flake);
         double area = 0, x0 = 1e30, x1 = -1e30, z0 = 1e30, z1 = -1e30;
         for (size_t i = 0; i < s.outline.size(); i++) {
             const V2& a = s.outline[i];
@@ -1121,21 +1143,27 @@ bool ps1::build_diorama(const std::vector<std::array<double, 3>>& route_points, 
             area += a[0] * b[1] - b[0] * a[1];
             x0 = std::min(x0, a[0]); x1 = std::max(x1, a[0]); z0 = std::min(z0, a[1]); z1 = std::max(z1, a[1]);
         }
-        const double radius = std::sqrt(std::abs(area) / 2 / pi), size = radius * 0.014;
+        const double radius = std::sqrt(std::abs(area) / 2 / pi), size = radius * 0.011;
         int placed = 0;
-        for (int k = 0; k < 4000 && placed < 80; k++) {
+        for (int k = 0; k < 8000 && placed < 160; k++) {
             double x = x0 + (x1 - x0) * dl::hash01(k, 1, 0x5A0Bu), z = z0 + (z1 - z0) * dl::hash01(k, 2, 0x5A0Bu);
             if (!inside(s.outline, { x, z })) continue;
             placed++;
-            double y = s.ground + radius * (0.06 + 0.5 * dl::hash01(k, 3, 0x5A0Bu));
-            V3 c{ x, y, z };
-            std::array<V3, 4> t = { V3{ x, y + size, z }, V3{ x + size * 0.94, y - size / 3, z },
-                                    V3{ x - size * 0.47, y - size / 3, z + size * 0.82 }, V3{ x - size * 0.47, y - size / 3, z - size * 0.82 } };
-            for (int f = 0; f < 4; f++) {
-                std::vector<V3> tri;
-                for (int v = 0; v < 4; v++) if (v != f) tri.push_back(t[size_t(v)]);
-                V3 mid{ (tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3, (tri[0][2] + tri[1][2] + tri[2][2]) / 3 };
-                m.poly("flake", tri, { { 0, 0 }, { 1, 0 }, { 0, 1 } }, sub(mid, c));
+            double y = s.ground + radius * (0.04 + 0.5 * dl::hash01(k, 3, 0x5A0Bu));
+            const std::vector<V2> uv = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+            for (int plane = 0; plane < 3; plane++) {
+                std::vector<V3> q;
+                for (int c = 0; c < 4; c++) {
+                    double u = (c == 0 || c == 3) ? -size : size, v = c < 2 ? -size : size;
+                    V3 p{ x, y, z };
+                    if (plane == 0) { p[0] += u; p[1] += v; }
+                    else if (plane == 1) { p[2] += u; p[1] += v; }
+                    else { p[0] += u; p[2] += v; }
+                    q.push_back(p);
+                }
+                V3 n = plane == 0 ? V3{ 0, 0, 1 } : plane == 1 ? V3{ 1, 0, 0 } : V3{ 0, 1, 0 };
+                m.poly("SNOWFLAKES", q, uv, n);
+                m.poly("SNOWFLAKES", q, uv, { -n[0], -n[1], -n[2] });
             }
         }
     }

@@ -42,6 +42,7 @@
 #include "gltf_scene.h"
 #include "texture_upscale.h"
 #include "collision_polys.h"
+#include "snowfall.h"
 #include "track_mod.h"
 
 namespace {
@@ -1285,8 +1286,17 @@ namespace {
             return false;
         }
 
-        if (tris.size() > diorama_triangle_budget) {
-            report.warning(what + " makes a diorama of " + std::to_string(tris.size()) + " triangles (the stock ones have "
+        // A material named SNOWFLAKES (a snow track's flakes over its diorama) is drawn last, between G_NOOPs tagged for
+        // Graphics > Falling Snow (include/snowfall.h), which the track select branches past while it is off. Its
+        // flakes are small and don't count against the budget.
+        auto is_flake = [&](const VisualTri& t) {
+            return t.material >= 0 && t.material < (int)scene.materials.size() &&
+                   scene.materials[size_t(t.material)].name.rfind("SNOWFLAKES", 0) == 0;
+        };
+        size_t solid_tris = 0;
+        for (const VisualTri& t : tris) solid_tris += !is_flake(t);
+        if (solid_tris > diorama_triangle_budget) {
+            report.warning(what + " makes a diorama of " + std::to_string(solid_tris) + " triangles (the stock ones have "
                            "at most about 2400); the track select may slow down.");
         }
 
@@ -1328,17 +1338,23 @@ namespace {
         m.cmd(0xE3000F00, 0x00000000);          // no mipmaps
         m.cmd(combine[0], combine[1]);
         m.cmd(0xD7000002, 0xFFFFFFFF);          // G_TEXTURE on, tile 0, scale 1
-        std::vector<int> all(tris.size());
-        for (size_t i = 0; i < tris.size(); i++) all[i] = int(i);
+        std::vector<int> solid, flakes;
+        for (size_t i = 0; i < tris.size(); i++) (is_flake(tris[i]) ? flakes : solid).push_back(int(i));
         // Inline loads: the loader doesn't relocate inside called lists (func_8007786C doesn't enter G_DL targets).
-        emit_mesh(tris, all, order, draw, origin, unit, [&](MeshList& ml, size_t mi) {
+        auto load = [&](MeshList& ml, size_t mi) {
             bool first = true;
             for (const auto& [w0, w1] : texture_load(textures[mi], mats[mi], texel_at[mi])) {
                 if (first) settimg.push_back(ml.list.size());
                 first = false;
                 ml.cmd(w0, w1);
             }
-        }, m);
+        };
+        emit_mesh(tris, solid, order, draw, origin, unit, load, m);
+        if (!flakes.empty()) {
+            m.cmd(0x00000000, rush2::snowfall::flakes_start_tag);   // G_NOOP "SNOW"
+            emit_mesh(tris, flakes, order, draw, origin, unit, load, m);
+            m.cmd(0x00000000, rush2::snowfall::flakes_end_tag);     // G_NOOP "SNOE"
+        }
         m.cmd(0xE3001001, 0x00008000);          // the TLUT mode Rush 2's lists leave set (RGBA16)
         m.cmd(0xDF000000, 0);
         align8(d);
@@ -1461,6 +1477,14 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     }
     if (auto v = t["look"]["cloud_scroll"].value<double>()) s.cloud_scroll = float(*v);
     if (auto v = t["look"]["sky_parallax"].value<double>()) s.sky_parallax = float(*v);
+    if (auto v = t["look"]["snowfall"].value<double>()) {
+        if (*v >= 0.0 && *v <= 3.0) {
+            s.snowfall = float(*v);
+        }
+        else {
+            report.error("track.toml: [look] snowfall must be from 0 to 3; the track has no falling snow.");
+        }
+    }
     if (auto v = t["look"]["car_light"].value<std::string>()) {
         unsigned r, g, b;
         if (v->size() == 7 && (*v)[0] == '#' && sscanf(v->c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {

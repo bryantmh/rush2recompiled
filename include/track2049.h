@@ -218,6 +218,8 @@ namespace rush2::track2049 {
     float mod_traction(uint8_t* rdram, float mph);
     // The raced custom track's [handling] air_gravity (gravity's multiple with all four wheels off the road), 1 without one.
     float mod_air_gravity(uint8_t* rdram);
+    // The raced custom track's [look] snowfall (how much snow falls, src/snowfall.cpp), 0 without one.
+    float mod_snowfall(uint8_t* rdram);
     // Whether the raced custom track's [track] stunts asks for the stunt panel and scores (as Stunts on All Tracks).
     bool mod_stunts(uint8_t* rdram);
     // Whether the race is on the obstacle course.

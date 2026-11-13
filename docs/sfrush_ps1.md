@@ -798,8 +798,12 @@ the mod's source key, so editing it rebuilds the mod once):
 - **Buildings:** boxes (`size` x `building_scale`, `height`, `angle`, `wall` color, flat `roof_color` or a hipped
   `roof` of red, green or grey tiles), `tiers` for setbacks and pagodas. **Landmarks:** `pyramid` (Transamerica),
   `rotunda` and `colonnade` (Palace of Fine Arts), `bridge` (the Bay Bridge, over the bay). **Trees:** six-sided bushes.
-- **Textures:** painted in code (window grids, city-from-above ground, grass, earth, water, tiles), 64 x 64, nothing
-  from the disc but the route's line.
+- **Textures:** painted in code (window grids, city-from-above ground, grass, earth, water, tiles), nothing from the
+  disc but the route's line. At the N64 dioramas' grain (user, 2026-11-12: finer textures and smaller windows didn't
+  match the N64 dioramas on the carousel): painted at 64 x 64 and shrunk to 16 x 16 (`reduce`; the pyramid 32), the
+  city ground painted at 16 x 16 as 2 x 2 blocks of greys and a few tints (`city_tile` 170 m: about 11 m a texel,
+  as coarse as Market's city), grass at 8 x 8 (the N64's grass size). Walls have 2 x 2 windows a cell (glass towers
+  4 x 4), so a window is about half a cell wide, as large on the menu as the N64 buildings' window texels.
 - **Checks:** the build log lists buildings closer to the route's middle than half the band, buildings whose
   footprint or eaves reach past the island's edge, and trees off it. Keep it under 4,000 triangles (the custom-track converter's warning; the N64 ones have 740-2,400
   vertices): about 3,650 now.
@@ -827,7 +831,9 @@ snow and night sets ([Snow and night](#snow-and-night), `tools/sfrush_ps1/snow_m
   of its triangles use facing up (the ground's) goes 80% to snow white, its light and dark kept as lighter and
   darker snow, water-blue entries left as water; other TLUTs are frosted 30%. Untextured up-facing vertices go
   snow white in patches about a tenth of the island across, and 160 flakes (three crossed squares each, 1.1% of the
-  island's radius) float up to half the radius above the ground, like a snow globe. Roofs: the up-facing triangles
+  island's radius) float up to half the radius above the ground, like a snow globe; they are drawn last, between G_NOOPs tagged "SNOW" / "SNOE" (include/snowfall.h), which the track select
+  branches past while Graphics > Falling Snow is off (track2049_menu.cpp `show_diorama_snow`; Chinatown's SNOWFLAKES
+  material is tagged the same way by the custom track converter). Roofs: the up-facing triangles
   above the ground whose corners are all corners of the buildings' walls are dropped from the list (their indices
   made one vertex) and redrawn untextured in snow white, a tone per roof, shaded as the roof was. Night: TLUTs and
   untextured shades through `night`, and lights in the textures themselves. Every CI texture is read back with the
@@ -842,8 +848,8 @@ snow and night sets ([Snow and night](#snow-and-night), `tools/sfrush_ps1/snow_m
   viewer that starts with texturing off shows them as white shaded plaster (`tools/menu_model_view.py` starts on).
 - **Chinatown** (`src/sfrush_ps1/ps1_diorama.cpp` `dress_paints`): its paints are made in code, so each is redone.
   Snow: the up-facing paints (city ground, grass, roofs, tiles, foliage, deck, dome) get `cover` 50-95% snow in
-  wrapping noise patches, the rest `snow_cold`, plus 80 flakes as tetrahedra (it is near the 4,000-triangle
-  budget: 3,954). Night: walls light 45% of their windows (12% by day), the Transamerica pyramid 30% of its slots,
+  wrapping noise patches, the rest `snow_cold`, plus the N64 versions' flakes (160, three crossed squares each, both
+  sides; 80 tetrahedra first looked sparse and triangular, user 2026-11-12) in the material SNOWFLAKES. Night: walls light 45% of their windows (12% by day), the Transamerica pyramid 30% of its slots,
   the city ground 6% of its texels (as the N64 ones' city), and everything else goes through `night`.
 - **Checking offline:** `tools/rush1/cpp_test/build.bat noref` builds the track select art into
   `tools/rush1/cpp_test/out/asset3_rush1.bin`, and `python tools/menu_model_view.py <that> OUT.png R1TRACK3N R1TRACK3S
@@ -1096,7 +1102,9 @@ CLOCKS left from another track races as ON on a track without clocks.
 
 The PS1 races every track (1-4) in three conditions over the same road, scenery and collision: day, snow and night.
 gp+0x40 (0x800B2710) == 1 is snow, gp+0x98 (0x800B2768) set is night. **[V]** No falling snow or other weather
-effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]**
+effect: the only strings with "snow" are the menu's `TITLETGA/SNOW.GFX`. **[V]** The mod's SNOW versions add falling
+snow anyway (user's request, 2026-11-12): their track.toml has `[look] snowfall = 1` (docs/custom_tracks.md#snowfall,
+src/snowfall.cpp): none at FOG 1, heavier and faster at each step after.
 
 - **Textures:** the page and CLUT loaders of every track read `T<n>PAGES/T<n>CLUTS` (snow) or `T<n>PAGEN/T<n>CLUTN`
   (night). Snow: snow on grass, roofs, walls and trees, the road kept; the CLUTs' median brightness is the day's

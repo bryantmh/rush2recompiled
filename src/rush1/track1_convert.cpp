@@ -33,6 +33,7 @@
 #include "clipper2/clipper.h"
 
 #include "diorama_look.h"
+#include "snowfall.h"
 #include "track1.h"
 #include "track1_banners.h"
 #include "track1_lanes.h"
@@ -1604,6 +1605,7 @@ namespace {
     struct Quad {
         std::array<std::array<double, 3>, 4> p;
         rush2::diorama_look::Rgb color;
+        bool flake = false;     // a snowflake: drawn between the tags Graphics > Falling Snow branches past (snowfall.h)
     };
     void dress_look(Builder& b, Body& body, Look look, double lo, double radius, std::vector<Quad>& quads);
 
@@ -1734,12 +1736,23 @@ namespace {
                 add32(body.bytes, tri(b0, b1, t1));
             }
         }
-        // The condition's quads, 15 a load (60 vertices), both windings as the band.
-        for (size_t q0 = 0; q0 < quads.size(); q0 += per_load) {
-            const size_t n = std::min(per_load, quads.size() - q0);
+        // The condition's quads, 15 a load (60 vertices), both windings as the band: the roofs, then the snowflakes
+        // between G_NOOPs tagged for Graphics > Falling Snow (include/snowfall.h), which the track select branches past
+        // while it is off.
+        std::vector<Quad> ordered;
+        for (const Quad& q : quads) if (!q.flake) ordered.push_back(q);
+        const size_t first_flake = ordered.size();
+        for (const Quad& q : quads) if (q.flake) ordered.push_back(q);
+        for (size_t q0 = 0; q0 < ordered.size(); ) {
+            const size_t end = q0 < first_flake ? first_flake : ordered.size();
+            if (q0 == first_flake) {
+                add32(body.bytes, 0);                   // G_NOOP "SNOW"
+                add32(body.bytes, rush2::snowfall::flakes_start_tag);
+            }
+            const size_t n = std::min(per_load, end - q0);
             const uint32_t first = uint32_t(verts.size());
             for (size_t k = 0; k < n; k++) {
-                const Quad& q = quads[q0 + k];
+                const Quad& q = ordered[q0 + k];
                 for (const auto& p : q.p) {
                     for (int a = 0; a < 3; a++) add16(verts, uint16_t(int16_t(std::clamp(std::lround(p[a]), -32768L, 32767L))));
                     add16(verts, 0);
@@ -1762,6 +1775,11 @@ namespace {
                 add32(body.bytes, tri(v, v + 2, v + 3));
                 add32(body.bytes, 0x06000000 | tri(v, v + 2, v + 1));
                 add32(body.bytes, tri(v, v + 3, v + 2));
+            }
+            q0 += n;
+            if (q0 == ordered.size() && first_flake < ordered.size()) {
+                add32(body.bytes, 0);                   // G_NOOP "SNOE"
+                add32(body.bytes, rush2::snowfall::flakes_end_tag);
             }
         }
         add32(body.bytes, 0xD7000002);                  // texture on, as the lists end
@@ -2143,6 +2161,7 @@ namespace {
                         f.p[size_t(c)] = p;
                     }
                     f.color = color;
+                    f.flake = true;
                     quads.push_back(f);
                 }
             }

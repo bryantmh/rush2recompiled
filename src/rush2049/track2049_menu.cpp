@@ -76,6 +76,7 @@
 #include "time_sprint.h"
 #include "ghost.h"
 #include "track1.h"
+#include "snowfall.h"
 #include "track2049.h"
 #include "texture_upscale.h"
 #include "track_mod_runtime.h"
@@ -2476,6 +2477,62 @@ namespace {
         }
         return depth;
     }
+
+    // Graphics > Falling Snow over a diorama (include/snowfall.h): its snowflakes sit between G_NOOPs tagged "SNOW"
+    // and "SNOE" (the N64 SF Rush SNOW models, a custom diorama's SNOWFLAKES material). While the setting is off the
+    // first is a branch (G_DL, no return) to the second, so the flakes aren't drawn; on, the G_NOOP again. Each list
+    // is scanned once (by the address of the name the entry draws, checked against its record's list and the tag
+    // still being there), and written only when the setting changes.
+    struct SnowSpan {
+        uint32_t record = 0, list = 0;
+        uint32_t start = 0, after = 0;   // the "SNOW" and "SNOE" commands, 0: the list has none
+        int shown = -1;                  // what is written: 1 the flakes, 0 the branch past them
+    };
+    std::map<uint32_t, SnowSpan> snow_spans;   // by name address
+
+    void show_diorama_snow(uint8_t* rdram, recomp_context* ctx, uint32_t name) {
+        if (name == 0 || !in_rdram(name)) return;
+        SnowSpan& sp = snow_spans[name];
+        const bool want = rush2::snowfall::enabled();
+        auto tag_at = [&](uint32_t at, uint32_t tag) {
+            return at != 0 && MEM_W(0, (int32_t)at) == 0 && (uint32_t)MEM_W(4, (int32_t)at) == tag;
+        };
+        auto branch_at = [&](uint32_t at, uint32_t to) {
+            return at != 0 && (uint32_t)MEM_W(0, (int32_t)at) == 0xDE010000u && (uint32_t)MEM_W(4, (int32_t)at) == to;
+        };
+        bool valid = sp.record != 0 && in_rdram(sp.record) &&
+                     dl_address((uint32_t)MEM_W(0xC, (int32_t)sp.record)) == sp.list &&
+                     (sp.start == 0 || ((tag_at(sp.start, rush2::snowfall::flakes_start_tag) || branch_at(sp.start, sp.after)) &&
+                                        tag_at(sp.after, rush2::snowfall::flakes_end_tag)));
+        if (!valid) {
+            sp = SnowSpan{};
+            sp.record = model_record(rdram, ctx, name);
+            if (sp.record == 0) return;
+            sp.list = dl_address((uint32_t)MEM_W(0xC, (int32_t)sp.record));
+            if (!in_rdram(sp.list)) return;
+            // The list straight through (following branches), to its end.
+            uint32_t at = sp.list;
+            for (int i = 0; i < 200000 && in_rdram(at); i++) {
+                const uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+                if (w0 >> 24 == 0xDF) break;
+                if (w0 == 0 && w1 == rush2::snowfall::flakes_start_tag) sp.start = at;
+                if (w0 == 0 && w1 == rush2::snowfall::flakes_end_tag && sp.start != 0) { sp.after = at; break; }
+                // Left off by an earlier visit: the branch to the end tag.
+                if (w0 == 0xDE010000u && tag_at(dl_address(w1), rush2::snowfall::flakes_end_tag)) {
+                    sp.start = at;
+                    sp.after = dl_address(w1);
+                    sp.shown = 0;
+                    break;
+                }
+                at = w0 == 0xDE010000u ? dl_address(w1) : at + 8;
+            }
+            if (sp.after == 0) sp.start = 0;
+        }
+        if (sp.start == 0 || sp.shown == (int)want) return;
+        MEM_W(0, (int32_t)sp.start) = want ? 0 : (int32_t)0xDE010000;
+        MEM_W(4, (int32_t)sp.start) = (int32_t)(want ? rush2::snowfall::flakes_start_tag : sp.after);
+        sp.shown = (int)want;
+    }
 }
 
 // func_803AB294 at 0x803ABCA0, each frame: carousel entry $s0's node was just given its place and spun matrix.
@@ -2489,6 +2546,8 @@ extern "C" void rush2_track49_select_pose(uint8_t* rdram, recomp_context* ctx) {
     if (shown) stream_tick(rdram);
     // A custom track's diorama, while its entry is near the shown one (stream_diorama).
     if (is_mod_track(t) && (slot <= stream_window || slot >= count - stream_window)) stream_diorama(rdram, ctx, t);
+    // Its snowflakes, by Graphics > Falling Snow (a SNOW version's diorama), while it can be on screen.
+    if (slot <= 2 || slot >= count - 2) show_diorama_snow(rdram, ctx, (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4)));
     if (preview_names[t] == 0) return;
 
     // The carousel's centre entry sits at (0, y, z) and the others slide along x; the centre one advances the
@@ -2602,6 +2661,7 @@ extern "C" void rush2_track49_circuit_pose(uint8_t* rdram, recomp_context* ctx) 
     int t = (int32_t)MEM_W(0, (int32_t)circuit_shown);
     stream_tick(rdram);
     if (t >= 0 && t < menu_tracks && is_mod_track(t)) stream_diorama(rdram, ctx, t);
+    if (t >= 0 && t < menu_tracks) show_diorama_snow(rdram, ctx, (uint32_t)MEM_W(0, (int32_t)(new_diorama_names + t * 4)));
     if (t >= 0 && t < menu_tracks && !is_mod_track(t) && course_id(t) >= first_menu_id &&
         course_id(t) < first_menu_id + track_count) {
         circuit_diorama_ring(rdram, ctx, t);

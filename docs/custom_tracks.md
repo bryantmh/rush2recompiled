@@ -337,6 +337,7 @@ sky          = "none"      # a stock sky: see Sky
 cloud_scroll = 0.0         # sky texture scroll speed (the clouds sky)
 sky_parallax = 0.0         # how much the sky shifts as the camera moves (the clouds sky)
 # car_light  = "#454046"   # a night track: every car drawn darkened by this color: see Night
+# snowfall   = 1           # falling snow: see Snowfall
 
 # [handling]
 # traction = [[32, 0.5], [64, 0.25]]   # a slippery track (snow, ice): see Handling
@@ -410,6 +411,29 @@ car_light = "#454046"   # every car is drawn multiplied by this color
 - A track whose `fog_color` is near black (luminance under 0.1, as `"#0c1424"`) is a night track for Graphics > Car
   Lights: every car's headlamps and tail lamps light it (docs/graphics_effects.md#car-lights). A lighter fog keeps
   them off.
+
+### Snowfall
+
+Snow can fall in the race, round every player's camera:
+
+```toml
+[look]
+snowfall = 1   # 0 none (the default), 1 the SF Rush PlayStation mod's SNOW versions, up to 3
+```
+
+- How much falls follows the race's FOG option: none at FOG 1 (no fog), a light fall drifting down at 2 (1,100
+  flakes round each camera, 3.5 ft/s), a steady one at 3 (3,000, 9 ft/s) and a blizzard driven sideways at 4 (6,000,
+  20 ft/s down, 11 across). The flakes are 1-2 inches across, stretched along their fall the faster they go.
+  `snowfall` multiplies the count (up to 3 times, at most 9,000).
+- The flakes fall and drift by the game clock, so they hold still while the game is paused, and are fogged like the
+  track, so the far ones fade into the fog. Every player's view has its own.
+- Graphics > Falling Snow turns it on and off for every track (Off by default; the Enhanced setup turns it on). None
+  of the original games has falling snow (the PlayStation SF Rush's snow versions don't); src/snowfall.cpp has how
+  it is drawn.
+- A diorama's snowflakes: give them a material whose name starts with `SNOWFLAKES` and the same setting shows or hides
+  them on the track select (they're drawn last, between two tagged G_NOOPs the track select branches past while it is
+  off: include/snowfall.h). They don't count against the diorama's triangle budget. The SF Rush PlayStation mod's
+  Chinatown SNOW uses it.
 
 ### Handling
 
@@ -968,7 +992,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 |---|---|---|
 | `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `stunts`, `smooth_collision`, `smooth_fold`, `smooth_height` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
 | `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
-| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light` | [Sky](#sky), [Night](#night) |
+| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light`, `snowfall` | [Sky](#sky), [Night](#night), [Snowfall](#snowfall) |
 | `[handling]` | `traction`, `air_gravity` | [Handling](#handling) |
 | `[ai]` | `speed_quantiles`, `traction_margin`, `speed_scale` | [AI speeds](#ai-speeds) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |
