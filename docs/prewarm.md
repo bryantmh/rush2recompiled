@@ -66,8 +66,14 @@ to build is a black window until the game's first frame. It shows for Locate ROM
 
 Nothing waits on RT64's texture packs, but the high-resolution fonts are on screen from the game's first frame:
 `rush2::load_font_pack_early` (src/fonts.cpp, from `launcher_update`) hands the font pack to RT64 as the launcher
-opens (`recompui::renderer::enable_texture_pack_early`), where mods' packs otherwise reach RT64 only when the game
-loads its mods. The renderer checks pack changes each time round the graphics thread's loop
+opens (`recompui::renderer::enable_texture_packs_early`), where mods' packs otherwise reach RT64 only when the game
+loads its mods. It waits for librecomp's mod scan (`rush2::note_mods_scanned`, from the first `update_gfx`, which
+`recomp::start` calls only after `scan_mods`): the launcher's first frames can come before the scan, when the font
+mod isn't known to be enabled yet. Before the game starts RT64 loads no pack until that call (an empty list when the
+mod is off), then loads the early packs on their own and everything else after (`check_texture_pack_actions`,
+lib/patches/RecompFrontend.patch): the game's generated packs are set as the program starts, and the Dreamcast disc's
+(about 5000 images, 2 to 3 s) used to load first and hold the font pack behind it past the launcher's 2 s cap, so the
+copyright screen drew the N64 font for a few seconds (fixed 2026-11-12). The renderer checks pack changes each time round the graphics thread's loop
 (`RendererContext::poll`, a lib/patches/N64ModernRuntime.patch addition), also before the game starts. The pack's 84
 glyph sheets (9 megapixels of PNG) are decoded on every core while it's prepared (0.05 to 0.8 s measured, against
 0.9 s one by one), and `launcher_update` holds the game's start, the window still black, until RT64 draws with it

@@ -53,6 +53,7 @@ namespace {
     const std::string font_pack_filename = font_pack_id + ".rtz";
 
     std::atomic<bool> hires_fonts_enabled = false;
+    std::atomic<bool> mods_scanned = false; // note_mods_scanned
     int32_t font_load_start = 0;
 
     std::vector<char> read_file(const std::filesystem::path& path) {
@@ -289,17 +290,32 @@ void rush2::install_font_pack() {
     }
 }
 
+void rush2::note_mods_scanned() {
+    mods_scanned = true;
+}
+
 void rush2::load_font_pack_early() {
     static bool done = false;
-    if (done) return;
+    // The launcher's first frames can come before librecomp has scanned the mods folder (it opens the window first),
+    // when the font pack's mod isn't known to be enabled yet: deciding then left the fonts to the game's own mod load,
+    // seconds after the first frame. So it waits for the scan (note_mods_scanned).
+    if (done || !mods_scanned) return;
     done = true;
     // The game's mod load turns the same pack on later, which RT64 takes as no change (it reloads nothing). The
-    // Fonts setting still decides whether it's drawn (set_hires_fonts_enabled's secondary enable / disable).
-    if (recomp::mods::is_mod_enabled(font_pack_id)) recompui::renderer::enable_texture_pack_early(font_pack_id);
+    // Fonts setting still decides whether it's drawn (set_hires_fonts_enabled's secondary enable / disable). RT64 holds
+    // every pack load until this call, even with the mod off (an empty list), and then loads the font pack on its own
+    // first: the game's generated packs (the Dreamcast disc's textures, set as the program starts) take seconds.
+    bool enabled = recomp::mods::is_mod_enabled(font_pack_id);
+    std::vector<std::string> early;
+    if (enabled) early.push_back(font_pack_id);
+    recompui::renderer::enable_texture_packs_early(early);
+    printf("[fonts] font pack %s\n", enabled ? "loading early" : "not loaded early (its mod is off)");
 }
 
 bool rush2::font_pack_ready() {
-    return !hires_fonts_enabled || !recomp::mods::is_mod_enabled(font_pack_id) ||
+    if (!hires_fonts_enabled) return true;
+    if (!mods_scanned) return false;
+    return !recomp::mods::is_mod_enabled(font_pack_id) ||
            recompui::renderer::texture_pack_in_use(font_pack_id);
 }
 

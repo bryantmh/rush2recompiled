@@ -86,6 +86,9 @@ namespace rush2 {
     // before the game's first frame (mods' packs otherwise reach RT64 only when the game loads its mods, seconds
     // later). Once per launch.
     void load_font_pack_early();
+    // librecomp has scanned the mods folder and read which mods are enabled (it calls update_gfx only after that).
+    // Until then load_font_pack_early waits and font_pack_ready is false.
+    void note_mods_scanned();
     // The font pack is drawn with (or isn't wanted: Fonts not High Resolution, its mod off). The launcher holds the
     // game's start on it, black, for at most 2 s.
     bool font_pack_ready();

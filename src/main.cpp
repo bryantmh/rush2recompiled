@@ -220,6 +220,8 @@ static void show_cursor_on_escape_menu() {
 }
 
 void update_gfx(void*) {
+    // recomp::start calls this only once the mods are scanned and their config read (rush2::note_mods_scanned).
+    rush2::note_mods_scanned();
     std::lock_guard lock{ rush2::input::sdl_device_mutex() };
     show_cursor_on_escape_menu();
     recompinput::handle_events();
