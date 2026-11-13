@@ -195,6 +195,8 @@ int rush2_track49_keys(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_race_start(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_list(uint8_t* rdram, recomp_context* ctx);
+// The car select's part matrices in their own room (issue 67, src/rush2049/car2049.cpp).
+void rush2_preview_matrix_base(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_logo(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_paint(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_drone(uint8_t* rdram, recomp_context* ctx);

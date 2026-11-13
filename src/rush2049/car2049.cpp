@@ -2439,6 +2439,13 @@ void rush2::car2049::swap_player_rows(uint8_t* rdram, int a, int b) {
     }
 }
 
+// race_scene_load_assets_8008A1FC at 0x8008A2D4, on the car select, after it stored the base of the cars' part
+// matrices (0x8011921C, 8 per preview id): their own room for every preview id (include/car_types.h preview_matrices).
+extern "C" void rush2_preview_matrix_base(uint8_t* rdram, recomp_context* ctx) {
+    (void)ctx;
+    MEM_W(0, (int32_t)0x8011921C) = (int32_t)rush2::car_types::preview_matrices;
+}
+
 // func_803B81F0 at 0x803B873C, after it listed a player's selectable Rush 2 cars: $a1 = player. The 2049 cars
 // follow them (Unlock All Cars, src/cheats.cpp, rebuilds the list afterwards and appends them again).
 extern "C" void rush2_car49_list(uint8_t* rdram, recomp_context* ctx) {

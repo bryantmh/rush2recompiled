@@ -131,6 +131,7 @@ namespace rush2::car_types {
         return old_base == 0 ? at : 0;
     }
     static_assert(id_array(0) <= id_end, "the preview id arrays run into the type tables");
+    // After them: the car select's part matrices (preview_matrices, below).
     constexpr uint32_t part_handles = id_array(0x8010C480);  // + id * 0x4E: the 39 part model handles
     // Part indices (func_80086700's suffixes, 0x800C6180): the frame and the intact body panels, four corners and the
     // roof; the hood-camera hood halves are 31-34.
@@ -145,6 +146,15 @@ namespace rush2::car_types {
     // + id * 0x18: the car's palette record (name[16], first and last index, +0x14 the palette's address).
     constexpr uint32_t car_palette_records = id_array(0x800D97E8);
     constexpr uint32_t car_palettes = car_palette_records + 0x14;
+    // The car select's part matrices, 8 per preview id (0x30 bytes each: matrix[9], position[3]): a car part whose
+    // node takes matrix k uses *0x8011921C + (id * 8 + k) * 0x30 (scene_node_new_with_matrix_ex_80085ED8). The game
+    // points 0x8011921C at one matrix of the scene matrix pool (0x800EBE40, race_scene_load_assets_8008A1FC), which held
+    // Rush 2's 44 ids; 242 ran past the pool into the scene node and world polygon counts (0x800FAE58, 0x800FAEF0) and
+    // froze the car select on the later types (issue 67). rush2_preview_matrix_base points it here instead.
+    constexpr uint32_t preview_matrices = (id_array(0) + 15) & ~15u;
+    constexpr uint32_t preview_matrix_block = 8 * 0x30;
+    static_assert(preview_matrices + uint32_t(preview_ids) * preview_matrix_block <= id_end,
+                  "the car select's part matrices run into the type tables");
 
     // The car select's per-player car list (car i of player p at + 2 * i + p; moved from 0x803CB368) and carousel
     // (0x18 bytes a car, 0x1010 a player: us.toml computes player << 8 + player, << 4; moved from 0x803CB980, 0x210 a

@@ -9612,6 +9612,14 @@ func = "carselect_build_list_803B81F0"
 before_vram = 0x803B873C
 text = "    rush2_car49_list(rdram, ctx);"
 
+# The car select's part matrices, 8 per preview id from the pointer race_scene_load_assets_8008A1FC stores at
+# 0x8011921C (one matrix of the scene matrix pool): 242 preview ids ran past the pool into the scene node and world
+# polygon counts (issue 67). Their own room instead (include/car_types.h preview_matrices, src/rush2049/car2049.cpp).
+[[patches.hook]]
+func = "race_scene_load_assets_8008A1FC"
+before_vram = 0x8008A2D4
+text = "    rush2_preview_matrix_base(rdram, ctx);"
+
 [[patches.hook]]
 func = "car_asset_request_queue_80087E88"
 before_vram = 0x8008808C

@@ -13467,11 +13467,11 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 [[var]]
 vram = 0x8011921C
 name = "scene_node_matrix_ptr"
-type = "void*"
-desc = "Pointer set by race scene load, read by scene_node_new_with_matrix_ex (low confidence)."
+type = "f32 (*)[12]"
+desc = "The car select's preview part matrices: scene_node_new_with_matrix_ex gives preview id i's part matrix k at this + (i * 8 + k) * 0x30. race_scene_load_assets_8008A1FC sets it on the car select (game state 2) to one scene pool matrix (0x800EBE40 pool); 242 preview ids overran the pool into the scene node and polygon counts (issue 67), so the hook at 0x8008A2D4 (rush2_preview_matrix_base) points it at car_types::preview_matrices (0x80199650) instead."
 area = "render"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/rush2049_research/cars.md#8-implementation-v"
 
 [[var]]
 vram = 0x80119420
