@@ -1,6 +1,7 @@
 # For reading the Rush 2049 arcade code in ProjectR's native port (project-r.exe; docs/arcade2049.md events).
 # Finds references to a string in an x86-64 PE: RIP-relative instructions that point at it and 8-byte pointers to it.
 # python tools/arcade2049/pe_xref.py <exe> <string> [--near N]   (prints the referencing instructions with N instructions around)
+# python tools/arcade2049/pe_xref.py <exe> 0x<va>[:<len>]        references into an address range instead (default 4 bytes)
 import struct, sys
 import capstone
 
@@ -26,7 +27,12 @@ def off_to_rva(off):
 
 targets = []
 start = 0
-while True:
+by_address = text.startswith(b'0x')
+if by_address:   # an address range: every rva in it is a target
+    a0, _, ln = text.decode().partition(':')
+    r0 = int(a0, 16) - base
+    targets = list(range(r0, r0 + (int(ln, 0) if ln else 4)))
+while not by_address:
     i = b.find(text, start)
     if i < 0:
         break
