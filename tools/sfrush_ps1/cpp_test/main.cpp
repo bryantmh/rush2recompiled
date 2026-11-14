@@ -10,6 +10,9 @@
 // the PS1's own lanes are used.
 //
 // Writes OUT_DIR/sfrush_ps1/ and prints the converter's log and time.
+//
+// SFRUSH_PS1_NIGHT_ART=FILE: writes only n64_night_art.bin (the N64 NIGHT versions' buildings in the PS1's night art,
+// docs/sfrush_ps1.md#n64-night-art) to FILE and stops, for tools/rush1/cpp_test's track1_test --night-art.
 
 #include <chrono>
 #include <cstdio>
@@ -33,6 +36,14 @@ int main(int argc, char** argv) {
     if (!ps1::is_disc(disc_path) || !disc.open(disc_path, error)) {
         fprintf(stderr, "%s is not the PS1 SF Rush disc %s\n", rush2::upscale::path_utf8(disc_path).c_str(), error.c_str());
         return 1;
+    }
+    if (const char* art_path = std::getenv("SFRUSH_PS1_NIGHT_ART"); art_path && *art_path) {
+        std::string log;
+        std::vector<uint8_t> art = ps1::n64_night_art(disc, std::filesystem::path("assets") / "sfrush_ps1", log);
+        printf("%s", log.c_str());
+        std::ofstream f(std::filesystem::u8path(art_path), std::ios::binary);
+        f.write(reinterpret_cast<const char*>(art.data()), std::streamsize(art.size()));
+        return art.empty() || !f ? 1 : 0;
     }
     auto t0 = std::chrono::steady_clock::now();
     ps1::ModFiles files;

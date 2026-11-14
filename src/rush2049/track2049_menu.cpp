@@ -1117,8 +1117,9 @@ namespace {
         for (size_t i = 0; i < entries.size() && i < size_t(mod_capacity); i++) {
             rush2::track_mod::MenuArt art;
             mod_ok.push_back(rush2::track_mod::menu_art(int(i), art));
-            // The logo drawn in full color, as the 2049 banners are (rush2::upscale::add_exact_image).
-            if (mod_ok.back()) {
+            // The logo drawn in full color, as the 2049 banners are (rush2::upscale::add_exact_image). Only a whole
+            // logo: the upscaler compares its rows with what is drawn.
+            if (mod_ok.back() && art.logo.size() == 128 * 32 && art.logo_rgba.size() == 128 * 32 * 4) {
                 rush2::upscale::Image image;
                 image.width = 128;
                 image.height = 32;
@@ -1338,6 +1339,23 @@ namespace {
             set_stunt_arena(0);
             set_battle_arena(0);
             rush2::track_mod::set_race_track(mod_index(t));
+            // A version raced on an N64 SF Rush course ([track] base, the PlayStation mod's N64 NIGHT versions): the
+            // course itself (src/rush1/track1.cpp) in the version's look; the custom track stays the raced one for its
+            // records, ghosts and track select entry.
+            std::vector<rush2::track_mod::Entry> list = rush2::track_mod::tracks();
+            const size_t i = size_t(mod_index(t));
+            if (i < list.size()) {
+                if (int k = rush2::track_mod::base_course(list[i].settings); k != 0) {
+                    const rush2::track_mod::Settings& s = list[i].settings;
+                    rush2::track1::set_race_track(k);
+                    rush2::track1::RaceLook look;
+                    look.look = s.recolor == "night" ? rush2::diorama_look::Look::night : rush2::diorama_look::Look::day;
+                    look.fog = s.fog;
+                    if (s.car_light) look.car_light = uint32_t((*s.car_light)[0]) << 24 | uint32_t((*s.car_light)[1]) << 16 |
+                                                      uint32_t((*s.car_light)[2]) << 8 | 0xFF;
+                    rush2::track1::set_race_look(look);
+                }
+            }
             // A custom arena races in STUNT1's slot (stunt mode), as Rush 2049's arenas.
             MEM_B(0, (int32_t)track_id) = is_arena(t) ? stunt_host_slot : host_slot;
         }

@@ -293,6 +293,8 @@ namespace {
         int mod = rush2::track_mod::race_track();
         std::string mod_id, folder;
         int course = -1;
+        // A version raced on an N64 SF Rush course ([track] base) has the course's clocks.
+        if (rush2::track1::race_track() > 0) mod = -1;
         if (mod >= 0) {
             std::vector<rush2::track_mod::Entry> list = rush2::track_mod::tracks();
             if (mod >= (int)list.size()) return out;

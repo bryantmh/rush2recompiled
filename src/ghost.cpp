@@ -377,6 +377,9 @@ namespace {
             int k = rush2::track2049::race_track();
             if (k >= 1 && k <= rush2::track2049::track_count) return rush2::track2049::first_menu_id + k - 1;
             if (k == rush2::track2049::obstacle) return rush2::track2049::obstacle_menu_id;
+            // A version raced on an N64 SF Rush course ([track] base) is a custom track: its ghosts are its own, under
+            // its folder (the host slot's id, current_key).
+            if (rush2::track_mod::race_track() >= 0) return t;
             int k1 = rush2::track1::race_track();
             if (k1 >= 1) return rush2::track1::first_menu_id + k1 - 1;
             int kc = rush2::calspeed::race_track();

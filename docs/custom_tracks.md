@@ -1045,6 +1045,13 @@ merges and renames as needed.
 
 ## For developers
 
+- **Tracks on an N64 SF Rush course** (the app's own, not for authors): a folder with only a track.toml whose
+  `[track] base = "sfrush:<course>"` is listed as a track raced on that course (`src/rush1/track1.cpp`, its own files,
+  breakables and all) in the look its `[look]` gives: `recolor = "night"` (the course converted in the PlayStation SF
+  Rush's night colors with lit windows and a night sky), `fog_color`, `car_light`. It keeps its own track select entry
+  (normally a `variant_of` the course), records, ghosts and online identity (a hash of its track.toml). The SF Rush
+  PlayStation mod's N64 NIGHT versions are these (docs/sfrush_ps1.md#n64-night-versions). Listed only while SF Rush's
+  tracks are offered (and, for that mod, its Games tab option is on).
 - **Code:** `src/track_mod/`: `track_mod_convert.cpp` (the converter), `track_mod_menu.cpp` (logo and route preview),
   `track_mod.cpp` (finding the tracks, the disk cache, full-size textures). `include/track_mod.h` and
   `include/track_mod_runtime.h` hold the interfaces.

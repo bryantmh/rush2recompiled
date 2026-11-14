@@ -582,6 +582,8 @@ bool rush2::track2049::converted_race(uint8_t* rdram) {
 // (0, 0, 0) (main's table 0x80114658, 3 bytes per track: the day tracks are gray-blue, luminance 0.55-0.61), the
 // PlayStation SF Rush's night versions #080808. Under 0.1 luminance counts.
 bool rush2::track2049::night_race(uint8_t* rdram) {
+    // An N64 SF Rush course's NIGHT version (src/rush1/track1.cpp set_race_look) is one too.
+    if (rush2::track1::applied_look(rdram) == rush2::diorama_look::Look::night) return true;
     if (!converted_race(rdram)) return false;
     int s = MEM_BU(0, (int32_t)track_id);
     float r = MEM_BU(0, (int32_t)(fog_colours + s * 3)), g = MEM_BU(0, (int32_t)(fog_colours + s * 3 + 1)),
@@ -613,6 +615,8 @@ bool rush2::track2049::mod_point_to_point(uint8_t* rdram) {
 }
 
 uint32_t rush2::track2049::mod_car_light(uint8_t* rdram) {
+    // An N64 SF Rush course's version raced on the course itself takes its track.toml's car_light too.
+    if (uint32_t light = rush2::track1::car_light(rdram); light != 0) return light;
     int s = applied_slot;
     return s >= 0 && MEM_BU(0, (int32_t)track_id) == s ? applied_car_light.load() : 0u;
 }
@@ -957,7 +961,8 @@ static bool mod_cloud_dome(uint8_t* rdram) {
 // func_800A45A8 at 0x800A4644: $v0 = track id; 0 builds Las Vegas's sky model, 11 the stunt arena's, others the
 // cloud dome (the host slot's id, HAWAII, takes that branch).
 extern "C" void rush2_track49_sky(uint8_t* rdram, recomp_context* ctx) {
-    if (hosting(rdram) && !mod_cloud_dome(rdram)) {
+    // An N64 SF Rush course's NIGHT version has its own sky model (src/rush1/track1_convert.cpp add_night_sky).
+    if ((hosting(rdram) && !mod_cloud_dome(rdram)) || rush2::track1::sky_model(rdram)) {
         ctx->r2 = 0;
     }
 }

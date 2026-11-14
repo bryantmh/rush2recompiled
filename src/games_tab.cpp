@@ -138,6 +138,7 @@ void rush2::games::create_page(recompui::ContextId context, recompui::Element* p
 void rush2::games::create_tab() {
     rush2::wings::init_config();
     rush2::track1::init_config();
+    rush2::sfrush_ps1::init_config();
     rush2::calspeed::init_config();
     rush2::arcade2049::init_config();
     add_battle_options();

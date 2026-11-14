@@ -26,6 +26,9 @@
 #include "track2049.h"
 #include "track_cache.h"
 #include "asset_catalog.h"
+#include "wings_internal.h"
+#include "recompui/config.h"
+#include "librecomp/config.hpp"
 
 namespace ps1 = rush2::sfrush_ps1;
 
@@ -89,8 +92,8 @@ namespace {
     }
 
     // What the mod is built from: the disc's data track (its name, size and time; reading 50 MB at every launch to
-    // hash it isn't worth it), the shipped logo and diorama layout, the N64's lanes (a ROM added later rebuilds it)
-    // and this build.
+    // hash it isn't worth it), the shipped logo, diorama layout and N64 night art map, the N64's lanes (a ROM added
+    // later rebuilds it) and this build.
     std::string source_key(const std::filesystem::path& disc_path, const ps1::N64Lanes& n64) {
         ps1::Disc disc;
         std::string error;
@@ -108,6 +111,9 @@ namespace {
         }
         std::vector<uint8_t> diorama = rush2::upscale::read_file(assets_dir() / "chinatown_diorama.json");
         h = rush2::track_cache::hash(diorama.data(), diorama.size(), h);
+        // The N64 night versions' map onto the PS1's night art (n64_night_art.bin, docs/sfrush_ps1.md#n64-night-art).
+        std::vector<uint8_t> night_map = rush2::upscale::read_file(assets_dir() / "n64_night_map.json");
+        h = rush2::track_cache::hash(night_map.data(), night_map.size(), h);
         for (const auto& lanes : n64) h = rush2::track_cache::hash(lanes.data(), lanes.size(), h ^ lanes.size());
         char text[17];
         snprintf(text, sizeof(text), "%016llx", (unsigned long long)h);
@@ -134,6 +140,10 @@ namespace {
         }
         return out;
     }
+
+    // In the Games tab's config, games.json (src/rush2049/wings.cpp).
+    const std::string night_option_id = "sfrush_ps1_n64_night";
+    std::atomic_bool night_option = true;
 
     std::mutex state_mutex;
     std::string state_text;                  // what the section shows; written by the worker
@@ -276,6 +286,27 @@ namespace {
         "time you're in the menus.";
 }
 
+void ps1::init_config() {
+    recomp::config::Config& config = rush2::wings::games_config();
+    config.add_bool_option(
+        night_option_id,
+        "N64 Night Versions",
+        "Adds a NIGHT version of the N64 game's Downtown, The Heights, Sunset and The Rock, which the PlayStation version "
+        "doesn't have, in the PlayStation's night look: dark streets, lit windows and a night sky. Pick it with the version "
+        "button on the track select. Needs the disc and the N64 ROM.",
+        true
+    );
+    config.add_option_change_callback(night_option_id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            // The custom tracks' scan keys on it (src/track_mod/track_mod.cpp): the next track select lists them or not.
+            night_option = std::get<bool>(cur_value);
+        });
+}
+
+bool ps1::n64_night_versions() {
+    return night_option.load(std::memory_order_relaxed);
+}
+
 void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh) {
     using namespace recompui;
     ContextId context = get_current_context();
@@ -309,6 +340,7 @@ void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
         }
         start(disc);
     });
+    page->add_option(rush2::wings::games_config(), night_option_id);
     refresh = [note = heading.note, seen = generation.load()]() mutable {
         int now = generation.load();
         if (now == seen) return;

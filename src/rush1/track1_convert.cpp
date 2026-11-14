@@ -779,8 +779,772 @@ namespace {
         return out;
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Night (docs/sfrush_ps1.md#n64-night-versions): an N64 course raced as a NIGHT version, in the PlayStation SF Rush's
+    // night look (the N64 game has none). Every track texture is CI (TEXEL0 x SHADE; a few faces SHADE alone), as the
+    // dioramas are, so the condition goes on the way the night dioramas' does (dress_look): each TLUT the lists load
+    // goes through diorama_look::night in place (the whole container is the night version's), the shade of a vertex only
+    // untextured triangles use too, and a textured triangle's shade is kept (darkening both made it near black).
+
+    // Whether combine mode (w0, w1) reads a texel in either cycle's color (TEXEL0 / TEXEL1 as a, b, c or d, or their
+    // alpha as c).
+    bool combine_textured(uint32_t w0, uint32_t w1) {
+        const uint32_t a[2] = { (w0 >> 20) & 15, (w0 >> 5) & 15 }, c[2] = { (w0 >> 15) & 31, w0 & 31 };
+        const uint32_t b[2] = { (w1 >> 28) & 15, (w1 >> 24) & 15 }, d[2] = { (w1 >> 15) & 7, (w1 >> 6) & 7 };
+        for (int k = 0; k < 2; k++) {
+            if (a[k] == 1 || a[k] == 2 || b[k] == 1 || b[k] == 2 || d[k] == 1 || d[k] == 2) return true;
+            if (c[k] == 1 || c[k] == 2 || c[k] == 8 || c[k] == 9) return true;
+        }
+        return false;
+    }
+
+    struct NightStats {
+        size_t tluts = 0, entries = 0, shades = 0, shared = 0;
+        size_t window_textures = 0, windows = 0, lit_calls = 0, calls = 0;
+        size_t art_textures = 0;     // textures redrawn in the PS1's night art
+    };
+
+    // ---- lit windows ----------------------------------------------------------------------------------------------
+    // The PlayStation's night sets light some of the buildings' windows. Here a building texture (one drawn mostly on
+    // walls, with windows: rectangles of glass, its dark or blue entries) gets two lit copies, each with about half of
+    // its windows lit (window light, varied by the glass's own shading) and the rest dark; each place a model binds
+    // the texture draws the original (all dark), or one of the copies, by a hash of the model and the place. A copy is a
+    // copy of the texture's load list pointing at its own texels (the unlit windows' glass made the texture's darkest
+    // other entry) and TLUT (the glass entries window light).
+
+    // A texture-load list's loads: its TLUT (container offset, entries), its texel block (offset, bytes) and its tiles.
+    struct LoadInfo {
+        size_t tlut = SIZE_MAX, texels = SIZE_MAX;
+        uint32_t tlut_n = 0, bytes = 0;
+        uint32_t dxt = 0;                                     // the LOADBLOCK's: 0, its odd rows stored word-swapped
+        size_t tlut_fix = SIZE_MAX, texel_fix = SIZE_MAX;   // body offsets of the SETTIMGs' address words
+        struct Tile { uint32_t fmt = 0, siz = 0, line = 0, tmem = 0, w = 0, h = 0, palette = 0; bool set = false; };
+        std::array<Tile, 8> tiles{};
+    };
+
+    LoadInfo read_load(const Builder& b, const Body& body) {
+        LoadInfo li;
+        std::map<size_t, const Ref*> refs;
+        for (const Fixup& f : body.fixups) if (!f.ref.load && f.ref.model.empty()) refs[f.pos] = &f.ref;
+        size_t timg = SIZE_MAX, timg_fix = SIZE_MAX;
+        for (size_t o = 0; o + 8 <= body.bytes.size(); o += 8) {
+            uint32_t w0 = u32(body.bytes, o), w1 = u32(body.bytes, o + 4);
+            uint8_t op = uint8_t(w0 >> 24);
+            if (op == 0xFD) {
+                auto it = refs.find(o + 4);
+                timg = it != refs.end() ? size_t(b.sources[size_t(it->second->index)].second) + it->second->offset : SIZE_MAX;
+                timg_fix = o + 4;
+            }
+            else if (op == 0xF0) {
+                li.tlut = timg, li.tlut_fix = timg_fix, li.tlut_n = ((w1 >> 14) & 0x3FF) + 1;
+            }
+            else if (op == 0xF3) {
+                // LOADBLOCK of 16-bit texels (the lists load CI as 16-bit blocks).
+                li.texels = timg, li.texel_fix = timg_fix, li.bytes = (((w1 >> 12) & 0xFFF) + 1) * 2, li.dxt = w1 & 0xFFF;
+            }
+            else if (op == 0xF5) {
+                LoadInfo::Tile& t = li.tiles[(w1 >> 24) & 7];
+                t.fmt = (w0 >> 21) & 7, t.siz = (w0 >> 19) & 3, t.line = (w0 >> 9) & 0x1FF, t.tmem = w0 & 0x1FF, t.palette = (w1 >> 20) & 15, t.set = true;
+            }
+            else if (op == 0xF2) {
+                LoadInfo::Tile& t = li.tiles[(w1 >> 24) & 7];
+                t.w = ((w1 >> 12) & 0xFFF) / 4 - ((w0 >> 12) & 0xFFF) / 4 + 1;
+                t.h = (w1 & 0xFFF) / 4 - (w0 & 0xFFF) / 4 + 1;
+            }
+        }
+        return li;
+    }
+
+    // A texture's levels as the lists draw them: level 0 is the render tile 0, then the mipmaps' tiles in TMEM order.
+    // at: byte offset in the texel block. swap: the block was loaded with a LOADBLOCK of dxt 0, which copies it into
+    // TMEM as it is, so its odd rows are stored with their 32-bit words swapped (the RDP swaps them back as it samples
+    // an odd row); reading such a row straight scrambled half of every texture (the asset dump reads them right).
+    struct Level { uint32_t at = 0, w = 0, h = 0, bits = 0; bool swap = false; };
+
+    std::vector<Level> levels(const LoadInfo& li) {
+        std::vector<Level> out;
+        const LoadInfo::Tile& t0 = li.tiles[0];
+        if (!t0.set || t0.fmt != 2 || t0.siz > 1 || t0.line == 0) return out;
+        const uint32_t bits = 4u << t0.siz;
+        uint32_t w = t0.line * 64 / bits;
+        uint32_t h = t0.h ? t0.h : (li.bytes * 8 / bits) / w;
+        // The block's place in TMEM is the load tile's (7); a tile's texels are at its TMEM address past that.
+        const uint32_t base = li.tiles[7].set ? li.tiles[7].tmem : 0;
+        if (t0.tmem < base) return out;
+        out.push_back({ (t0.tmem - base) * 8, w, h, bits, li.dxt == 0 });
+        std::vector<const LoadInfo::Tile*> mips;
+        for (int k = 1; k < 8; k++) {
+            const LoadInfo::Tile& t = li.tiles[size_t(k)];
+            if (t.set && t.fmt == 2 && t.siz == t0.siz && t.line && t.h && t.tmem > t0.tmem && k < 7) mips.push_back(&t);
+        }
+        std::sort(mips.begin(), mips.end(), [](const LoadInfo::Tile* a, const LoadInfo::Tile* b) { return a->tmem < b->tmem; });
+        for (const LoadInfo::Tile* t : mips) out.push_back({ (t->tmem - base) * 8, t->line * 64 / bits, t->h, bits, li.dxt == 0 });
+        for (auto it = out.begin(); it != out.end();) {
+            if (it->at + uint64_t(it->w) * it->h * bits / 8 > li.bytes) it = out.erase(it);
+            else ++it;
+        }
+        return out;
+    }
+
+    // The byte of texel (x, y) in its level (its low nibble too, for 4-bit: odd x).
+    size_t texel_byte(const Level& l, uint32_t x, uint32_t y) {
+        size_t b = (size_t(y) * l.w + x) * l.bits / 8;
+        return l.swap && (y & 1) ? b ^ 4 : b;
+    }
+
+    uint8_t texel_index(const Bytes& d, size_t block, const Level& l, uint32_t x, uint32_t y) {
+        uint8_t v = d[block + l.at + texel_byte(l, x, y)];
+        if (l.bits == 8) return v;
+        return x % 2 ? v & 15 : v >> 4;
+    }
+
+    void set_texel_index(Bytes& d, size_t at, const Level& l, uint32_t x, uint32_t y, uint8_t value) {
+        uint8_t& v = d[at + l.at + texel_byte(l, x, y)];
+        if (l.bits == 8) { v = value; return; }
+        v = x % 2 ? uint8_t((v & 0xF0) | (value & 15)) : uint8_t((v & 0x0F) | (value << 4));
+    }
+
+    // A building texture's windows, from its day colors: the glass entries and each window (a 4-connected run of
+    // glass texels whose box it mostly fills, 2 x 2 texels at least) as a mask over level 0.
+    struct Windows {
+        std::vector<bool> glass;               // per TLUT entry
+        uint8_t dark = 0;                      // the darkest entry that isn't glass: an unlit window's
+        std::vector<int> window_of;            // level 0 texel -> its window, -1 none
+        int count = 0;
+        std::vector<std::array<uint32_t, 2>> corner;   // per window: its box's top left (x, y) on level 0
+        std::vector<double> glass_tone;        // per entry, 0..1: the glass's own shading, for the light's tone
+    };
+
+    bool find_windows(const Bytes& d, const LoadInfo& li, const std::vector<Level>& lv, Windows& out) {
+        namespace dl = rush2::diorama_look;
+        const Level& l = lv[0];
+        if (l.w < 8 || l.h < 8 || li.tlut_n < 4) return false;
+        std::vector<dl::Rgb> pal(li.tlut_n);
+        std::vector<int> used(li.tlut_n, 0);
+        for (uint32_t k = 0; k < li.tlut_n; k++) {
+            uint16_t e = u16(d, li.tlut + k * 2);
+            auto c5 = [](int v) { return (v << 3) | (v >> 2); };
+            pal[k] = { c5((e >> 11) & 31), c5((e >> 6) & 31), c5((e >> 1) & 31) };
+        }
+        std::vector<uint8_t> idx(size_t(l.w) * l.h);
+        for (uint32_t y = 0; y < l.h; y++) {
+            for (uint32_t x = 0; x < l.w; x++) {
+                uint8_t i = texel_index(d, li.texels, l, x, y);
+                if (i >= li.tlut_n) return false;
+                idx[size_t(y) * l.w + x] = i;
+                used[i]++;
+            }
+        }
+        // The texture's median brightness, by texels.
+        std::vector<double> lum;
+        for (uint8_t i : idx) lum.push_back(dl::luminance(pal[i]));
+        std::nth_element(lum.begin(), lum.begin() + lum.size() / 2, lum.end());
+        const double median = lum[lum.size() / 2];
+        out.glass.assign(li.tlut_n, false);
+        size_t glass_texels = 0;
+        for (uint32_t k = 0; k < li.tlut_n; k++) {
+            if (!used[k]) continue;
+            const dl::Rgb& c = pal[k];
+            const double lk = dl::luminance(c);
+            const bool green = c[1] > c[0] + 12 && c[1] > c[2] + 6;
+            const bool blue = c[2] > c[0] + 30 && c[2] > c[1] + 12;
+            if (green || (u16(d, li.tlut + k * 2) & 1) == 0) continue;     // foliage, see-through
+            if (lk < median * 0.55 || (blue && lk < median * 1.1)) out.glass[k] = true;
+        }
+        for (uint8_t i : idx) glass_texels += out.glass[i];
+        const double share = double(glass_texels) / idx.size();
+        if (share < 0.05 || share > 0.6) return false;
+        // A sign's colors (a chevron board's yellow) are far more saturated than a building's walls (brick at most).
+        double wall_sat = 0;
+        for (uint8_t i : idx) {
+            if (out.glass[i]) continue;
+            const dl::Rgb& c = pal[i];
+            wall_sat += std::max({ c[0], c[1], c[2] }) - std::min({ c[0], c[1], c[2] });
+        }
+        if (wall_sat / double(idx.size() - glass_texels) > 110) return false;
+        // The unlit windows' entry: the darkest used entry that isn't glass (else the darkest glass entry, which then
+        // stays unlit).
+        double darkest = 1e9;
+        int dark = -1;
+        for (uint32_t k = 0; k < li.tlut_n; k++) {
+            if (used[k] && !out.glass[k] && (u16(d, li.tlut + k * 2) & 1) && dl::luminance(pal[k]) < darkest) {
+                darkest = dl::luminance(pal[k]);
+                dark = int(k);
+            }
+        }
+        if (dark < 0 || darkest > median) {
+            // No dark wall entry: the darkest glass entry is kept as the unlit glass.
+            darkest = 1e9;
+            for (uint32_t k = 0; k < li.tlut_n; k++) {
+                if (out.glass[k] && dl::luminance(pal[k]) < darkest) { darkest = dl::luminance(pal[k]); dark = int(k); }
+            }
+            out.glass[size_t(dark)] = false;
+        }
+        out.dark = uint8_t(dark);
+        // Windows: 4-connected runs of glass texels (not wrapping), kept when 6+ texels, 2 x 2 at least, filling three
+        // quarters of their box or more (panes are rectangles; a sign's chevrons and a rail's gaps aren't).
+        out.window_of.assign(idx.size(), -1);
+        std::vector<int> comp(idx.size(), -1);
+        int next = 0;
+        for (size_t s = 0; s < idx.size(); s++) {
+            if (comp[s] >= 0 || !out.glass[idx[s]]) continue;
+            std::vector<size_t> stack{ s }, members;
+            comp[s] = next;
+            uint32_t x0 = l.w, x1 = 0, y0 = l.h, y1 = 0;
+            while (!stack.empty()) {
+                size_t p = stack.back();
+                stack.pop_back();
+                members.push_back(p);
+                uint32_t x = uint32_t(p % l.w), y = uint32_t(p / l.w);
+                x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+                const int64_t nb[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                for (const auto& n : nb) {
+                    int64_t nx = int64_t(x) + n[0], ny = int64_t(y) + n[1];
+                    if (nx < 0 || ny < 0 || nx >= l.w || ny >= l.h) continue;
+                    size_t q = size_t(ny) * l.w + size_t(nx);
+                    if (comp[q] < 0 && out.glass[idx[q]]) { comp[q] = next; stack.push_back(q); }
+                }
+            }
+            next++;
+            const uint32_t bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+            if (members.size() >= 6 && bw >= 2 && bh >= 2 && members.size() * 5 >= size_t(bw) * bh * 3 &&
+                (bw < l.w || bh < l.h)) {
+                for (size_t p : members) out.window_of[p] = out.count;
+                out.corner.push_back({ x0, y0 });
+                out.count++;
+            }
+        }
+        if (out.count == 0) return false;
+        size_t window_texels = 0;
+        for (int w : out.window_of) window_texels += w >= 0;
+        if (window_texels * 20 < idx.size()) return false;
+        // The glass's tone: its brightness among the glass entries.
+        double lo = 1e9, hi = -1e9;
+        for (uint32_t k = 0; k < li.tlut_n; k++) if (out.glass[k]) lo = std::min(lo, dl::luminance(pal[k])), hi = std::max(hi, dl::luminance(pal[k]));
+        out.glass_tone.assign(li.tlut_n, 0.5);
+        for (uint32_t k = 0; k < li.tlut_n; k++) {
+            if (out.glass[k]) out.glass_tone[k] = hi > lo ? (dl::luminance(pal[k]) - lo) / (hi - lo) : 0.5;
+        }
+        return true;
+    }
+
+    // ---- the PlayStation's night art ---------------------------------------------------------------------------------
+    // (docs/sfrush_ps1.md#n64-night-art) The PS1 remade three N64 courses with a hand painted night set, and the
+    // courses it lacks are built from largely the same N64 textures. tools/sfrush_ps1/n64_night_map.py maps each N64
+    // building texture onto the PS1 page texels of the same art (assets/sfrush_ps1/n64_night_map.json: a page, a CLUT
+    // and an affine), the PS1 install samples the night set through it from the player's disc (n64_night_art.bin), and
+    // here each texture it has is redrawn in those texels: its own TLUT and texels (a copy; the PS1's colors fit the
+    // texture's 16 or 256 entries), the load list pointed at them. Texels the PS1's art leaves see-through keep the
+    // texture's own night colors.
+
+    std::mutex night_art_mutex;
+    std::shared_ptr<const std::vector<uint8_t>> night_art_bytes;
+    uint64_t night_art_key = 0;
+
+    // n64_night_art.bin: "N64NIGHT", u32 count, then per texture u64 key, u16 width, u16 height and width x height
+    // u16 RGBA5551 texels (little endian; alpha 0: no PS1 texel there).
+    struct ArtTexture { uint32_t w = 0, h = 0; const uint8_t* texels = nullptr; };
+    std::map<uint64_t, ArtTexture> read_night_art(const std::vector<uint8_t>& d) {
+        std::map<uint64_t, ArtTexture> out;
+        if (d.size() < 12 || std::memcmp(d.data(), "N64NIGHT", 8) != 0) return out;
+        uint32_t n = uint32_t(d[8]) | uint32_t(d[9]) << 8 | uint32_t(d[10]) << 16 | uint32_t(d[11]) << 24;
+        size_t at = 12;
+        for (uint32_t i = 0; i < n && at + 12 <= d.size(); i++) {
+            uint64_t key = 0;
+            for (int k = 7; k >= 0; k--) key = key << 8 | d[at + size_t(k)];
+            ArtTexture t{ uint32_t(d[at + 8] | d[at + 9] << 8), uint32_t(d[at + 10] | d[at + 11] << 8), &d[at + 12] };
+            at += 12 + size_t(t.w) * t.h * 2;
+            if (at > d.size()) break;
+            out[key] = t;
+        }
+        return out;
+    }
+
+    // A texture's key: FNV-1a 64 of u16 width, u16 height (big endian) and its texels' TLUT entries (RGBA5551, big
+    // endian) row by row, as n64_night_map.py tex_key computes it from the asset dump's images.
+    uint64_t night_key(const Bytes& d, const LoadInfo& li, const Level& l, uint32_t w, uint32_t h) {
+        uint64_t x = 0xcbf29ce484222325ull;
+        auto add = [&](uint8_t v) { x = (x ^ v) * 0x100000001b3ull; };
+        add(uint8_t(w >> 8)), add(uint8_t(w)), add(uint8_t(h >> 8)), add(uint8_t(h));
+        for (uint32_t y = 0; y < h; y++) {
+            for (uint32_t xx = 0; xx < w; xx++) {
+                uint8_t i = texel_index(d, li.texels, l, xx, y);
+                uint16_t e = i < li.tlut_n ? u16(d, li.tlut + size_t(i) * 2) : 0;
+                add(uint8_t(e >> 8)), add(uint8_t(e));
+            }
+        }
+        return x;
+    }
+
+    // Colors (RGBA5551) to at most n entries: the closest two (by RGB, weighted by their texel counts) merged until
+    // they fit. A see-through color is kept apart.
+    std::vector<uint16_t> fit_palette(const std::map<uint16_t, size_t>& counts, uint32_t n, std::map<uint16_t, uint16_t>& to) {
+        struct C { double r, g, b, w; bool clear; std::vector<uint16_t> members; };
+        std::vector<C> cs;
+        for (const auto& [c, k] : counts) {
+            cs.push_back({ double((c >> 11) & 31), double((c >> 6) & 31), double((c >> 1) & 31), double(k), (c & 1) == 0, { c } });
+        }
+        while (cs.size() > n) {
+            double best = 1e18;
+            size_t a = 0, bb = 1;
+            for (size_t i = 0; i < cs.size(); i++) {
+                for (size_t j = i + 1; j < cs.size(); j++) {
+                    if (cs[i].clear != cs[j].clear) continue;
+                    double dr = cs[i].r - cs[j].r, dg = cs[i].g - cs[j].g, db = cs[i].b - cs[j].b;
+                    double cost = (dr * dr + dg * dg + db * db) * cs[i].w * cs[j].w / (cs[i].w + cs[j].w);
+                    if (cost < best) best = cost, a = i, bb = j;
+                }
+            }
+            C& x = cs[a];
+            const C& y = cs[bb];
+            double w = x.w + y.w;
+            x.r = (x.r * x.w + y.r * y.w) / w, x.g = (x.g * x.w + y.g * y.w) / w, x.b = (x.b * x.w + y.b * y.w) / w, x.w = w;
+            x.members.insert(x.members.end(), y.members.begin(), y.members.end());
+            cs.erase(cs.begin() + std::ptrdiff_t(bb));
+        }
+        std::vector<uint16_t> pal;
+        for (const C& c : cs) {
+            uint16_t e = c.clear ? 0 : uint16_t(int(std::lround(c.r)) << 11 | int(std::lround(c.g)) << 6 | int(std::lround(c.b)) << 1 | 1);
+            for (uint16_t m : c.members) to[m] = uint16_t(pal.size());
+            pal.push_back(e);
+        }
+        return pal;
+    }
+
+    // Each texture-load list whose texture the art has gets its own texels and TLUT in the PS1's night colors.
+    // Returns the lists redrawn. Run before the TLUTs are recolored (the keys are the day colors).
+    // view: level 0 as tall as the drawn size the art is of needs (it may run past the list's own tile).
+    struct ArtJob { int list; LoadInfo li; std::vector<Level> lv; Level view; uint32_t w, h; ArtTexture art; };
+    std::vector<ArtJob> find_night_art(Builder& b, const std::map<uint64_t, ArtTexture>& art, const std::set<int>& banners) {
+        // The sizes each list's texture is drawn at: its own tile 0's, and the tile 0 size a model sets after calling
+        // it (a model often draws part of a list's block: 32 x 64 of a 64 x 64 load). The asset dump's images, and so
+        // the map's keys, are the texture at each of these.
+        std::map<int, std::set<std::pair<uint32_t, uint32_t>>> sizes;
+        for (const Builder::ModelOut& m : b.models) {
+            for (const auto& lod : m.lods) {
+                if (!lod) continue;
+                std::map<size_t, const Fixup*> at;
+                for (const Fixup& f : lod->fixups) at[f.pos] = &f;
+                int current = -1;
+                for (size_t o = 0; o + 8 <= lod->bytes.size(); o += 8) {
+                    uint32_t w0 = u32(lod->bytes, o), w1 = u32(lod->bytes, o + 4);
+                    uint8_t op = uint8_t(w0 >> 24);
+                    auto f = at.find(o + 4);
+                    if (op == 0xDE) current = f != at.end() && f->second->ref.load ? f->second->ref.index : -1;
+                    else if (op == 0xF2 && current >= 0 && ((w1 >> 24) & 7) == 0) {
+                        uint32_t w = ((w1 >> 12) & 0xFFF) / 4 - ((w0 >> 12) & 0xFFF) / 4 + 1;
+                        uint32_t h = (w1 & 0xFFF) / 4 - (w0 & 0xFFF) / 4 + 1;
+                        sizes[current].insert({ w, h });
+                    }
+                }
+            }
+        }
+        std::vector<ArtJob> jobs;
+        for (size_t i = 0; i < b.load_lists.size(); i++) {
+            if (banners.count(int(i))) continue;
+            LoadInfo li = read_load(b, b.load_lists[i]);
+            if (li.tlut == SIZE_MAX || li.texels == SIZE_MAX || li.tlut_fix == SIZE_MAX || li.texel_fix == SIZE_MAX ||
+                li.texels + li.bytes > b.out.size() || li.tlut + li.tlut_n * 2 > b.out.size()) continue;
+            std::vector<Level> lv = levels(li);
+            if (lv.empty()) continue;
+            std::set<std::pair<uint32_t, uint32_t>> drawn = sizes[int(i)];
+            const LoadInfo::Tile& t0 = li.tiles[0];
+            drawn.insert({ t0.w && t0.w <= lv[0].w ? t0.w : lv[0].w, lv[0].h });
+            drawn.insert({ lv[0].w, lv[0].h });
+            // The largest drawn size the art has (it holds the smaller ones' texels too).
+            std::optional<ArtJob> pick;
+            const Level& l0 = lv[0];
+            // Rows the block holds from level 0 on: a model may draw more rows than the list's tile has (64 of a 48-row
+            // tile, reading on into what follows level 0), and the dump's image is of what it draws.
+            const uint32_t rows = l0.w ? uint32_t((uint64_t(li.bytes - l0.at) * 8 / l0.bits) / l0.w) : 0;
+            // The whole block as one texture too (the dump's view of a block taller than its tile).
+            for (uint32_t w : { t0.w && t0.w <= l0.w ? t0.w : l0.w, l0.w }) drawn.insert({ w, rows });
+            for (const auto& [w, h] : drawn) {
+                if (w == 0 || h == 0 || w > l0.w || h > rows) continue;
+                Level view = l0;
+                view.h = std::max(l0.h, h);
+                auto it = art.find(night_key(b.out, li, view, w, h));
+                if (it == art.end() || it->second.w != w || it->second.h != h) continue;
+                if (!pick || w * h > pick->w * pick->h) pick = ArtJob{ int(i), li, lv, view, w, h, it->second };
+            }
+            if (pick) jobs.push_back(*pick);
+        }
+        return jobs;
+    }
+
+    // Run after the TLUTs are recolored: a texel the PS1's art has no texel for keeps its own (night) color, as do
+    // the block's texels outside the drawn size the art is of.
+    void apply_night_art(Builder& b, const ArtJob& j) {
+        const Level& l0 = j.lv[0];
+        const Level& v0 = j.view;   // level 0, or taller when the art's drawn size runs past it
+        // Colors over the view: the PS1's texel, or (none there) the texture's own; its see-through texels stay so.
+        std::vector<uint16_t> color(size_t(v0.w) * v0.h);
+        std::map<uint16_t, size_t> counts;
+        for (uint32_t y = 0; y < v0.h; y++) {
+            for (uint32_t x = 0; x < v0.w; x++) {
+                uint8_t i = texel_index(b.out, j.li.texels, v0, x, y);
+                uint16_t own = i < j.li.tlut_n ? u16(b.out, j.li.tlut + size_t(i) * 2) : 0;
+                uint16_t c = own;
+                if (x < j.w && y < j.h && (own & 1)) {
+                    const uint8_t* a = j.art.texels + (size_t(y) * j.w + x) * 2;
+                    uint16_t ps1 = uint16_t(a[0] | a[1] << 8);
+                    if (ps1 & 1) c = ps1;
+                }
+                if ((own & 1) == 0) c = 0;
+                color[size_t(y) * v0.w + x] = c;
+                counts[c]++;
+            }
+        }
+        std::map<uint16_t, uint16_t> to;
+        std::vector<uint16_t> pal = fit_palette(counts, j.li.tlut_n, to);
+        Bytes texels(b.out.begin() + j.li.texels, b.out.begin() + j.li.texels + j.li.bytes);
+        // The mipmaps from the level-0 texel under their texels' centers, then the view itself (rows past level 0 are
+        // where the mipmaps are stored: the view as drawn wins there).
+        for (size_t k = 1; k < j.lv.size(); k++) {
+            const Level& level = j.lv[k];
+            for (uint32_t y = 0; y < level.h; y++) {
+                for (uint32_t x = 0; x < level.w; x++) {
+                    uint32_t x0 = std::min(l0.w - 1, uint32_t((x + 0.5) * l0.w / level.w));
+                    uint32_t y0 = std::min(l0.h - 1, uint32_t((y + 0.5) * l0.h / level.h));
+                    set_texel_index(texels, 0, level, x, y, uint8_t(to[color[size_t(y0) * v0.w + x0]]));
+                }
+            }
+        }
+        for (uint32_t y = 0; y < v0.h; y++) {
+            for (uint32_t x = 0; x < v0.w; x++) set_texel_index(texels, 0, v0, x, y, uint8_t(to[color[size_t(y) * v0.w + x]]));
+        }
+        Bytes tlut(size_t(j.li.tlut_n) * 2, 0);
+        for (size_t k = 0; k < pal.size(); k++) put16(tlut, k * 2, pal[k]);
+        Bytes raw = texels;
+        const uint32_t tlut_at = uint32_t((raw.size() + 7) & ~size_t(7));
+        raw.resize(tlut_at, 0);
+        raw.insert(raw.end(), tlut.begin(), tlut.end());
+        int s = b.add_raw(raw);
+        for (Fixup& f : b.load_lists[size_t(j.list)].fixups) {
+            if (f.pos == j.li.texel_fix) f.ref = { false, s, 0 };
+            else if (f.pos == j.li.tlut_fix) f.ref = { false, s, tlut_at };
+        }
+    }
+
+    void night_track(Builder& b, NightStats& stats) {
+        namespace dl = rush2::diorama_look;
+        auto address = [&](const Ref& r) { return size_t(b.sources[size_t(r.index)].second) + r.offset; };
+
+        // Which texture-load lists are drawn mostly on walls (70% of their triangles), a third of those tall ones (a
+        // building's, not a barrier's or a sign's: wall triangles 12 ft high or more): per list, the triangles drawn after
+        // a call to it.
+        std::vector<std::array<size_t, 3>> faces(b.load_lists.size(), { 0, 0, 0 });   // (triangles, walls, tall walls)
+        for (const Builder::ModelOut& m : b.models) {
+            for (const auto& lod : m.lods) {
+                if (!lod) continue;
+                std::map<size_t, const Fixup*> at;
+                for (const Fixup& f : lod->fixups) at[f.pos] = &f;
+                std::array<std::array<double, 3>, 64> slot{};
+                std::array<bool, 64> valid{};
+                int current = -1;
+                for (size_t o = 0; o + 8 <= lod->bytes.size(); o += 8) {
+                    uint32_t w0 = u32(lod->bytes, o), w1 = u32(lod->bytes, o + 4);
+                    uint8_t op = uint8_t(w0 >> 24);
+                    auto f = at.find(o + 4);
+                    if (op == 0xDE && f != at.end() && f->second->ref.load) current = f->second->ref.index;
+                    else if (op == 0x01 && f != at.end() && !f->second->ref.load) {
+                        uint32_t n = (w0 >> 12) & 0xFF, end = (w0 >> 1) & 0x7F;
+                        size_t from = address(f->second->ref);
+                        for (uint32_t k = 0; k < n && end >= n && end - n + k < 64; k++) {
+                            if (from + k * 16 + 6 > b.out.size()) break;
+                            slot[end - n + k] = { double(s16(b.out, from + k * 16)), double(s16(b.out, from + k * 16 + 2)),
+                                                  double(s16(b.out, from + k * 16 + 4)) };
+                            valid[end - n + k] = true;
+                        }
+                    }
+                    else if ((op == 0x05 || op == 0x06) && current >= 0) {
+                        auto tri = [&](uint32_t w) {
+                            uint32_t i0 = ((w >> 16) & 0xFF) / 2 % 64, i1 = ((w >> 8) & 0xFF) / 2 % 64, i2 = (w & 0xFF) / 2 % 64;
+                            if (!valid[i0] || !valid[i1] || !valid[i2]) return;
+                            const auto &a = slot[i0], &c1 = slot[i1], &c2 = slot[i2];
+                            double e1[3] = { c1[0] - a[0], c1[1] - a[1], c1[2] - a[2] }, e2[3] = { c2[0] - a[0], c2[1] - a[1], c2[2] - a[2] };
+                            double n[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+                            double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                            if (len < 1e-9) return;
+                            faces[size_t(current)][0]++;
+                            if (std::abs(n[1] / len) < 0.3) {
+                                faces[size_t(current)][1]++;
+                                double h = std::max({ a[1], c1[1], c2[1] }) - std::min({ a[1], c1[1], c2[1] });
+                                if (h >= 12.0 * 16.0) faces[size_t(current)][2]++;
+                            }
+                        };
+                        tri(w0 & 0xFFFFFF);
+                        if (op == 0x06) tri(w1 & 0xFFFFFF);
+                    }
+                }
+            }
+        }
+        // The banners (CHKPNT, FINISH) keep their lists.
+        std::set<int> banners;
+        for (const Builder::TextureOut& t : b.textures) if (t.ref.load) banners.insert(t.ref.index);
+        // The PS1's night art, when the PS1 mod gave it: its textures are matched now (by their day colors) and redrawn
+        // after the recolor below, and no window is lit by guess (the guess lit trim and wall as often as glass).
+        const std::shared_ptr<const std::vector<uint8_t>> art_bytes = rush2::track1::night_art();
+        const bool have_art = art_bytes && !art_bytes->empty();
+        std::vector<ArtJob> art_jobs;
+        if (have_art) art_jobs = find_night_art(b, read_night_art(*art_bytes), banners);
+        struct Lit { LoadInfo li; std::vector<Level> lv; Windows w; };
+        std::map<int, Lit> lit;
+        for (size_t i = 0; i < b.load_lists.size() && !have_art; i++) {
+            if (banners.count(int(i)) || faces[i][0] == 0 || faces[i][1] * 10 < faces[i][0] * 7 || faces[i][2] * 10 < faces[i][1] * 3) continue;
+            Lit l{ read_load(b, b.load_lists[i]) };
+            if (l.li.tlut == SIZE_MAX || l.li.texels == SIZE_MAX || l.li.tlut_fix == SIZE_MAX || l.li.texel_fix == SIZE_MAX ||
+                l.li.texels + l.li.bytes > b.out.size() || l.li.tlut + l.li.tlut_n * 2 > b.out.size()) continue;
+            l.lv = levels(l.li);
+            if (l.lv.empty() || !find_windows(b.out, l.li, l.lv, l.w)) continue;
+            lit.emplace(int(i), std::move(l));
+        }
+        std::set<size_t> tluts;                     // RGBA16 TLUT data recolored (container offsets)
+        std::map<size_t, uint32_t> tlut_count;
+        std::set<size_t> shade_lit, shade_tex;      // vertices (container offsets) drawn untextured / textured
+        auto walk = [&](const Body& body, bool model) {
+            std::map<size_t, const Ref*> refs;
+            for (const Fixup& f : body.fixups) {
+                if (!f.ref.load && f.ref.model.empty()) refs[f.pos] = &f.ref;
+            }
+            size_t timg = SIZE_MAX;
+            bool texture_on = true, combine_tex = true;
+            std::array<size_t, 64> slot;
+            slot.fill(SIZE_MAX);
+            for (size_t o = 0; o + 8 <= body.bytes.size(); o += 8) {
+                uint32_t w0 = u32(body.bytes, o), w1 = u32(body.bytes, o + 4);
+                uint8_t op = uint8_t(w0 >> 24);
+                if (op == 0xFD) {
+                    auto it = refs.find(o + 4);
+                    timg = it != refs.end() ? address(*it->second) : SIZE_MAX;
+                }
+                else if (op == 0xF0 && timg != SIZE_MAX) {
+                    uint32_t n = ((w1 >> 14) & 0x3FF) + 1;
+                    uint32_t& have = tlut_count[timg];
+                    have = std::max(have, n);
+                }
+                else if (!model) {
+                    continue;
+                }
+                else if (op == 0xD7) {
+                    texture_on = (w0 & 2) != 0;
+                }
+                else if (op == 0xFC) {
+                    combine_tex = combine_textured(w0 & 0xFFFFFF, w1);
+                }
+                else if (op == 0x01) {
+                    auto it = refs.find(o + 4);
+                    uint32_t n = (w0 >> 12) & 0xFF, end = (w0 >> 1) & 0x7F;
+                    if (it == refs.end() || end < n) continue;
+                    for (uint32_t k = 0; k < n && end - n + k < slot.size(); k++) slot[end - n + k] = address(*it->second) + k * 16;
+                }
+                else if (op == 0x05 || op == 0x06) {
+                    auto tri = [&](uint32_t w) {
+                        for (uint32_t i : { (w >> 16) & 0xFF, (w >> 8) & 0xFF, w & 0xFF }) {
+                            size_t v = slot[(i / 2) % 64];
+                            if (v == SIZE_MAX) continue;
+                            (texture_on && combine_tex ? shade_tex : shade_lit).insert(v);
+                        }
+                    };
+                    tri(w0 & 0xFFFFFF);
+                    if (op == 0x06) tri(w1 & 0xFFFFFF);
+                }
+            }
+        };
+        for (const Body& l : b.load_lists) walk(l, false);
+        for (const Builder::ModelOut& m : b.models) {
+            for (const auto& lod : m.lods) if (lod) walk(*lod, true);
+        }
+        for (const auto& [at, n] : tlut_count) {
+            if (at + size_t(n) * 2 > b.out.size()) continue;
+            stats.tluts++;
+            for (uint32_t k = 0; k < n; k++) {
+                uint16_t e = u16(b.out, at + k * 2);
+                auto c5 = [](int v) { return (v << 3) | (v >> 2); };
+                dl::Rgb c = dl::night({ c5((e >> 11) & 31), c5((e >> 6) & 31), c5((e >> 1) & 31) });
+                put16(b.out, at + k * 2, uint16_t(((c[0] >> 3) << 11) | ((c[1] >> 3) << 6) | ((c[2] >> 3) << 1) | (e & 1)));
+                stats.entries++;
+            }
+        }
+        for (size_t v : shade_lit) {
+            if (shade_tex.count(v)) {
+                stats.shared++;
+                continue;
+            }
+            if (v + 16 > b.out.size()) continue;
+            dl::Rgb c = dl::night({ b.out[v + 12], b.out[v + 13], b.out[v + 14] });
+            for (int k = 0; k < 3; k++) b.out[v + 12 + size_t(k)] = uint8_t(c[size_t(k)]);
+            stats.shades++;
+        }
+
+        for (const ArtJob& j : art_jobs) apply_night_art(b, j);
+        stats.art_textures = art_jobs.size();
+
+        // The lit copies of the building textures (their TLUTs are night colored now).
+        constexpr int copies = 2;
+        constexpr uint32_t seed = 0x7E1Fu;
+        std::map<int, std::array<int, copies>> copy_lists;   // load list -> its copies' load lists
+        for (auto& [list, l] : lit) {
+            stats.window_textures++;
+            stats.windows += size_t(l.w.count);
+            std::array<int, copies> made{};
+            for (int c = 0; c < copies; c++) {
+                // Which windows this copy lights: about half, a floor at a time (the windows whose tops are in the same
+                // row), each half of the texture's width on its own, so a glass tower's many small windows light in
+                // bands, not as speckle.
+                std::vector<bool> on(size_t(l.w.count));
+                for (int w = 0; w < l.w.count; w++) {
+                    const auto& [cx, cy] = l.w.corner[size_t(w)];
+                    int64_t half = cx * 2 / l.lv[0].w;
+                    on[size_t(w)] = dl::hash01(int64_t(l.li.texels) + half * 977, int64_t(cy) * 7 + c, seed) < 0.5;
+                }
+                Bytes texels(b.out.begin() + l.li.texels, b.out.begin() + l.li.texels + l.li.bytes);
+                const Level& l0 = l.lv[0];
+                for (size_t lv = 0; lv < l.lv.size(); lv++) {
+                    const Level& level = l.lv[lv];
+                    for (uint32_t y = 0; y < level.h; y++) {
+                        for (uint32_t x = 0; x < level.w; x++) {
+                            uint8_t i = texel_index(b.out, l.li.texels, level, x, y);
+                            if (i >= l.w.glass.size() || !l.w.glass[i]) continue;
+                            // The level-0 texel under this one's center.
+                            uint32_t x0 = std::min(l0.w - 1, uint32_t((x + 0.5) * l0.w / level.w));
+                            uint32_t y0 = std::min(l0.h - 1, uint32_t((y + 0.5) * l0.h / level.h));
+                            int w = l.w.window_of[size_t(y0) * l0.w + x0];
+                            if (w < 0 || !on[size_t(w)]) set_texel_index(texels, 0, level, x, y, l.w.dark);
+                        }
+                    }
+                }
+                Bytes tlut(b.out.begin() + l.li.tlut, b.out.begin() + l.li.tlut + l.li.tlut_n * 2);
+                for (uint32_t k = 0; k < l.li.tlut_n; k++) {
+                    if (!l.w.glass[k]) continue;
+                    dl::Rgb c2 = dl::window_light(0.15 + 0.7 * l.w.glass_tone[k]);
+                    put16(tlut, k * 2, uint16_t(((c2[0] >> 3) << 11) | ((c2[1] >> 3) << 6) | ((c2[2] >> 3) << 1) | 1));
+                }
+                Bytes raw = texels;
+                const uint32_t tlut_at = uint32_t((raw.size() + 7) & ~size_t(7));
+                raw.resize(tlut_at, 0);
+                raw.insert(raw.end(), tlut.begin(), tlut.end());
+                int s = b.add_raw(raw);
+                Body copy = b.load_lists[size_t(list)];
+                for (Fixup& f : copy.fixups) {
+                    if (f.pos == l.li.texel_fix) f.ref = { false, s, 0 };
+                    else if (f.pos == l.li.tlut_fix) f.ref = { false, s, tlut_at };
+                }
+                made[size_t(c)] = int(b.load_lists.size());
+                b.load_lists.push_back(std::move(copy));
+            }
+            copy_lists[list] = made;
+        }
+        // Each call to a building texture: the original (dark), or one of the copies, by the model and the call.
+        for (Builder::ModelOut& m : b.models) {
+            uint64_t name_hash = 1469598103934665603ull;
+            for (char ch : m.name) name_hash = (name_hash ^ uint8_t(ch)) * 1099511628211ull;
+            for (auto& lod : m.lods) {
+                if (!lod) continue;
+                for (Fixup& f : lod->fixups) {
+                    if (!f.ref.load) continue;
+                    auto it = copy_lists.find(f.ref.index);
+                    if (it == copy_lists.end()) continue;
+                    stats.calls++;
+                    double r = dl::hash01(int64_t(name_hash & 0x7FFFFFFF), int64_t(f.pos), seed + 1);
+                    if (r < 0.25) continue;
+                    f.ref.index = it->second[r < 0.625 ? 0 : 1];
+                    stats.lit_calls++;
+                }
+            }
+        }
+    }
+
+    // The night sky (as the PlayStation mod's NIGHT versions' SKY dome, src/sfrush_ps1/ps1_track.cpp): the PS1's screen
+    // gradient, grey 64 from 25.6 degrees up to (0, 0, 25) at the horizon, as a dome model SKYO1 that Rush 2's sky code
+    // draws round the camera before the track without depth or fog (the Las Vegas branch of sky_setup_800A45A8,
+    // src/rush2049/track2049.cpp rush2_track49_sky). It keeps its world height, so it is centered at `center_y` (the
+    // track's sections' median height, world units); its radius is near the s16 limit (1,875 ft): drawn without depth,
+    // its size doesn't show. The gradient is a texture (4 x 32 RGBA16, clamped) drawn as TEXEL0 alone: a list of shade
+    // alone drew black in game (it leans on the geometry mode the sky code leaves, which a textured sky doesn't).
+    void add_night_sky(Builder& b, double center_y) {
+        constexpr double top_elevation = 25.6, radius = 30000.0;   // degrees, model units (1/16 ft)
+        constexpr double pi = 3.14159265358979323846;
+        const double top[3] = { 64, 64, 64 }, horizon[3] = { 0, 0, 25 };
+        const double rings[] = { -20, -5, 0, 4, 8, 12, 16, 20, 25.6, 40, 60, 80, 90 };
+        constexpr int segments = 32;
+        const double cy = std::clamp(center_y * 16.0, -2000.0, 2000.0);
+        constexpr int rows = 32;
+        // The gradient: row 0 the top's grey, the last row the horizon's blue.
+        Bytes texels;
+        for (int r = 0; r < rows; r++) {
+            double k = 1.0 - double(r) / (rows - 1);
+            int c[3];
+            for (int i = 0; i < 3; i++) c[i] = int(std::lround(horizon[i] + (top[i] - horizon[i]) * k));
+            for (int x = 0; x < 4; x++) add16(texels, uint16_t(((c[0] >> 3) << 11) | ((c[1] >> 3) << 6) | ((c[2] >> 3) << 1) | 1));
+        }
+        const int tex_raw = b.add_raw(texels);
+        Bytes verts;
+        auto vertex = [&](double elevation, double azimuth) {
+            double e = elevation * pi / 180.0, a = azimuth * pi / 180.0;
+            double k = std::clamp(elevation / top_elevation, 0.0, 1.0);
+            add16(verts, uint16_t(int16_t(std::lround(radius * std::cos(e) * std::cos(a)))));
+            add16(verts, uint16_t(int16_t(std::lround(std::clamp(cy + radius * std::sin(e), -32768.0, 32767.0)))));
+            add16(verts, uint16_t(int16_t(std::lround(radius * std::cos(e) * std::sin(a)))));
+            add16(verts, 0);
+            // s, t (S10.5 texels): the middle of the texture across, its row by elevation.
+            add16(verts, uint16_t(2 * 32));
+            add16(verts, uint16_t(std::lround(((1.0 - k) * (rows - 1) + 0.5) * 32.0)));
+            for (int c = 0; c < 4; c++) verts.push_back(255);
+        };
+        Body body;
+        // 1-cycle TEXEL0 (G_CC_DECALRGBA), opaque, depth and fog off, as the custom tracks' SKY lists
+        // (track_mod_convert.cpp), the gradient loaded (RGBA16, TLUT off, clamped); then the track's state put back
+        // (depth and fog on, 2-cycle, the RGBA16 TLUT).
+        const uint32_t head[] = { 0xE3001001, 0, 0xE3000F00, 0, 0xE3000A01, 0, 0xFCFFFFFF, 0xFFFCF279,
+                                  0xE200001C, 0x0F0A4000, 0xD9FEFFFE, 0, 0xD7000002, 0xFFFFFFFF };
+        for (uint32_t w : head) add32(body.bytes, w);
+        body.fixups.push_back({ body.bytes.size() + 4, { false, tex_raw, 0 } });
+        const uint32_t load[] = { 0xFD100000, 0,                                   // SETTIMG RGBA16
+                                  0xF5100000, 0x07000000,                          // SETTILE 7 (load)
+                                  0xE6000000, 0,                                   // LOADSYNC
+                                  0xF3000000, 0x07000000 | ((4 * rows - 1) << 12) | 0x800,   // LOADBLOCK, 1 word a row
+                                  0xE7000000, 0,                                   // PIPESYNC
+                                  0xF5100200, 0x00080200,                          // SETTILE 0: line 1, clamped
+                                  0xF2000000, 0x0000C000 | ((rows - 1) << 2) };    // SETTILESIZE 4 x rows
+        for (uint32_t w : load) add32(body.bytes, w);
+        int raw = -1;
+        // Each band of a ring pair: 2 x 32 vertices, loaded 8 quads (32 vertices) at a time.
+        std::vector<std::array<uint32_t, 2>> loads;   // (first vertex, count)
+        for (size_t r = 0; r + 1 < std::size(rings); r++) {
+            for (int s0 = 0; s0 < segments; s0 += 8) {
+                uint32_t first = uint32_t(verts.size() / 16);
+                for (int s = s0; s < s0 + 8; s++) {
+                    double a0 = 360.0 * s / segments, a1 = 360.0 * (s + 1) / segments;
+                    vertex(rings[r], a0), vertex(rings[r], a1), vertex(rings[r + 1], a0), vertex(rings[r + 1], a1);
+                }
+                loads.push_back({ first, 32 });
+            }
+        }
+        raw = b.add_raw(verts);
+        for (const auto& [first, n] : loads) {
+            body.fixups.push_back({ body.bytes.size() + 4, { false, raw, first * 16 } });
+            add32(body.bytes, 0x01000000 | (n << 12) | (n << 1));
+            add32(body.bytes, 0);
+            for (uint32_t q = 0; q < n; q += 4) {
+                // Faces toward the dome's middle (seen from inside): (a0 low, a0 high, a1 low) and (a1 low, a0 high,
+                // a1 high) wind that way with x = cos, z = sin.
+                uint32_t v0 = q, v1 = q + 1, v2 = q + 2, v3 = q + 3;
+                add32(body.bytes, 0x06000000 | (v0 * 2) << 16 | (v2 * 2) << 8 | (v1 * 2));
+                add32(body.bytes, (v1 * 2) << 16 | (v2 * 2) << 8 | (v3 * 2));
+            }
+        }
+        const uint32_t tail[] = { 0xD9FFFFFF, 0x00010001, 0xE3000A01, 0x00100000, 0xE3001001, 0x00008000, 0xFC26A004, 0x1FFC93F8,
+                                  0xD7000002, 0xFFFFFFFF, 0xDF000000, 0 };
+        for (uint32_t w : tail) add32(body.bytes, w);
+        Builder::ModelOut m{ "SKYO1", 1, {}, {}, {}, float(radius / 16.0) };
+        m.lods[0] = std::move(body);
+        b.models.push_back(std::move(m));
+    }
+
     Bytes convert_geometry(const std::vector<uint8_t>& rom, const Main& main, int t, const std::string& prefix,
-                           std::map<std::string, std::string>& names, std::map<std::string, int>& base_shifts) {
+                           std::map<std::string, std::string>& names, std::map<std::string, int>& base_shifts,
+                           rush2::diorama_look::Look look) {
         Bytes track_data = asset(rom, geometry_asset + t), bank = asset(rom, texture_bank_asset);
         track_data.insert(track_data.end(), bank.begin(), bank.end());
         Container track(std::move(track_data));
@@ -849,6 +1613,21 @@ namespace {
             }
         }
         if (b.textures.size() != 2) fail("CHKPOINT/FINISH textures missing");
+        if (look == rush2::diorama_look::Look::night) {
+            NightStats stats;
+            night_track(b, stats);
+            // The sky's height: the median of the track's sections' (placement records +0x38, world units).
+            Bytes d = asset(rom, placement_asset + t);
+            std::vector<float> ys;
+            uint32_t base = u32(d, 4);
+            for (size_t o = base; o + 0x64 <= d.size(); o += 0x64) ys.push_back(f32(d, o + 0x38));
+            std::sort(ys.begin(), ys.end());
+            add_night_sky(b, ys.empty() ? 0.0 : ys[ys.size() / 2]);
+            printf("[Rush1] track %d night: %zu TLUTs (%zu entries), %zu untextured shades (%zu shared with textured faces kept), "
+                   "%zu building textures with %zu windows, %zu of %zu binds lit, %zu textures in the PS1's night art\n", t + 1,
+                   stats.tluts, stats.entries, stats.shades, stats.shared, stats.window_textures, stats.windows, stats.lit_calls,
+                   stats.calls, stats.art_textures);
+        }
         return b.build();
     }
 
@@ -1485,8 +2264,29 @@ namespace {
     }
 }
 
+void rush2::track1::set_night_art(std::shared_ptr<const std::vector<uint8_t>> art) {
+    uint64_t key = 0;
+    if (art && !art->empty()) {
+        key = 0xcbf29ce484222325ull;
+        for (uint8_t v : *art) key = (key ^ v) * 0x100000001b3ull;
+    }
+    std::lock_guard lock{ night_art_mutex };
+    night_art_bytes = std::move(art);
+    night_art_key = key;
+}
+
+std::shared_ptr<const std::vector<uint8_t>> rush2::track1::night_art() {
+    std::lock_guard lock{ night_art_mutex };
+    return night_art_bytes;
+}
+
+uint64_t rush2::track1::night_art_hash() {
+    std::lock_guard lock{ night_art_mutex };
+    return night_art_key;
+}
+
 bool rush2::track1::convert_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix,
-                                  ConvertedTrack& out, std::string& error) {
+                                  ConvertedTrack& out, std::string& error, rush2::diorama_look::Look look) {
     if (t < 0 || t >= track_count) {
         error = "no such Rush 1 track";
         return false;
@@ -1500,7 +2300,7 @@ bool rush2::track1::convert_track(const std::vector<uint8_t>& rom, int t, const 
         Main main{ *main_data };
         std::map<std::string, std::string> names;
         std::map<std::string, int> base_shifts;
-        out.geometry = convert_geometry(rom, main, t, prefix, names, base_shifts);
+        out.geometry = convert_geometry(rom, main, t, prefix, names, base_shifts, look);
         out.placement = convert_placement(rom, t, prefix, names, base_shifts, out.record_models);
         out.piece_models.clear();
         auto piece = [&](const std::string& rush2, const std::string& rush1) {
@@ -2268,6 +3068,25 @@ void rush2::track1::add_banner_images() {
             }
         }
         rush2::upscale::add_exact_image(std::move(indices), std::move(image));
+    }
+}
+
+void rush2::track1::course_logo(int t, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette, std::vector<uint8_t>& rgba) {
+    texels.clear(), palette.clear(), rgba.clear();
+    if (t < 0 || t >= track_count) return;
+    Bytes tb, pb;
+    build_logo(t, tb, pb);
+    texels.assign(tb.begin(), tb.end());
+    palette.assign(pb.begin(), pb.end());
+    // Full color in the texels' row order (bottom-up), as the banners are drawn (add_banner_images).
+    rgba.resize(size_t(logo_w * logo_h * 4));
+    for (int y = 0; y < logo_h; y++) {
+        int src = (logo_h - 1 - y) * logo_w;
+        for (int x = 0; x < logo_w; x++) {
+            uint32_t c = banners::rgba[t][src + x];
+            uint8_t* p = &rgba[size_t((y * logo_w + x) * 4)];
+            p[0] = uint8_t(c >> 24); p[1] = uint8_t(c >> 16); p[2] = uint8_t(c >> 8); p[3] = uint8_t(c);
+        }
     }
 }
 

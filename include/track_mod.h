@@ -159,11 +159,20 @@ namespace rush2::track_mod {
         // Rush 2's New York One (laps round the loop from the checkpoint where AIPATH_main's end rejoins it; no
         // BACKWARD; docs/custom_tracks.md#run-in-circuits).
         bool run_in = false;
+        // [track] base: an N64 SF Rush course ("sfrush:<name>", as variant_of names it) this track is raced on: no
+        // track.glb, the course's own files (src/rush1/track1.cpp) in this track's look ([look] recolor, fog_color,
+        // car_light), its own track select entry, records and ghosts. The PlayStation SF Rush mod's N64 NIGHT versions
+        // (docs/sfrush_ps1.md#n64-night-versions). [look] recolor: "night", the course converted in the PlayStation SF
+        // Rush's night colors with a night sky (rush2::track1::convert_track).
+        std::string base, recolor;
         std::map<std::string, Surface> surfaces;              // by upper-case name
         std::map<std::string, MoverSettings> movers;          // by the name after MOVE_
     };
 
     bool parse_settings(const std::string& toml_text, Settings& out, Report& report);
+
+    // The SF Rush course (1-7) a track with [track] base is raced on, or 0 for none.
+    int base_course(const Settings& s);
 
     // A stunt or battle arena (Settings::type): raced in the stunt track's slot, with no lap.
     inline bool is_arena(const Settings& s) { return s.type == "stunt" || s.type == "battle"; }

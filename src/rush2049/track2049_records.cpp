@@ -223,12 +223,14 @@ namespace {
         if (k == rush2::track2049::obstacle) {
             return obstacle_track;
         }
+        // A custom track first: a version raced on an N64 SF Rush course ([track] base) has its own records, under its
+        // folder, though the course is what is raced (rush2::track1::race_track is set too).
+        if (rush2::track_mod::race_track() >= 0) {
+            return mod_track;
+        }
         int r = rush2::track1::race_track();
         if (r >= 1 && r <= r1_count) {
             return track_count + r;
-        }
-        if (rush2::track_mod::race_track() >= 0) {
-            return mod_track;
         }
         int c = rush2::calspeed::race_track();
         if (c >= 1 && c <= cs_count) {
@@ -862,16 +864,20 @@ namespace {
     // The pinned course the records screen shows (its folder), and its best_times, or "".
     std::string screen_folder;
     std::vector<float> screen_best_times;
+    int screen_base = 0;    // its [track] base course (1-7), 0 none
 
     float seed_2049(int k, int backward, bool screen = false) {
         if (k == mod_track) {
             // The fastest of the track's best_times (track.toml), or 90 s.
             rush2::track_mod::Settings settings;
             std::vector<float> times;
-            if (screen) times = screen_best_times;
-            else if (rush2::track_mod::race_settings(settings)) times = settings.best_times;
+            int base = 0;
+            if (screen) times = screen_best_times, base = screen_base;
+            else if (rush2::track_mod::race_settings(settings)) times = settings.best_times, base = rush2::track_mod::base_course(settings);
             float best = 0.0f;
             for (float t : times) if (t > 1.0f && (best == 0.0f || t < best)) best = t;
+            // A version raced on an N64 SF Rush course without best_times: the course's own seed.
+            if (best <= 1.0f && base > 0) best = rush2::track1::record_seed(base, backward != 0);
             return best > 1.0f ? std::min(best, 479.0f) : 90.0f;
         }
         if (is_cs(k)) {
@@ -1249,9 +1255,13 @@ extern "C" void rush2_records_screen_step(uint8_t* rdram, recomp_context* ctx) {
         // A pinned course: its best_times for the made-up rows' seed.
         screen_folder = e[at].folder;
         screen_best_times.clear();
+        screen_base = 0;
         for (const rush2::track_mod::Entry& t : rush2::track_mod::tracks()) {
             const Pinned* p = pinned_of(screen_folder);
-            if (p != nullptr && t.mod_id == p->mod && t.folder == p->folder) screen_best_times = t.settings.best_times;
+            if (p != nullptr && t.mod_id == p->mod && t.folder == p->folder) {
+                screen_best_times = t.settings.best_times;
+                screen_base = rush2::track_mod::base_course(t.settings);
+            }
         }
     }
     ctx->r2 = buttons & ~0x300u;

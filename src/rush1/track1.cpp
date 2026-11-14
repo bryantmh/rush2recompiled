@@ -72,7 +72,10 @@ namespace {
 
     std::mutex track_mutex;
     std::atomic_int raced_track = 0;   // 1-7, or 0 for none.
+    rush2::track1::RaceLook raced_look;    // The raced version's look (set_race_look), under track_mutex.
     int loaded_track = 0;               // The Rush 1 track in `track`.
+    rush2::diorama_look::Look loaded_look = rush2::diorama_look::Look::day;   // and its look
+    rush2::track1::RaceLook applied_race_look;   // the applied track's look (its fog and cars' light)
     const std::vector<uint8_t>* loaded_rom = nullptr;
     rush2::track1::ConvertedTrack track;
     std::vector<uint8_t> race_logo;
@@ -193,8 +196,12 @@ namespace {
         rush2::assets::replace(rdram, 0x4B + host_slot, track.collision[backward]);
         rush2::assets::replace(rdram, 0x57 + host_slot, track.path[0]);
         rush2::assets::replace(rdram, 0x63 + host_slot, track.path[1]);
+        // A version's own fog color (a NIGHT version's near black, which also makes it a night race for Car Lights:
+        // rush2::track2049::night_race), else Rush 1's default.
+        applied_race_look = raced_look;
         for (int i = 0; i < 3; i++) {
-            MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i)) = fog[i];
+            MEM_B(0, (int32_t)(fog_colours + host_slot * 3 + i)) = loaded_look == rush2::diorama_look::Look::day ? fog[i]
+                                                                                                                 : raced_look.fog[size_t(i)];
         }
         MEM_W(0, (int32_t)(cloud_scroll + host_slot * 4)) = 0x3E4CCCCD;   // 0.2, as most Rush 2 tracks
         MEM_W(0, (int32_t)(sky_parallax + host_slot * 4)) = 0;
@@ -280,37 +287,50 @@ namespace {
         return rom_hash;
     }
 
-    // Converts track t (0-6) with its in-race logo (Rush 2's host slot logo, read from the ROM) and stores them in the
-    // disk cache. No game memory: any thread.
-    bool convert_and_store(const std::vector<uint8_t>& rom, int t, rush2::track1::ConvertedTrack& out,
-                           std::vector<uint8_t>& logo_out, std::string& error) {
-        if (!rush2::track1::convert_track(rom, t, prefix_of_host, out, error)) return false;
+    // A conversion's source key: the ROM's, and for a NIGHT version the PS1's night art too (set_night_art), so new art
+    // converts the night tracks again once.
+    uint64_t look_source(const std::vector<uint8_t>& rom, rush2::diorama_look::Look look) {
+        const uint64_t art = look == rush2::diorama_look::Look::night ? rush2::track1::night_art_hash() : 0;
+        return art ? rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(&art), sizeof(art), rom_source(rom)) : rom_source(rom);
+    }
+
+    // The track cache's entry of track t (0-6) in a look: the day's t, a NIGHT version's 100 + t.
+    int cache_index(int t, rush2::diorama_look::Look look) {
+        return look == rush2::diorama_look::Look::night ? 100 + t : t;
+    }
+
+    // Converts track t (0-6) in `look` with its in-race logo (Rush 2's host slot logo, read from the ROM) and stores
+    // them in the disk cache. No game memory: any thread.
+    bool convert_and_store(const std::vector<uint8_t>& rom, int t, rush2::diorama_look::Look look,
+                           rush2::track1::ConvertedTrack& out, std::vector<uint8_t>& logo_out, std::string& error) {
+        if (!rush2::track1::convert_track(rom, t, prefix_of_host, out, error, look)) return false;
         logo_out.clear();
         std::vector<uint8_t> logo;
         if (!rush2::assets::rom_original(4 + host_slot, logo) || !rush2::track1::build_race_logo(logo, rom, t, logo_out)) {
             logo_out.clear();
         }
-        rush2::track_cache::save_rush1(t, prefix_of_host, rom_source(rom), out, logo_out);
+        rush2::track_cache::save_rush1(cache_index(t, look), prefix_of_host, look_source(rom, look), out, logo_out);
         return true;
     }
 
     // Track t from the disk cache (src/track_cache.cpp) when this build converted it from the same ROM before, else
     // converted and stored (~26 ms). Any thread; the background builds (rush2::track1::prepare) do every track ahead of
     // the races, and the race waits on the entry's claim if one is converting it.
-    bool cached_or_converted(const std::vector<uint8_t>& rom, int t, rush2::track1::ConvertedTrack& out,
-                             std::vector<uint8_t>& logo, std::string& error) {
-        auto claim = rush2::track_cache::claim(rush2::track_cache::rush1_entry(t));
-        if (rush2::track_cache::load_rush1(t, prefix_of_host, rom_source(rom), out, logo)) return true;
-        return convert_and_store(rom, t, out, logo, error);
+    bool cached_or_converted(const std::vector<uint8_t>& rom, int t, rush2::diorama_look::Look look,
+                             rush2::track1::ConvertedTrack& out, std::vector<uint8_t>& logo, std::string& error) {
+        const int c = cache_index(t, look);
+        auto claim = rush2::track_cache::claim(rush2::track_cache::rush1_entry(c));
+        if (rush2::track_cache::load_rush1(c, prefix_of_host, look_source(rom, look), out, logo)) return true;
+        return convert_and_store(rom, t, look, out, logo, error);
     }
 
-    bool convert(uint8_t* rdram, int k) {
+    bool convert(uint8_t* rdram, int k, rush2::diorama_look::Look look) {
         auto rom = rush2::track1::get_rom();
         if (rom == nullptr) {
             return false;
         }
         std::string error;
-        if (!cached_or_converted(*rom, k - 1, track, race_logo, error)) {
+        if (!cached_or_converted(*rom, k - 1, look, track, race_logo, error)) {
             printf("[Rush1] Couldn't convert track %d: %s\n", k, error.c_str());
             return false;
         }
@@ -325,15 +345,23 @@ void rush2::track1::prepare(const std::vector<uint8_t>& rom) {
         ConvertedTrack ct;
         std::vector<uint8_t> logo;
         std::string error;
-        if (!cached_or_converted(rom, t, ct, logo, error)) continue;
+        if (!cached_or_converted(rom, t, rush2::diorama_look::Look::day, ct, logo, error)) continue;
         std::lock_guard lock{ track_mutex };
         lap_seconds[t][0] = ct.lap_seconds[0];
         lap_seconds[t][1] = ct.lap_seconds[1];
     }
 }
 
-void rush2::track1::preload(int k) {
-    if (k >= 1 && k <= track_count) rush2::track_cache::preload_rush1(k - 1);
+void rush2::track1::preload(int k, rush2::diorama_look::Look look) {
+    if (k >= 1 && k <= track_count) rush2::track_cache::preload_rush1(cache_index(k - 1, look));
+}
+
+void rush2::track1::prepare_look(const std::vector<uint8_t>& rom, int k, rush2::diorama_look::Look look) {
+    if (k < 1 || k > track_count) return;
+    ConvertedTrack ct;
+    std::vector<uint8_t> logo;
+    std::string error;
+    if (!cached_or_converted(rom, k - 1, look, ct, logo, error)) printf("[Rush1] Couldn't convert track %d: %s\n", k, error.c_str());
 }
 
 void rush2::track1::set_redirects(uint8_t* rdram, const std::map<std::string, std::string>& records,
@@ -356,7 +384,28 @@ int rush2::track1::race_track() {
 }
 
 void rush2::track1::set_race_track(int k) {
+    std::lock_guard lock{ track_mutex };
     raced_track = k;
+    raced_look = RaceLook{};
+}
+
+void rush2::track1::set_race_look(const RaceLook& look) {
+    std::lock_guard lock{ track_mutex };
+    raced_look = look;
+}
+
+rush2::diorama_look::Look rush2::track1::applied_look(uint8_t* rdram) {
+    std::lock_guard lock{ track_mutex };
+    return applied && MEM_BU(0, (int32_t)track_id) == host_slot ? loaded_look : rush2::diorama_look::Look::day;
+}
+
+uint32_t rush2::track1::car_light(uint8_t* rdram) {
+    std::lock_guard lock{ track_mutex };
+    return applied && MEM_BU(0, (int32_t)track_id) == host_slot ? applied_race_look.car_light : 0u;
+}
+
+bool rush2::track1::sky_model(uint8_t* rdram) {
+    return applied_look(rdram) == rush2::diorama_look::Look::night;
 }
 
 void rush2::track1::restore_host(uint8_t* rdram) {
@@ -374,10 +423,11 @@ bool rush2::track1::load(uint8_t* rdram) {
     rush2::track2049::restore_host(rdram);
     std::lock_guard lock{ track_mutex };
     auto rom = get_rom();
-    if (loaded_track != k || loaded_rom != rom.get()) {
+    const rush2::diorama_look::Look look = raced_look.look;
+    if (loaded_track != k || loaded_rom != rom.get() || loaded_look != look) {
         loaded_track = 0;
         loaded_rom = nullptr;
-        if (!convert(rdram, k)) {
+        if (!convert(rdram, k, look)) {
             printf("[Rush1] Track %d isn't available; racing the host track\n", k);
             raced_track = 0;
             restore(rdram);
@@ -385,6 +435,7 @@ bool rush2::track1::load(uint8_t* rdram) {
         }
         loaded_track = k;
         loaded_rom = rom.get();
+        loaded_look = look;
     }
     int backward = MEM_B(0, (int32_t)backward_flag) != 0 ? 1 : 0;
     apply(rdram, backward);
@@ -559,7 +610,7 @@ float rush2::track1::record_seed(int k, bool backward) {
         ConvertedTrack ct;
         std::vector<uint8_t> logo;
         std::string error;
-        if (rom != nullptr && cached_or_converted(*rom, k - 1, ct, logo, error)) {
+        if (rom != nullptr && cached_or_converted(*rom, k - 1, rush2::diorama_look::Look::day, ct, logo, error)) {
             lap_seconds[k - 1][0] = ct.lap_seconds[0];
             lap_seconds[k - 1][1] = ct.lap_seconds[1];
             s = lap_seconds[k - 1][backward ? 1 : 0];

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <string>
 
 #include "track1.h"
 #include "track2049.h"
@@ -99,6 +100,36 @@ int main(int argc, char** argv) {
     if (!read_all(rom_path, rom)) {
         printf("can't read %s\n", rom_path.string().c_str());
         return 2;
+    }
+    // --night OUT_DIR [--night-art FILE]: writes every course's NIGHT version (geometry<t>.bin, placement<t>.bin,
+    // path0<t>.bin) to OUT_DIR instead of comparing, for tools/asset_catalog_test --file and tools/glb_view.py
+    // (docs/sfrush_ps1.md#n64-night-versions). FILE: the PS1 mod's n64_night_art.bin (tools/sfrush_ps1/cpp_test with
+    // SFRUSH_PS1_NIGHT_ART), the buildings drawn in the PS1's night art as the game does with the mod installed.
+    // --day OUT_DIR: the same files of the day courses (tools/sfrush_ps1/n64_night_map.py maps their textures).
+    if (argc > 3 && (std::string(argv[2]) == "--night" || std::string(argv[2]) == "--day")) {
+        const auto look = std::string(argv[2]) == "--day" ? rush2::diorama_look::Look::day : rush2::diorama_look::Look::night;
+        fs::path dir = argv[3];
+        fs::create_directories(dir);
+        if (argc > 5 && std::string(argv[4]) == "--night-art") {
+            auto art = std::make_shared<std::vector<uint8_t>>();
+            if (!read_all(argv[5], *art)) {
+                printf("can't read %s\n", argv[5]);
+                return 2;
+            }
+            rush2::track1::set_night_art(art);
+        }
+        for (int t = 0; t < rush2::track1::track_count; t++) {
+            rush2::track1::ConvertedTrack ct;
+            std::string error;
+            if (!rush2::track1::convert_track(rom, t, "HAWAII", ct, error, look)) {
+                printf("track %d: %s\n", t + 1, error.c_str());
+                return 1;
+            }
+            write_all(dir / ("geometry" + std::to_string(t) + ".bin"), ct.geometry);
+            write_all(dir / ("placement" + std::to_string(t) + ".bin"), ct.placement);
+            write_all(dir / ("path0" + std::to_string(t) + ".bin"), ct.path[0]);
+        }
+        return 0;
     }
     int bad = 0;
     for (int t = 0; t < rush2::track1::track_count; t++) {

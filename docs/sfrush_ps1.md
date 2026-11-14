@@ -44,6 +44,8 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Track select diorama](#track-select-diorama)
 - [Snow and night dioramas](#snow-and-night-dioramas)
 - [Snow and night](#snow-and-night)
+- [N64 night versions](#n64-night-versions)
+- [N64 night art](#n64-night-art)
 - [Stunt track](#stunt-track)
 - [Music](#music)
 - [Not ported](#not-ported)
@@ -1243,6 +1245,130 @@ src/snowfall.cpp): none at FOG 1, heavier and faster at each step after.
 - **Not a texture:** `ART/T<n>P08.GFX` / `P08N.GFX` (VRAM (384, 32), 64 x 128) loads only while gp+0x3C (Time
   Sprint) is set, and mods don't carry it. It isn't the clocks' texture (that is `ART/PICKUPS.GFX`,
   [Time Sprint](#time-sprint)); what draws from it isn't traced. **[V]**
+
+## N64 night versions
+
+The PS1 has only three of the N64 game's courses (tracks 1-3, plus its own Chinatown), so the N64's other four,
+Downtown, The Heights, Sunset and The Rock (N64 tracks 4-7), have no PS1 night set. They get NIGHT versions anyway
+(2026-11-14): the N64 course itself, raced as it always is, converted in the PS1 night set's colors. Snow isn't made
+yet: the snow set is hand painted ([Snow and night](#snow-and-night)), so it can't be derived the way night can.
+
+- **Listing:** with the N64 ROM in, the mod writes `tracks/<course>_night/track.toml` for the four (`downtown_night`,
+  `the_heights_night`, `sunset_night`, `the_rock_night`; `ps1_track.cpp` `build_track`), no track.glb: `[track] base =
+  "sfrush:<course>"` (the course raced), `[look] recolor = "night"`, the PS1 night versions' `fog_color = "#080808"`
+  and `car_light` (the night car pages' ratio, `night_light`), `[menu] variant_of` the course, `variant = "NIGHT"`. The
+  custom track scan (`src/track_mod/track_mod.cpp` `scan`) lists a folder with only a track.toml when its `base` names
+  an SF Rush course and SF Rush's tracks are offered; the mod's ones only while Settings > Games > SF Rush PlayStation >
+  **N64 Night Versions** is on (`sfrush_ps1_n64_night` in games.json, default on; `base_usable`, in the scan's
+  signature, so turning it off or on shows at the next track select). The track select shows the course's diorama in
+  its NIGHT band (`R1TRACKnK`, already dressed for night: [Snow and night dioramas](#snow-and-night-dioramas)) and its
+  banner as the logo (`rush2::track1::course_logo`).
+- **Racing:** `enter_race` (`src/rush2049/track2049_menu.cpp`) sets the custom track as the raced one (its records under
+  its folder, seeded from the course's own Rush 1 seed when it has no `best_times`; its ghosts) and the SF Rush course
+  as the hosted one, with the version's look (`rush2::track1::set_race_look`). `src/rush1/track1.cpp` serves the
+  course converted in that look (track cache entry `rush1_<100 + t>`, built at launch with the custom tracks by
+  `track_mod::prepare` -> `track1::prepare_look`), its fog color the version's, its cars' light the version's
+  (`track1::car_light`, read by `track2049::mod_car_light`), and a night race for Car Lights (`track2049::night_race`).
+  Keys, Time Sprint clocks, music, breakables, buses and the gate are the course's.
+- **The recolor** (`src/rush1/track1_convert.cpp` `night_track`): every track texture is CI drawn TEXEL0 x SHADE (a few
+  faces SHADE alone), as the dioramas are, so it goes on as the night dioramas' does: each TLUT the texture-load lists
+  load goes through `diorama_look::night` in place, a vertex only untextured triangles use too, textured triangles' shade
+  kept.
+- **Lit windows:** with the PS1 mod's night art (always, from 2026-11-14) the buildings wear the PS1's own night
+  texels: [N64 night art](#n64-night-art). Without it (no art in the mod), by guess: a building texture (70% of its triangles on walls, a third of those 12 ft high or more; CI with
+  glass: entries under 0.55 of the texture's median brightness or blue, 5-60% of its texels, not green or see-through,
+  the walls not sign-saturated; windows = 4-connected runs of glass of 6+ texels, 2 x 2 at least, filling 60% of their
+  box) gets two lit copies of its load list, each with its own texels (unlit windows' glass made the darkest wall
+  entry) and TLUT (the glass entries window light, toned by the glass's shading). A copy lights about half of the
+  windows a floor at a time (by the row of the window's top, each half of the texture's width apart), so towers light
+  in bands, not speckle. Each bind of the texture in a model draws the dark original (25%) or one of the copies, by a
+  hash of the model and the bind: Downtown 67 building textures, 332 of 444 binds lit. Chevron boards, rails and road
+  barriers are kept out by the wall height, fill and saturation rules (checked on all four courses).
+- **Sky:** a SKYO1 dome model, the PS1 night gradient (grey 64 from 25.6 degrees up to (0, 0, 25) at the horizon) as a
+  4 x 32 RGBA16 texture drawn TEXEL0 alone, depth and fog off, centered at the track's sections' median height;
+  `rush2_track49_sky` sends the slot down the Las Vegas branch when `track1::sky_model`. A first version drew it SHADE
+  alone and it came out black in game (it depends on the geometry mode the sky code leaves; the textured skies don't).
+- **Checking offline:** `cmd //c "tools\rush1\cpp_test\build.bat noref"`, then `tools/rush1/cpp_test/out/track1_test.exe
+  . --night OUT` writes each course's night geometry, placement and forward path; `tmp/catalog_test/asset_catalog_test.exe
+  DIR --file OUT/geometry<t>.bin OUT/placement<t>.bin` (tools/asset_catalog_test.bat) makes the glb, and
+  `python tools/rush1/spine_views.py DIR/geometry<t>.glb OUT/path0<t>.bin PREFIX i ...` renders road-level views along
+  the AI spine (the sky dome isn't placed there; `tools/glb_view.py --scene 1 --node SKYO1` draws it).
+- **In game:** `tools/test_race.py downtown_night --drones 3 --env RUSH2_TEST_RACE_VIEW_CAR=1 --env
+  RUSH2_RACE_RECORD=<absolute path> --shots ...` (racing ~16 s after launch, ~35 s when the mod is rebuilt at launch).
+  Day and night Downtown give the same race events (the idle player's car wrecks at (3574, 236, 2992) at 25.6 s and
+  is put back along the path in both).
+
+## N64 night art
+
+The guessed windows above lit trim and wall as often as glass (user, 2026-11-14: "lighting up random parts of
+buildings"). The PS1's night set paints its windows into the texels (about a quarter of every track's VRAM nibbles
+differ from the day set's), and the N64 courses the PS1 lacks are built from largely the same N64 textures as the three
+it remade: 308 of Downtown's 393 textures, 372 of The Heights' 445 and 310 of Sunset's 338 are also drawn on Golden
+Gate, Embarcadero or Market (The Rock: 21 of 48). So each N64 building texture is mapped onto the PS1 page texels of
+the same art, and the night versions draw the PS1's night texels there (2026-11-14).
+
+- **The map** (`tools/sfrush_ps1/n64_night_map.py`, shipped as `assets/sfrush_ps1/n64_night_map.json`): per N64
+  texture key, a PS1 track, page, CLUT and affine from the texture's texel centers to page texels; no PS1 pixels.
+  `scan` lines the N64 course (the asset dump's `_placed.glb`) up with the PS1's (`n64_census.fit2d`: 3.5 m median on
+  Golden Gate and Market, 8 m on Embarcadero), projects every texel of every building wall triangle onto the PS1 face
+  at the same place and fits each face's affine. `pick` scores each face's map on the DAY texels (normalized
+  cross-correlation of the N64 texture with the PS1 day texels through it), and, since a face may have landed on the
+  next building, also tries each face's scale and turn with the shift found anywhere on its page (OpenCV template
+  matching), then refines shift and scale. `search` looks for the textures still unmatched on every page and CLUT PS1
+  tracks 1-4 draw with, at 0.5 / 1 / 2 page texels a texel per axis in all 8 turns (Chinatown's pages too).
+  `publish` keeps a map when its day texels correlate and its colors agree (score 0.6+ and median RGB distance 45 or
+  less, or 0.85+ and 60): correlation alone passed a grey striped wall onto a green one, while the PS1 retinted some
+  right ones. The rest were judged by eye on `publish`'s review sheets and recorded with `mark` in
+  `assets/sfrush_ps1/n64_night_overrides.json` (`maps`: the map looked at, shipped as it is; `reject`). 2026-11-14:
+  141 maps (54 by eye), 133 rejected, plus 7 palette variants. Windows lit as the conversion draws them
+  (measured: the textures the conversion redraws whose art lights texels, against those plus the unredrawn
+  ones with windows, judged by eye; textures without windows, such as foliage, signs and plain walls, left out, as are
+  redrawn ones the PS1 lights none of): Downtown 48% of the triangles, The Heights 59%, Sunset 56%, The Rock 0%
+  from the PS1's art alone; with the hand-picked windows below 82%, 83%, 83% and 100% (by count 24 of 43, 45 of 62,
+  26 of 37, 5 of 5).
+- **Hand-picked windows** (2026-11-14, user: "pick the best texture candidates and keep the number of lit windows
+  light"): the textures with windows the PS1 has no art for that cover the most of each course (14, a few each) got
+  a few windows lit by hand, read off `windows`' texel grids and recorded with `light KEYPREFIX X,Y,W,H ...`
+  (overrides `hand`): one or two windows a texture, each rect lit whole, tight on the glass (lit windows read as
+  rectangles: lighting only a rect's darker texels left L and F shapes on Sunset's buildings, user 2026-11-14). The install draws each window in one of the two tones the PS1 art's lit texels
+  cluster at, pale (214, 220, 221) or warm (216, 206, 126), picked by the texture and window; the rest of the
+  texture keeps its own night colors. A texture repeats on a building, so one lit window a texture already lights
+  every few floors. Candidates: `scan` of the
+  three courses, `pick`, then `search` (4 shards, ~40 min) of the four courses' textures still under 0.75.
+- **Texture key:** FNV-1a 64 of u16 width, u16 height and the texels as RGBA5551, big endian, at each size the
+  texture is drawn: a model often calls a shared load list and then sets tile 0 smaller (32 x 64 of a 64 x 64 load),
+  and the asset dump's images (the map's keys) are the texture at that size. Some lists load fewer rows than the
+  texture is drawn with (a 48-row block drawn 64 rows tall: The Heights' row houses TRACK5FT01.13, the rest whatever
+  TMEM held, as the dump shows it), so no list has the image's key: each map also carries `crops`, the keys of its
+  texture's top rows every 16, which the install writes as entries of their own and the conversion keys a list's
+  whole block against.
+- **Clips and odd shapes:** `clip KEYPREFIX X,Y,W,H` keeps a map's PS1 art to part of its texture (overrides
+  `clip`; its variants too): The Heights' row houses (TRACK2E4_A, da36b1ea) to rows 0-31, as their ground strip
+  mapped onto lit glyphs. PS1 maps whose lit texels aren't rectangles on the N64 texture (U shapes, a lit frame round
+  a dark pane, diagonal or hairline stripes, a clock face) are rejected (365c452a, 361251ad, c7ce1fa3, cdf629b8,
+  d80678ff, 1c6f2c10).
+- **Palette variants:** a building texture without a map whose texels are laid out as a mapped one's (`layout_match`
+  0.9 or more: the same texture with another TLUT; the row houses' variants differ only in their snow fringe, 0.92)
+  gets `variant_of` that map: the install keeps only that map's lit night texels (luma 110 or more) and the texture
+  keeps its own night colors elsewhere. 7 do (2026-11-14); the other variants' maps light no windows.
+- **Odd rows:** the lists load their texels with a LOADBLOCK of dxt 0, which copies the block into TMEM as it is, so
+  its odd rows are stored with their 32-bit words swapped and the RDP swaps them back as it samples an odd row.
+  `night_track`'s texel reads ignored that until 2026-11-14 (every odd row read scrambled, the guessed windows too);
+  `Level::swap` and `texel_byte` read them as drawn.
+- **The art** (`ps1::n64_night_art`, `src/sfrush_ps1/ps1_track.cpp`): the PS1 install samples each map from its track's
+  night set (`load_vram` with "N", nearest texel, page coordinates wrapping) into the mod's `n64_night_art.bin`
+  ("N64NIGHT", u32 count, then per texture u64 key, u16 width, u16 height, RGBA5551 texels little endian, alpha 0 where
+  the PS1's texel is see-through). The map is part of the install's source key, so a new map rebuilds the mod at launch.
+- **Drawing it** (`src/rush1/track1_convert.cpp` `find_night_art` / `apply_night_art`): `track_mod::prepare` hands the
+  art to `track1::set_night_art` before converting a NIGHT version; its hash is part of the night tracks' cache key.
+  Each load list whose texture (at any drawn size, the largest the art has) is in the art gets its own texels and TLUT:
+  the PS1's colors fitted to its 16 or 256 entries (closest pairs merged), texels the art leaves see-through and the
+  block's texels outside the drawn size keep their own night color, mipmaps from the level-0 texel under their
+  center. With art no window is lit by guess; a building texture without a map is drawn in the night recolor only.
+- **Checking offline:** `SFRUSH_PS1_NIGHT_ART=FILE cmd //c "tools\sfrush_ps1\cpp_test\build.bat OUT"` writes the art
+  only; `track1_test.exe . --night OUT --night-art FILE` converts with it (prints the textures redrawn per course) and
+  `track1_test.exe . --day OUT` writes the day courses. Road-level views: `tools/rush1/spine_views.py` as in
+  [N64 night versions](#n64-night-versions).
 
 ## Stunt track
 

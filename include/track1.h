@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "diorama_look.h"
+
 // San Francisco Rush (Rush 1) race tracks added to Rush 2 (src/rush1/track1*.cpp, src/rush1/rush1_rom.cpp,
 // docs/rush1_research.md).
 //
@@ -85,13 +87,26 @@ namespace rush2::track1 {
         std::map<std::string, std::string> piece_models;
     };
     // t: Rush 1 track 0-6. prefix: the host slot's track prefix (the placement tree and <prefix>FINISH model names).
+    // look: Look::night converts the course as a NIGHT version (docs/sfrush_ps1.md#n64-night-versions): its TLUTs and
+    // untextured shades in the PlayStation SF Rush's night colors, and a night sky model SKYO1.
     bool convert_track(const std::vector<uint8_t>& rom, int t, const std::string& prefix, ConvertedTrack& out,
-                       std::string& error);
+                       std::string& error, rush2::diorama_look::Look look = rush2::diorama_look::Look::day);
+    // The PlayStation's night art for the NIGHT versions' buildings (docs/sfrush_ps1.md#n64-night-art): the PS1 mod's
+    // n64_night_art.bin (src/sfrush_ps1/ps1_track.cpp n64_night_art), N64 texture key -> the texture in the PS1's night
+    // texels. A night conversion puts it in place of each texture it has, and lights no windows of its own guessing;
+    // with none set (no PS1 mod) it lights them by guess as before. Any thread; part of the night tracks' cache key
+    // (night_art_hash).
+    void set_night_art(std::shared_ptr<const std::vector<uint8_t>> art);
+    std::shared_ptr<const std::vector<uint8_t>> night_art();
+    uint64_t night_art_hash();
 
     // Track select art: appends a diorama model R1TRACKn (Rush 1's own track select model) and a 128x32 name logo
     // Gives the renderer the track banners' exact colors in place of their CI8 copies' 255 (src/texture_upscale.cpp,
     // add_exact_image). Called once at startup.
     void add_banner_images();
+    // Track t's (0-6) banner as a custom track's logo is kept (rush2::track_mod::MenuArt logo, logo_palette, logo_rgba):
+    // a version raced on the course ([track] base) shows its course's.
+    void course_logo(int t, std::vector<uint8_t>& texels, std::vector<uint8_t>& palette, std::vector<uint8_t>& rgba);
     // R1LOGOn per Rush 1 track to a Rush 2 model container (asset 3, or Rush 2049's copy of it).
     bool extend_menu_container(const std::vector<uint8_t>& container, const std::vector<uint8_t>& rom,
                                std::vector<uint8_t>& out);
@@ -114,11 +129,31 @@ namespace rush2::track1 {
     void prepare(const std::vector<uint8_t>& rom);
     // Reads track k's (1-7) cache entry into memory now, for the race about to load it (src/prewarm.cpp, from the car
     // select). Any thread.
-    void preload(int k);
+    void preload(int k, rush2::diorama_look::Look look = rush2::diorama_look::Look::day);
 
     // The Rush 1 track (1-7) being raced, or 0 (src/rush1/track1.cpp).
     int race_track();
+    // Sets the raced track, as its N64 (day) version.
     void set_race_track(int k);
+    // A version of an N64 course raced on the course itself in another look (a custom track whose track.toml has
+    // [track] base = "sfrush:<course>", docs/custom_tracks.md#for-developers; the PlayStation SF Rush mod's N64 NIGHT
+    // versions, docs/sfrush_ps1.md#n64-night-versions): the course's own files converted in `look`, with the race's
+    // fog color and the cars' light (0xRRGGBBFF, 0 none) from that track.toml. Call after set_race_track.
+    struct RaceLook {
+        rush2::diorama_look::Look look = rush2::diorama_look::Look::day;
+        std::array<uint8_t, 3> fog = { 0x96, 0x96, 0xBE };
+        uint32_t car_light = 0;
+    };
+    void set_race_look(const RaceLook& look);
+    // The applied track's look (day when none is applied).
+    rush2::diorama_look::Look applied_look(uint8_t* rdram);
+    // The applied track's car light (0xRRGGBBFF), 0 for none or when no SF Rush track is applied.
+    uint32_t car_light(uint8_t* rdram);
+    // The applied track has its own sky model (a night version's SKYO1).
+    bool sky_model(uint8_t* rdram);
+    // Converts course k (1-7) in `look` into the disk cache unless it is there (a version's, ahead of its race). Any
+    // thread.
+    void prepare_look(const std::vector<uint8_t>& rom, int k, rush2::diorama_look::Look look);
     // Puts the host slot's own files and table entries back (call from a game thread).
     void restore_host(uint8_t* rdram);
     // Race file loading (start of func_800A4C98): serves the raced Rush 1 track's files and returns true, or puts the

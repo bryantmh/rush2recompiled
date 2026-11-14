@@ -1412,6 +1412,15 @@ std::string rush2::track_mod::Report::text() const {
     return s;
 }
 
+int rush2::track_mod::base_course(const Settings& s) {
+    static const char* const courses[] = { "golden_gate", "embarcadero", "market", "downtown", "the_heights", "sunset", "the_rock" };
+    if (s.base.rfind("sfrush:", 0) != 0) return 0;
+    for (int k = 0; k < int(std::size(courses)); k++) {
+        if (s.base.compare(7, std::string::npos, courses[k]) == 0) return k + 1;
+    }
+    return 0;
+}
+
 bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Report& report) {
     toml::table t;
     try {
@@ -1440,6 +1449,16 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
     if (auto v = t["track"]["point_to_point"].value<bool>()) s.point_to_point = *v;
     if (auto v = t["track"]["stunts"].value<bool>()) s.stunts = *v;
     if (auto v = t["track"]["run_in"].value<bool>()) s.run_in = *v;
+    str("track", "base", s.base);
+    if (!s.base.empty() && base_course(s) == 0) {
+        report.error("track.toml: [track] base = \"" + s.base + "\" isn't an SF Rush course (\"sfrush:<name>\").");
+        s.base.clear();
+    }
+    str("look", "recolor", s.recolor);
+    if (!s.recolor.empty() && s.recolor != "night") {
+        report.error("track.toml: [look] recolor must be \"night\"; \"" + s.recolor + "\" is ignored.");
+        s.recolor.clear();
+    }
     if (s.gravity != "rush2" && s.gravity != "rush2049") {
         report.error("track.toml: [track] gravity must be \"rush2\" or \"rush2049\"; \"" + s.gravity + "\" races on Rush 2's.");
         s.gravity = "rush2";

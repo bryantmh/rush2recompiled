@@ -41,6 +41,8 @@
 #include "track_mod.h"
 #include "race_time_model.h"
 #include "track_mod_runtime.h"
+#include "track1.h"
+#include "sfrush_ps1.h"
 #include "wings.h"
 
 namespace {
@@ -113,8 +115,24 @@ namespace {
         return !out.empty();
     }
 
+    // A file at the root of the track's mod (not its track folder).
+    bool read_mod_file(const rush2::track_mod::Entry& e, const std::string& name, std::vector<uint8_t>& out) {
+        rush2::upscale::ZipReader zip(e.mod_path);
+        if (zip.is_open()) return zip.read(name, out);
+        out = rush2::upscale::read_file(e.mod_path / std::filesystem::u8path(name));
+        return !out.empty();
+    }
+
+    // A track raced on an N64 SF Rush course ([track] base) can be raced: the SF Rush tracks are offered (the ROM is in,
+    // the Games tab's option on), and the PlayStation mod's ones only while its N64 Night Versions option is on.
+    bool base_usable(const std::string& mod_id) {
+        return rush2::track1::available() && (mod_id != rush2::sfrush_ps1::mod_id || rush2::sfrush_ps1::n64_night_versions());
+    }
+
     void scan() {
-        std::string signature;
+        // What base_usable reads is part of the signature, so a changed option rescans.
+        std::string signature = std::string(rush2::track1::available() ? "r1;" : "-r1;") +
+                                (rush2::sfrush_ps1::n64_night_versions() ? "night;" : "-night;");
         std::vector<std::pair<std::string, std::filesystem::path>> mods;
         for (const recomp::mods::ModDetails& mod : recomp::mods::get_all_mod_details("rush2")) {
             bool on = recomp::mods::is_mod_enabled(mod.mod_id);
@@ -144,13 +162,18 @@ namespace {
                     hide_warnings = j["hide_track_warnings"].get<bool>();
                 }
             }
+            std::set<std::string> zip_names;
+            if (zip.is_open()) for (const std::string& n : zip.names()) zip_names.insert(n);
             for (const std::string head : { "tracks/", "rush2/tracks/" }) {
                 std::vector<std::pair<std::string, std::string>> found;
                 if (zip.is_open()) {
-                    for (const std::string& n : zip.names()) {
+                    for (const std::string& n : zip_names) {
                         if (n.compare(0, head.size(), head) != 0) continue;
                         size_t slash = n.find('/', head.size());
-                        if (slash == std::string::npos || n.substr(slash + 1) != "track.glb") continue;
+                        // track.glb, or track.toml alone (a track on an N64 course, [track] base: checked below).
+                        if (slash == std::string::npos) continue;
+                        const std::string file = n.substr(slash + 1);
+                        if (file != "track.glb" && !(file == "track.toml" && !zip_names.count(n.substr(0, slash + 1) + "track.glb"))) continue;
                         std::string f = n.substr(head.size(), slash - head.size());
                         found.push_back({ f, head + f + "/" });
                     }
@@ -158,7 +181,8 @@ namespace {
                 else {
                     std::error_code ec;
                     for (const auto& d : std::filesystem::directory_iterator(path / std::filesystem::u8path(head), ec)) {
-                        if (d.is_directory(ec) && std::filesystem::exists(d.path() / "track.glb", ec)) {
+                        if (d.is_directory(ec) && (std::filesystem::exists(d.path() / "track.glb", ec) ||
+                                                   std::filesystem::exists(d.path() / "track.toml", ec))) {
                             auto u = d.path().filename().u8string();
                             std::string f(u.begin(), u.end());
                             found.push_back({ f, head + f + "/" });
@@ -181,6 +205,13 @@ namespace {
                 rush2::track_mod::Report report;
                 rush2::track_mod::parse_settings(std::string(toml.begin(), toml.end()), e.settings, report);
                 if (e.settings.name.empty()) e.settings.name = f;
+                // A track raced on an N64 course (no track.glb needed) is listed only while that course can be raced; a
+                // folder with neither track.glb nor a base isn't a track.
+                std::error_code fec;
+                const bool has_glb = zip.is_open() ? zip_names.count(dir + "track.glb") != 0
+                                                   : std::filesystem::exists(path / std::filesystem::u8path(dir + "track.glb"), fec);
+                const bool on_course = rush2::track_mod::base_course(e.settings) != 0;
+                if (on_course ? !base_usable(id) : !has_glb) continue;
                 entries.push_back(std::move(e));
             }
         }
@@ -405,6 +436,41 @@ namespace {
     }
 
     void key_files(Files& f);
+
+    // Track `index` as last scanned, or false.
+    bool entry_of(int index, rush2::track_mod::Entry& e) {
+        std::lock_guard lock{ mutex };
+        scan();
+        if (index < 0 || index >= (int)entries.size()) return false;
+        e = entries[index];
+        return true;
+    }
+
+    rush2::diorama_look::Look look_of(const rush2::track_mod::Settings& s) {
+        return s.recolor == "night" ? rush2::diorama_look::Look::night : rush2::diorama_look::Look::day;
+    }
+
+    // A track raced on an N64 course ([track] base) has no conversion of its own: its track select entry shows the
+    // course's art (src/rush2049/track2049_menu.cpp), and its race is the course's (src/rush1/track1.cpp). Its identity
+    // for online play hashes its track.toml.
+    bool course_track_art(const rush2::track_mod::Entry& e, rush2::track_mod::MenuArt& out) {
+        out = rush2::track_mod::MenuArt{};
+        // The course's banner as its logo (the track select shows the course's art; the logo is what other screens
+        // and the exact-color registry read).
+        rush2::track1::course_logo(rush2::track_mod::base_course(e.settings) - 1, out.logo, out.logo_palette, out.logo_rgba);
+        std::vector<uint8_t> toml;
+        read_file(e, "track.toml", toml);
+        {
+            std::lock_guard lock{ sources_mutex };
+            sources[report_key(e)] = rush2::track_cache::hash(toml.data(), toml.size(), converter_version);
+        }
+        const bool ok = rush2::track1::available();
+        {
+            std::lock_guard lock{ reports_mutex };
+            reports[report_key(e)] = { {}, ok };
+        }
+        return ok;
+    }
 
     bool read_files(int index, Files& f) {
         {
@@ -676,6 +742,8 @@ void rush2::track_mod::publish_textures() {
 }
 
 bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out) {
+    // A track on an N64 course is raced as the course (rush2::track1), never converted.
+    if (Entry e; entry_of(index, e) && base_course(e.settings) != 0) return false;
     // The cached track by what the background pass (prepare) read of its files, else the files read now.
     Files f;
     bool known_now = known_files(index, f);
@@ -702,6 +770,10 @@ bool rush2::track_mod::load(int index, const std::string& prefix, Converted& out
 }
 
 void rush2::track_mod::preload(int index) {
+    if (Entry e; entry_of(index, e) && base_course(e.settings) != 0) {
+        rush2::track1::preload(base_course(e.settings), look_of(e.settings));
+        return;
+    }
     Files f;
     if (!known_files(index, f)) return;
     rush2::track_cache::preload_2049(f.cache_key);
@@ -724,6 +796,7 @@ std::string rush2::track_mod::identity(int index) {
 }
 
 bool rush2::track_mod::menu_art(int index, MenuArt& out) {
+    if (Entry e; entry_of(index, e) && base_course(e.settings) != 0) return course_track_art(e, out);
     // The art the background pass (prepare) kept, while the track's files are unchanged: no file reads.
     Files f;
     Known k;
@@ -773,6 +846,20 @@ void rush2::track_mod::prepare() {
     for (size_t i = 0; i < count; i++) {
         MenuArt art;
         menu_art(int(i), art);
+        // A track on an N64 course: the course converted in its look, ahead of its race.
+        Entry e;
+        if (entry_of(int(i), e) && base_course(e.settings) != 0) {
+            // A NIGHT version's mod may carry the PlayStation's night art for the course's buildings (the PS1 mod's
+            // n64_night_art.bin, docs/sfrush_ps1.md#n64-night-art), which the night conversion draws them in.
+            std::vector<uint8_t> art;
+            if (look_of(e.settings) == rush2::diorama_look::Look::night && read_mod_file(e, "n64_night_art.bin", art)) {
+                auto have = rush2::track1::night_art();
+                if (!have || *have != art) rush2::track1::set_night_art(std::make_shared<const std::vector<uint8_t>>(std::move(art)));
+            }
+            if (auto rom = rush2::track1::get_rom(); rom != nullptr && rush2::track1::available()) {
+                rush2::track1::prepare_look(*rom, base_course(e.settings), look_of(e.settings));
+            }
+        }
     }
     publish_textures();
 }

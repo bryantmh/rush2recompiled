@@ -142,6 +142,9 @@ namespace rush2::sfrush_ps1 {
     bool build_track(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log,
                      const N64Lanes& n64 = {}, const N64Scene& n64_embarcadero = N64Scene{});
     bool build_cars(const Disc& disc, const std::filesystem::path& assets_dir, ModFiles& out, std::string& log);
+    // The N64 NIGHT versions' buildings in the PS1's night art (n64_night_art.bin, docs/sfrush_ps1.md#n64-night-art),
+    // from assets_dir's n64_night_map.json; empty when it can't be read. build_track writes it when the N64 ROM is in.
+    std::vector<uint8_t> n64_night_art(const Disc& disc, const std::filesystem::path& assets_dir, std::string& log);
     // The track select diorama (src/sfrush_ps1/ps1_diorama.cpp) as a glb: the hand-made layout `spec` (JSON) round
     // the route (the AI path's middle, a closed loop, glTF meters as track.glb has it). look: the SNOW / NIGHT
     // version's (rush2::diorama_look::Look as int: 0 day, 1 snow, 2 night).
@@ -149,7 +152,12 @@ namespace rush2::sfrush_ps1 {
                        std::vector<uint8_t>& glb, std::string& log, int look = 0);
 
     // The game (src/sfrush_ps1/ps1_install.cpp).
+    // The Games tab's options (before recompui::config::finalize(), in its config with the other games').
+    void init_config();
     void add_games_section(rush2::ui::OptionsPage* page, std::function<void()>& refresh);
+    // The N64 Night Versions option: the mod's NIGHT versions of the N64 courses the PS1 doesn't have
+    // (docs/sfrush_ps1.md#n64-night-versions) are listed. Any thread.
+    bool n64_night_versions();
     // The launch's build pass (src/prewarm.cpp): an installed mod built by another build or from another disc is built
     // again now, on the calling thread.
     void refresh_now();
