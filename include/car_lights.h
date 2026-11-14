@@ -28,6 +28,11 @@ namespace rush2::car_lights {
     };
     // Mod car type `type`'s lamps from its .json (src/car_mods.cpp); an empty list leaves them to be found.
     void set_mod_lamps(int type, const std::vector<LampSpec>& lamps);
+
+    // Whether scene node `index` is one of the race cars' wheel particles (dust, smoke, spray) while the lamps light
+    // the view about to be drawn: its draws are then marked with gEXSetParticleLight (src/interpolation.cpp), so RT64
+    // lights each puff where it is instead of as the road behind it.
+    bool particle_node(uint32_t index);
 }
 
 #endif

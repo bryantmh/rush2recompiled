@@ -73,6 +73,7 @@
 #include "ghost.h"
 #include "rush2.h"
 #include "rush2049_rom.h"
+#include "scene_nodes.h"
 #include "track1.h"
 #include "track2049.h"
 #include "track_cache.h"
@@ -1608,6 +1609,28 @@ namespace {
         }).detach();
     }
 
+    // The race cars' wheel particles (particle_emitter_spawn_8008270C): each car's ring of 48 scene nodes (indices,
+    // s32) at +0x64 of its car record (rush2::car_types::car_states, 0x134 each; +0x124 the next one used), each
+    // thrown as a puff of dust, smoke or spray and moved by particle_spawn_explosion_8005AEA4. Marked while the lamps
+    // are on (particle_node).
+    constexpr uint32_t particle_ring = 0x64;
+    constexpr int particle_ring_size = 48;
+    std::vector<bool> particle_nodes(rush2::scene_nodes::capacity, false);
+    bool particles_lit = false;
+
+    void mark_particles(uint8_t* rdram, bool lit) {
+        std::fill(particle_nodes.begin(), particle_nodes.end(), false);
+        particles_lit = lit;
+        if (!lit) return;
+        for (int c = 0; c < max_cars; c++) {
+            const uint32_t ring = rush2::car_types::car_states + uint32_t(c) * 0x134 + particle_ring;
+            for (int k = 0; k < particle_ring_size; k++) {
+                const int32_t index = MEM_W(k * 4, (int32_t)ring);
+                if (index > 0 && uint32_t(index) < rush2::scene_nodes::capacity) particle_nodes[index] = true;
+            }
+        }
+    }
+
     int panel_level(uint8_t* rdram, int car, int panel) {
         uint32_t bits = (uint32_t)MEM_W(0, (int32_t)(car_states + uint32_t(car) * car_state_size + state_damage));
         uint32_t mask = (uint32_t)MEM_W(0, (int32_t)(panel_masks + panel * 4));
@@ -1621,6 +1644,15 @@ void rush2::car_lights::set_enabled(bool on) {
         load_cache_async();
         load_table_async();
     }
+}
+
+bool rush2::car_lights::particle_node(uint32_t index) {
+    // RUSH2_TEST_PARTICLE_LIGHT=0 (test aid): no particle marks, so the composite lights them as before, to compare.
+    static const bool marks_off = [] {
+        const char* v = std::getenv("RUSH2_TEST_PARTICLE_LIGHT");
+        return v != nullptr && v[0] == '0';
+    }();
+    return !marks_off && particles_lit && index < particle_nodes.size() && particle_nodes[index];
 }
 
 void rush2::car_lights::set_braking(int car, bool lit) {
@@ -1639,6 +1671,7 @@ extern "C" void rush2_car_lights_view(uint8_t* rdram, recomp_context* ctx) {
     if (!enabled || (int32_t)MEM_W(0, (int32_t)game_state) < 3 || !rush2::track2049::night_race(rdram)) {
         hide_all();
         for (CarState& cs : state) cs.found = false;
+        if (particles_lit) mark_particles(rdram, false);
         return;
     }
     if (block_base == 0) {
@@ -1718,4 +1751,10 @@ extern "C" void rush2_car_lights_view(uint8_t* rdram, recomp_context* ctx) {
         rush2::battle_render::place(bus_slot + b, model_name(max_cars + b).c_str(), m, pos, 0xFFFFFFFFu, -1, false, false, -0.15f);
         bs.placed = true;
     }
+
+    // The wheel particles the lamps shine on, while any lamp is lit.
+    bool any_lit = false;
+    for (const CarState& cs : state) any_lit = any_lit || cs.placed;
+    for (const CarState& bs : bus_state) any_lit = any_lit || bs.placed;
+    mark_particles(rdram, any_lit);
 }

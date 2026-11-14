@@ -421,7 +421,9 @@ ambient occlusion):
    column the next along): their average where they agree within a tenth, otherwise each weighed by how near its own
    pixel's depth is to this one's (exp(-40 x relative w gap), the nearest alone if none is near), so light doesn't
    bleed across a car's outline. The albedo
-   is estimated: scene / level (the marker's, 110 / 255), never under 0.015, so a black surface still lifts a little.
+   is estimated: scene / level (the marker's, 110 / 255), never under 0.015, so a black surface still lifts a little,
+   and never over 1 (uncapped, a car's paint or lane paint brighter than the level reflected more than all the light
+   and the cars in a beam went white).
    The light is first compressed, light / (1 + its brightest channel / 1.5), so a surface right in front of a lamp is
    lit to at most 1.5 times its albedo instead of going flat white (the beam washed the scene out without it). A
    shoulder over the brightest channel, from 0.8 or the scene's own brightest channel if higher, scales all three
@@ -430,6 +432,28 @@ ambient occlusion):
 
 The pipelines are made with the shader library at startup and the targets on a view's first lamps, so nothing hitches
 when a light first appears.
+
+### Particles in the beams
+
+Wheel dust, smoke and spray are see-through and write no depth, so the composite used to light them as the road
+behind them: that surface's light (its distance and angle to the lamp, the full beam close in) times the puff's own
+color taken for an albedo, and a puff in a beam went flat white. They are lit as a cloud instead:
+
+- **Which draws:** each race car's particles are a ring of 48 scene nodes (indices, s32) at +0x64 of its car record
+  (`rush2::car_types::car_states`, 0x134 a car, +0x124 the next one used), each thrown by
+  `particle_emitter_spawn_8008270C` (callback `particle_spawn_explosion_8005AEA4` at the state's +0x18, the node
+  index at +0x8). While any lamp is lit, `rush2_car_lights_view` marks those nodes (`rush2::car_lights::particle_node`)
+  and the scene walk's matrix hook (`rush2_interp_node_matrix`, src/interpolation.cpp) puts
+  `gEXSetParticleLight(node + 1)` after each one's G_MTX; its pop, the next node's matrix, a world polygon or the
+  view's end puts `gEXSetParticleLight(0)`. A new id starts a new draw, so each puff is a draw of its own.
+- **RT64:** a marked draw records where it is from the camera (its world transform's origin, the interpolated frame's)
+  and its view (`triangles.particle`, `particleRel`). It is held back until the view's 3D draws end (`finish3D` in
+  `submitRasterScene`), drawn after the car light composite, with `RasterParams::particleLight` set from the lamps of
+  its own view's markers: each light pass's lamp (or mirrored pair) evaluated at the puff with CarLightPS's shape,
+  falloff and window but no Lambert term or shadow march, eased as the composite eases a surface's light
+  (/ (1 + peak / 1.5)), times 0.5 (`ParticleScatter`). RasterPS adds albedo x that light to the combiner's color (the
+  albedo its color / level, at most 1) and applies the composite's shoulder, so a tan puff brightens toward a lighter
+  tan and gray smoke toward a light gray, never past white.
 
 ### Car lights GPU cost
 
@@ -468,6 +492,12 @@ texels near it as the lens).
 or not) and each change of what is lit; `RUSH2_CAR_LIGHTS_TEST=1` lights every car's tail lamps as if braking. For
 example `python tools/test_race.py 17 --cars 0 --seconds 46 --shots 40,44 --env RUSH2_CAR_LIGHTS_TEST=1` (a new build
 spends its first launch's first 30 s rebuilding caches, so shots at 40 s and later land in the race).
+
+Particles in the beams: `RUSH2_TEST_PARTICLE_LIGHT=0` leaves the particles unmarked (the composite lights them as
+the road behind, as before) to compare. The Heights night version's start is a pack kicking tire smoke and then dirt
+just ahead of the player: `python tools/test_race.py the_heights_night --drones 7 --user-settings --data tmp/pl_data
+--env RUSH2_RACE_RECORD=<absolute path> --shots 24.5,25,25.5 --seconds 29`, once with the switch and once without
+(racing starts about 22 s in on a warm launch).
 
 ## Sky fog
 

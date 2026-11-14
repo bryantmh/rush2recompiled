@@ -4382,11 +4382,11 @@ ref = "docs/functions/rush2_util.md#rush-2-util-functions"
 vram = 0x8005AEA4
 name = "particle_spawn_explosion"
 sig = "void particle_spawn_explosion(ParticleEmitter *em, s32 a1)"
-desc = "Large callback (pointer taken by particle_emitter_spawn): decodes model handles, builds rotations with math_mat_rot_xy_from_angle, uses an LCG (0x41C64E6D, 0x3039) for random particle parameters and attaches new nodes to the global list; spawns explosion debris particles. (low confidence on details)"
+desc = "Per-particle update callback (state +0x18, set by particle_emitter_spawn for every wheel puff: dust, smoke, spray): a0 = the particle state (+0x8 its scene node index, +0xC its car, +0x14 its spawn time); moves the node (its transform +0x2C etc.), uses an LCG (0x41C64E6D, 0x3039) for random parameters and re-attaches the state to the global list (node_attach_to_global_list_8005ACC8). The name is historical: it runs for every wheel particle, not only explosions (docs/graphics_effects.md#particles-in-the-beams). (details of the motion: low confidence)"
 consts = "0x41C64E6D/0x3039 = LCG multiplier/increment"
 status = "inferred"
 area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+ref = "docs/graphics_effects.md#particles-in-the-beams"
 
 [[func]]
 vram = 0x8005B7FC
@@ -8138,7 +8138,7 @@ ref = "docs/calspeed_research.md#wheel-effects"
 vram = 0x8008270C
 name = "particle_emitter_spawn"
 sig = "s32 particle_emitter_spawn(s16 car, s16 emitter, s32 a2)"
-desc = "Patched in us.toml. Throws an emitter's particles: emitters 0-3 a wheel, 4 and 5 the car's own. A wheel under speed / 4 10 throws nothing (0x8008279C); material 1 throws DUST (0x800828EC, emitter 0x8010D26C), 2 SPLASH (0x8008292C, 0x8010D28C), anything else SMOKE / SMOKE_FAST by speed. Hooked at 0x8008277C for converted tracks' rules (src/surface_fx.cpp). Car preview ids (car select: id = player * 121 + type, was * 22) index the race per-car arrays, which move to 242-entry copies from 0x80178000 (include/car_types.h, tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 121."
+desc = "Patched in us.toml. Throws an emitter's particles: emitters 0-3 a wheel, 4 and 5 the car's own. A wheel under speed / 4 10 throws nothing (0x8008279C); material 1 throws DUST (0x800828EC, emitter 0x8010D26C), 2 SPLASH (0x8008292C, 0x8010D28C), anything else SMOKE / SMOKE_FAST by speed. Hooked at 0x8008277C for converted tracks' rules (src/surface_fx.cpp). Car preview ids (car select: id = player * 121 + type, was * 22) index the race per-car arrays, which move to 242-entry copies from 0x80178000 (include/car_types.h, tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 121. Particle nodes: a ring of 48 scene node indices (s32) at +0x64 of the car record (car_types car_states, 0x134 a car; +0x124 the next slot, wraps at 0x30); the spawned state (get_state_8005E7EC kind 4) gets +0x8 the node index, +0xC the car, +0x18 the per-particle callback particle_spawn_explosion_8005AEA4. Car Lights marks those nodes (docs/graphics_effects.md#particles-in-the-beams)."
 status = "verified"
 ported = true
 rush2049 = [0x8008EA10]

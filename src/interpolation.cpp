@@ -24,6 +24,7 @@
 #include "recomp.h"
 #include "rush2.h"
 #include "calspeed_billboards.h"
+#include "car_lights.h"
 
 #define F3DEX_GBI_2
 #include "rt64_extended_gbi.h"
@@ -174,6 +175,23 @@ namespace {
     };
     NodeColor node_colors[96];
     int node_color_count = 0;
+
+    // The car lights' wheel particles (rush2::car_lights::particle_node): each one's draws are marked with
+    // gEXSetParticleLight (its node index + 1, so each is a draw of its own that RT64 lights where it is), ended at its
+    // pop, at the next node's matrix, at a world polygon or at the view's end, whichever comes first.
+    bool particle_marked = false;
+
+    // Appends the particle mark for node `index` (or the end of one) to cmds when it changes.
+    void particle_mark(GfxCommand* cmds, uint32_t& count, uint32_t index, bool particle) {
+        if (particle) {
+            gEXSetParticleLight(&cmds[count++], (index & 0x7FFF) + 1);
+            particle_marked = true;
+        }
+        else if (particle_marked) {
+            gEXSetParticleLight(&cmds[count++], 0);
+            particle_marked = false;
+        }
+    }
 
     // Nodes drawn under another node's ID (rush2::interpolation_node_alias): a custom track's flip-book frames, one
     // shown at a time on a shared pivot. A frame shown after being hidden has no group in RT64's previous frame to
@@ -518,12 +536,14 @@ void rush2_interp_poly(uint8_t* rdram, recomp_context* ctx) {
     state.pos = pos;
     state.count = count;
 
-    GfxCommand cmds[4];
+    GfxCommand cmds[5];
     cmds[0] = read_command(rdram, cmd_addr);
     object_group(&cmds[1], poly_id(cur_view, views[cur_view].gen + state.gen, slot), G_EX_NOPUSH, G_EX_COMPONENT_INTERPOLATE);
     cmds[3].values.word0 = G_MTX_LOAD_MODELVIEW_W0;
     cmds[3].values.word1 = views[cur_view].root_mtx;
-    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, 4));
+    uint32_t cmd_count = 4;
+    particle_mark(cmds, cmd_count, 0, false);
+    replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, cmd_count));
 }
 
 // func_8007C624 at 0x8007D740, after the G_VTX of a world-space polygon is allocated at $v0. $fp = polygon.
@@ -687,14 +707,16 @@ void rush2_interp_poly_end(uint8_t* rdram, recomp_context* ctx) {
 
 // func_8007C624 exit. Resets the group IDs so later draws (HUD, other views) don't inherit them.
 void rush2_interp_view_end(uint8_t* rdram, recomp_context* ctx) {
-    GfxCommand cmds[4];
+    GfxCommand cmds[5];
     gEXMatrixGroupSimple(&cmds[0], G_EX_ID_AUTO, G_EX_NOPUSH, G_MTX_MODELVIEW_EX,
         G_EX_COMPONENT_AUTO, G_EX_COMPONENT_AUTO, G_EX_COMPONENT_AUTO, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO,
         G_EX_ORDER_AUTO, G_EX_EDIT_NONE, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO);
     gEXMatrixGroupSimple(&cmds[2], G_EX_ID_AUTO, G_EX_NOPUSH, G_MTX_PROJECTION_EX,
         G_EX_COMPONENT_AUTO, G_EX_COMPONENT_AUTO, G_EX_COMPONENT_AUTO, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO,
         G_EX_ORDER_AUTO, G_EX_EDIT_NONE, G_EX_COMPONENT_SKIP, G_EX_COMPONENT_AUTO);
-    uint32_t side_dl = write_side_dl(rdram, cmds, 4);
+    uint32_t count = 4;
+    particle_mark(cmds, count, 0, false);
+    uint32_t side_dl = write_side_dl(rdram, cmds, count);
 
     uint32_t head = (uint32_t)MEM_W(0, (int32_t)main_dl_head);
     replace_with_call(rdram, head, side_dl);
@@ -805,7 +827,13 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     }
 
     if (index >= max_nodes || depth < 0 || depth >= max_depth) {
-        if (mtx_count == 2) {
+        if (particle_marked) {
+            GfxCommand ended[3] = { mtx[0], mtx[1] };
+            uint32_t count = mtx_count;
+            particle_mark(ended, count, 0, false);
+            replace_with_call(rdram, cmd_addr, write_side_dl(rdram, ended, count));
+        }
+        else if (mtx_count == 2) {
             replace_with_call(rdram, cmd_addr, write_side_dl(rdram, mtx, mtx_count));
         }
         return;
@@ -835,7 +863,7 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
     uint32_t gen = level_base[depth] + state.gen;
     level_current[depth] = gen;
 
-    GfxCommand cmds[10];
+    GfxCommand cmds[11];
     uint32_t push = (params ^ 1) & 1;
     uint32_t cmd_count = 0;
 
@@ -880,6 +908,8 @@ void rush2_interp_node_matrix(uint8_t* rdram, recomp_context* ctx) {
             break;
         }
     }
+    const uint32_t own_index = ((uint32_t)node - node_pool) / node_size;
+    particle_mark(cmds, cmd_count, own_index, rush2::car_lights::particle_node(own_index));
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, cmd_count));
 }
 
@@ -892,7 +922,7 @@ void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx) {
     }
 
     uint32_t cmd_addr = (uint32_t)MEM_W(0x10C, ctx->r29) - 8;
-    GfxCommand cmds[6];
+    GfxCommand cmds[7];
     uint32_t cmd_count = 2;
     cmds[0] = read_command(rdram, cmd_addr);
     gEXPopMatrixGroup(&cmds[1], G_MTX_MODELVIEW_EX);
@@ -906,6 +936,7 @@ void rush2_interp_node_pop(uint8_t* rdram, recomp_context* ctx) {
         cmds[5].values.word1 = view_lookat[cur_view];
         cmd_count = 6;
     }
+    particle_mark(cmds, cmd_count, 0, false);
     replace_with_call(rdram, cmd_addr, write_side_dl(rdram, cmds, cmd_count));
 }
 
