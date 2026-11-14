@@ -150,6 +150,44 @@ namespace {
         bool empty() const { return order.empty(); }
     };
 
+    // One triangle of a primitive: its corners' attributes (colors empty when the primitive has none).
+    struct SkyTri {
+        int material = 0;
+        std::array<V3, 3> v, n;
+        std::array<V2, 3> uv;
+        std::array<std::array<double, 4>, 3> col{};
+        bool has_col = false;
+    };
+
+    // The parts of t at or above height y (glTF space), as 0-2 triangles with their attributes cut along the edges.
+    std::vector<SkyTri> keep_above(const SkyTri& t, double y) {
+        struct C { V3 v, n; V2 uv; std::array<double, 4> col; };
+        std::vector<C> in, out;
+        for (int k = 0; k < 3; k++) in.push_back({ t.v[k], t.n[k], t.uv[k], t.col[k] });
+        for (size_t i = 0; i < in.size(); i++) {
+            const C& a = in[i];
+            const C& b = in[(i + 1) % in.size()];
+            bool ka = a.v[1] >= y, kb = b.v[1] >= y;
+            if (ka) out.push_back(a);
+            if (ka != kb) {
+                double f = (y - a.v[1]) / (b.v[1] - a.v[1]);
+                C c;
+                for (int j = 0; j < 3; j++) { c.v[j] = a.v[j] + (b.v[j] - a.v[j]) * f; c.n[j] = a.n[j] + (b.n[j] - a.n[j]) * f; }
+                for (int j = 0; j < 2; j++) c.uv[j] = a.uv[j] + (b.uv[j] - a.uv[j]) * f;
+                for (int j = 0; j < 4; j++) c.col[j] = a.col[j] + (b.col[j] - a.col[j]) * f;
+                out.push_back(c);
+            }
+        }
+        std::vector<SkyTri> res;
+        for (size_t i = 1; i + 1 < out.size(); i++) {
+            SkyTri r = t;
+            const C* c[3] = { &out[0], &out[i], &out[i + 1] };
+            for (int k = 0; k < 3; k++) { r.v[k] = c[k]->v; r.n[k] = c[k]->n; r.uv[k] = c[k]->uv; r.col[k] = c[k]->col; }
+            res.push_back(r);
+        }
+        return res;
+    }
+
     // ------------------------------------------------------------------------------------------ 2D geometry
     using namespace Clipper2Lib;
     constexpr double fine = 4096.0;            // Clipper units per foot for the spline road's cuts
@@ -1893,6 +1931,59 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
             return 2;
         };
         std::stable_sort(list.begin(), list.end(), [&](const auto& a, const auto& b) { return layer(a) < layer(b); });
+        if (rock) {
+            // The arcade draws its distant land and cloud strips with depth. Drawn without it a material at a time,
+            // Embarcadero's Marin hills (MARINTX2) painted over the nearer ROC2MAR2 hills (a straight cut down the
+            // hillside), the far skyline strip (CLOUDS2) over the hills' end (a diagonal cut), and the hills' feet, below
+            // the water, over the bay. So they are drawn back to front, triangle by triangle (by their
+            // middle's distance across the ground: the sky is always centered on the camera), as runs of one
+            // material (track_mod_convert.cpp keeps the order), and the land is cut off at the water's height.
+            double water_y = -std::numeric_limits<double>::infinity();
+            for (const Glb::Prim& p : list) {
+                if (layer(p) != 1) continue;
+                for (const V3& v : p.verts) water_y = std::max(water_y, v[1]);
+            }
+            std::vector<Glb::Prim> sorted;
+            std::vector<std::pair<double, SkyTri>> tris;
+            for (const Glb::Prim& p : list) {
+                if (layer(p) < 2) { sorted.push_back(p); continue; }
+                for (const auto& tr : p.tris) {
+                    SkyTri t;
+                    t.material = p.material;
+                    t.has_col = !p.colors.empty();
+                    for (int k = 0; k < 3; k++) {
+                        t.v[k] = p.verts[tr[k]];
+                        t.n[k] = p.normals[tr[k]];
+                        t.uv[k] = p.uvs[tr[k]];
+                        if (t.has_col) t.col[k] = p.colors[tr[k]];
+                    }
+                    std::vector<SkyTri> kept = layer(p) == 2 && std::isfinite(water_y) ? keep_above(t, water_y) : std::vector<SkyTri>{ t };
+                    for (const SkyTri& k : kept) {
+                        double nearest = std::numeric_limits<double>::infinity();
+                        for (const V3& v : k.v) nearest = std::min(nearest, std::hypot(v[0], v[2]));
+                        tris.push_back({ nearest, k });
+                    }
+                }
+            }
+            std::stable_sort(tris.begin(), tris.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (const auto& [d, t] : tris) {
+                if (sorted.empty() || sorted.back().material != t.material || layer(sorted.back()) < 2) {
+                    Glb::Prim p;
+                    p.material = t.material;
+                    sorted.push_back(p);
+                }
+                Glb::Prim& p = sorted.back();
+                uint32_t base = uint32_t(p.verts.size());
+                for (int k = 0; k < 3; k++) {
+                    p.verts.push_back(t.v[k]);
+                    p.normals.push_back(t.n[k]);
+                    p.uvs.push_back(t.uv[k]);
+                    if (t.has_col) p.colors.push_back(t.col[k]);
+                }
+                p.tris.push_back({ base, base + 1, base + 2 });
+            }
+            list = std::move(sorted);
+        }
         g.textured_mesh("SKY", list);
     }
     if (cancelled && cancelled()) return false;

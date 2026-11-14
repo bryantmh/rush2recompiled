@@ -4051,8 +4051,30 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         m.cmd(0xFC121824, 0xFF33FFFF);          // TEXEL0 x SHADE
         m.cmd(0xD9FEFFFE, 0x00000000);          // G_ZBUFFER, G_FOG off
         m.cmd(0xD7000002, 0xFFFFFFFF);
-        emit_mesh(stris, all, used_materials, draw_materials, Vec3{}, unit,
-                  [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); }, m, sky_opaque, sky_cutout, sky_blend, false);
+        auto sky_load = [&](MeshList& ml, size_t mi) { ml.cmd(0xDE000000, load_lists[mi]); };
+        // Drawn without depth, so the order is what covers what. A sky whose materials each come as one run of
+        // triangles is drawn by material, in the order they first appear (docs/custom_tracks.md#your-own-sky). One
+        // that comes back to a material after another (the SF Rush arcade's distant land and cloud strips, sorted back
+        // to front by src/arcade2049/arcade_track.cpp) is drawn in its triangle order, a run of one material at a time.
+        std::vector<std::vector<int>> runs;
+        std::vector<int> run_materials;
+        bool interleaved = false;
+        for (size_t i = 0; i < stris.size(); i++) {
+            if (runs.empty() || stris[i].material != stris[size_t(runs.back().front())].material) {
+                if (std::find(run_materials.begin(), run_materials.end(), stris[i].material) != run_materials.end()) interleaved = true;
+                run_materials.push_back(stris[i].material);
+                runs.emplace_back();
+            }
+            runs.back().push_back(int(i));
+        }
+        if (!interleaved) {
+            emit_mesh(stris, all, used_materials, draw_materials, Vec3{}, unit, sky_load, m, sky_opaque, sky_cutout, sky_blend, false);
+        }
+        else {
+            for (const std::vector<int>& run : runs) {
+                emit_mesh(stris, run, used_materials, draw_materials, Vec3{}, unit, sky_load, m, sky_opaque, sky_cutout, sky_blend, false);
+            }
+        }
         m.cmd(0xD9FFFFFF, 0x00010001);          // G_ZBUFFER, G_FOG back on
         m.cmd(0xE3000A01, 0x00100000);          // 2-cycle
         m.cmd(combine[0], combine[1]);

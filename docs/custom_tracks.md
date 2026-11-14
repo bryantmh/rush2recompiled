@@ -540,7 +540,9 @@ To model the sky yourself:
    which darkens its sides; paint it white to keep a texture's own colors.
 4. **Add stars, a sun or clouds** as separate faces just inside the dome, in a material with Alpha Clip (cutouts).
    The sky is drawn without depth, in the order its materials first appear in the file, so keep the dome's material
-   first and the details' after it, or the dome paints over them.
+   first and the details' after it, or the dome paints over them. (A sky that uses a material again after another
+   one is drawn in its exact triangle order instead; the converted SF Rush arcade tracks use that to draw their
+   distant hills back to front.)
 5. **Name the object `SKY`.** Several objects named `SKY`, `SKY.001`, ... are joined into one sky.
 
 The sky is drawn behind everything and isn't fogged, as Rush 2049's skies are. The report gives its triangle count

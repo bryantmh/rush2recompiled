@@ -201,9 +201,10 @@ def sample(img, ws, wt, u, v, bilinear):
     return top * (1 - fy) + bot * fy
 
 
-def render_eye(tris, texs, eye, at, fov, width, height, sky, cull=0, bilinear=False):
+def render_eye(tris, texs, eye, at, fov, width, height, sky, cull=0, bilinear=False, depth_test=True):
     """Perspective view from eye toward at (y up), perspective-correct textures, alpha-tested like render(). cull: 1
-    leaves out triangles wound counterclockwise on screen, -1 clockwise (the game culls back faces), 0 none."""
+    leaves out triangles wound counterclockwise on screen, -1 clockwise (the game culls back faces), 0 none.
+    depth_test=False draws every triangle over the last in file order, as the game draws a track's SKY mesh."""
     P, U, C, T = tris
     eye, at = np.array(eye, np.float64), np.array(at, np.float64)
     f = at - eye; f /= np.linalg.norm(f)
@@ -242,7 +243,7 @@ def render_eye(tris, texs, eye, at, fov, width, height, sky, cull=0, bilinear=Fa
             iz = w0 / z[0] + w1 / z[1] + w2 / z[2]
             zz = 1 / np.maximum(iz, 1e-12)
             sub = depth[miny:maxy, minx:maxx]
-            vis = inside & (zz < sub)
+            vis = inside & (zz < sub) if depth_test else inside.copy()
             if not vis.any():
                 continue
             def attr(k):
@@ -270,6 +271,7 @@ def main():
     ap.add_argument('--max-edge', type=float, default=0)
     ap.add_argument('--cull', type=int, default=0, choices=[-1, 0, 1])
     ap.add_argument('--bilinear', action='store_true')
+    ap.add_argument('--no-depth', action='store_true', help='with --eye: draw in file order without a depth test')
     a = ap.parse_args()
     gltf, bin_ = load(a.glb)
     tris = triangles(gltf, bin_, a.node, a.scene)
@@ -281,7 +283,7 @@ def main():
         print('nothing to draw'); return
     texs = textures(gltf, bin_)
     if a.eye:
-        render_eye(tris, texs, a.eye, a.at, a.fov, a.width, a.height, a.sky, a.cull, a.bilinear).save(a.out)
+        render_eye(tris, texs, a.eye, a.at, a.fov, a.width, a.height, a.sky, a.cull, a.bilinear, not a.no_depth).save(a.out)
         print(f'{len(tris[0])} triangles, {len(texs)} textures -> {a.out}')
         return
     panels = [render(tris, texs, a.yaw + i * 360 / a.views, a.pitch, a.size) for i in range(a.views)]

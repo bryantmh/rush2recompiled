@@ -93,14 +93,30 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   eight panels about 28,000 ft out, plus `CLOUDS`. `SKYSIDE`, `SKYBOTT` and `SKYSCR` are skyscraper walls. 2049's
   far-object rules apply with a 12,000 ft radius for all but water (2049: 9,000): Market's road and trees reach 9,138
   ft and Embarcadero's signs 9,406, while the backdrops (Market's hills `TP_` 12,190-22,743 ft, Embarcadero's Marin hills
-  and bay 16,440-18,698, The Rock's distant land `APANS_01`-`16`) go to the sky. Sky draw order: dome, water, every
-  other sky object (distant land), clouds. An object is sky by its textures only when every triangle has a sky
+  and bay 16,440-18,698, The Rock's distant land `APANS_01`-`16`) go to the sky. Sky draw order: dome, water, then the
+  distant land and cloud strips back to front, triangle by triangle (2026-11-13). The sky has no depth test, and drawn a
+  material at a time Embarcadero's far skyline strip (`CLOUDS2`) painted over the Marin hills' tips and a hill's
+  cliff face went behind its own slope (the arcade draws them with depth). Each triangle's key is its nearest corner's
+  distance across the ground (the sky is always centered on the camera; the triangle's middle got the cliff wrong),
+  and land below the water's height is cut off so the bay stays in front of the hills' feet. The order is kept by
+  the mod converter, which draws a sky that comes back to a material in its triangle order
+  (`track_mod_convert.cpp`; skies whose materials each come as one run are drawn as before). Checked against a
+  depth-tested render all the way round with `tools/glb_view.py --no-depth` (draws a glb in file order, as the game
+  draws a SKY mesh). An object is sky by its textures only when every triangle has a sky
   texture: Market's TEMPL1966 (a block of road and shop fronts at about (-5400, 0) with four `SKYTOP1` triangles under
   the road) and TEMPL880 (concrete and side road at (-2300, 2500) with a small box of `SKY00A`-`03A` and `SKYTOP1`)
   were taken whole into the sky and drew floating overhead, leaving a hole in the street (2026-11-07); they stay
   scenery, their sky panels drawn in place. Downtown, The Heights and Sunset have no dome in their data (nor in
   `STATIC` or `REFLECT`): they get `sky = "clouds"`, the N64 version's dome. All seven take SF Rush's fog color
   0x9696BE (`fog_color`, as the N64 port's).
+- **Far scenery and the far plane (2026-11-13):** Embarcadero's Marin hills seen from the waterfront are not sky but
+  three flat shore panels in the scenery (`SHORE2F`, `SHORE3_2`, `SHORE3_3`, 1,500-2,100 m out, up to 9 degrees up).
+  At FOG 1 these tracks have no fog (`rush2::sky_fog::fog_removed`), and the far plane (2,000 ft x the Draw Distance)
+  sliced the panels along a straight line that moved as the camera turned, leaving a wedge of sky under the cut; at
+  the Original draw distance they were gone. On a converted course without fog the reach is now the whole course
+  (`reach_scale` in src/draw_distance.cpp: far plane, object cull distance, float matrices and every section at 40,000
+  ft), as the arcade draws it; LOD keeps the Draw Distance setting. Checked in game at two headings 10 degrees apart
+  and at the Original draw distance (`RUSH2_CS_PLACE=-500,3,-312,-0.766,-0.643,0,1`, backward grid facing the bay).
 - **Water:** `WATER2` sheets become `COL_WATER` as on 2049, but only at sea level (every corner at 5 ft or below: the
   sheets lie at -10 to 0 ft): a raised one on The Rock (61-64 ft) has lane points passing under it. `WATER2A` stays
   scenery as on 2049. Golden Gate 45, Embarcadero 356, The Rock 447 water triangles.
