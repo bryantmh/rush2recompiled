@@ -192,6 +192,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_data.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_glb.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_track.cpp
+    ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_seams.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_install.cpp
     ${CMAKE_SOURCE_DIR}/src/arcade2049/arcade_checkpoints.cpp

@@ -145,6 +145,32 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   0x1402C4930 with that flag at the object record's +4) is not the road: only 7 of Golden Gate's 51 road objects
   are in it.
 
+## Cracks and curbs
+
+The Rock's models leave holes the sky shows through (reported 2026-11-13 on Embarcadero, under the overpass on the
+climb at about (-1180, 143, 2130-2520) game ft). They are in the arcade data itself: the converted glb's vertices match
+`objects.rom` to 1e-5 and keep every triangle, and the game's 1/16 ft vertex rounding added 0-3 pixels in offline
+renders. Embarcadero (TRACK2), counted on its 28,407 placed triangles:
+- **Curbs with no face:** the sidewalks (SIDWOKBRIK) rise up to 0.5 ft over the road (6LNROAD3) with nothing under
+  their edge, so a wedge of sky runs along the curb.
+- **T-junctions:** 3,165 open edges have another piece's corner on them (the road and sidewalks worst); drawn, they
+  sparkle.
+- **Seams:** 1,151 open edges miss the edge beside them by 0.002-0.2 ft (the ramp top at z 2220, 0.16-0.2 ft).
+
+`close_scenery_seams` (src/arcade2049/arcade_seams.cpp), on the opaque TRACK faces of the Rock tracks only (Rush
+2049's arcade tracks are left as they are):
+1. A vertical face, both sides, with the upper face's texture, between two open edges of ground faces on one line
+   seen from above (0.05 ft), on opposite sides of it, 0.04-1 ft apart in height, over the 0.5 ft or more they share.
+2. Open corners within 0.2 ft snap together, unless they are corners of one triangle (then 0.04 ft), so thin strips
+   and open pole ends keep their width. "Same object" can't be the test: shared corners join the whole track.
+3. An open edge with an open corner on it (0.04 ft, or 0.2 ft when the corner is outside the edge's triangle and has
+   an open edge of its own alongside) is split there at the corner's position; the triangle is redrawn as a fan round
+   its center.
+
+Embarcadero: 416 curb faces, 602 corners snapped, 1,598 edges split (26,771 -> 32,931 triangles); opaque T-junction
+edges 3,623 -> 18, seams under 0.16 ft 550 -> 53. What is left is mostly 0.4-0.8 ft apart: separate features, not
+cracks. Offline renders along the lap (sky in magenta, tools/glb_view.py --eye ... --cull 1) showed no new hole.
+
 ## Breakables
 
 The arcade draws N64 SF Rush's knock-over objects as plain scenery that stands still: its cone, parking meter and

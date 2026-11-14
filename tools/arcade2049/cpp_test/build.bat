@@ -15,7 +15,7 @@ call tools\vsenv.bat clang-cl /nologo /O2 /std:c++20 /EHsc -march=nehalem -Wno-e
     /I include /I "%SHIM%\shim" /I %MINIZ% /I lib\N64ModernRuntime\thirdparty /I lib\hqx /I lib\rt64\src ^
     /I lib\rt64\src\contrib /I "%CLIP%\include" /I lib\earcut\include ^
     tools\arcade2049\cpp_test\main.cpp src\arcade2049\arcade_data.cpp src\arcade2049\arcade_glb.cpp ^
-    src\arcade2049\arcade_track.cpp src\arcade2049\arcade_cars.cpp src\texture_upscale_images.cpp ^
+    src\arcade2049\arcade_track.cpp src\arcade2049\arcade_seams.cpp src\arcade2049\arcade_cars.cpp src\texture_upscale_images.cpp ^
     "%CLIP%\src\clipper.engine.cpp" "%CLIP%\src\clipper.offset.cpp" "%CLIP%\src\clipper.rectclip.cpp" ^
     "%SHIM%\inflate_shim.cpp" lib\hqx\hq2x.c lib\hqx\hq4x.c ^
     %MINIZ%\miniz.c %MINIZ%\miniz_tinfl.c %MINIZ%\miniz_tdef.c %MINIZ%\miniz_zip.c ^

@@ -208,6 +208,12 @@ namespace rush2::arcade2049 {
         int node(nlohmann::json n, const std::optional<Trs>& trs);
     };
 
+    // SF Rush arcade scenery (glTF prims, one per material): adds the missing curb faces and closes near-miss seams and
+    // T-junctions between opaque faces (arcade_seams.cpp, docs/sfrush_arcade.md#cracks-and-curbs). opaque(material)
+    // says which materials take part; one summary line goes to report.
+    std::vector<Glb::Prim> close_scenery_seams(const std::vector<Glb::Prim>& prims, const std::function<bool(int)>& opaque,
+                                               std::vector<std::string>& report);
+
     // An Empty at a checkpoint (game pos, game direction, radius ft): its -Z along the direction, Y up, X scaled to
     // the half width in meters. Column major (stock_track_glb.py gate_matrix).
     std::array<double, 16> gate_matrix(const V3& pos, const V3& direction, double radius);

@@ -1779,7 +1779,13 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         size_t n = add_tris(is_sky ? sky : scenery, lod, V, is_sky ? 0.0 : max_edge);
         tri_count += is_sky ? 0 : n;
     }
-    g.textured_mesh("TRACK", scenery.list());
+    if (rock) {
+        // The Rock's models leave cracks (curbs with no face under their edge, T-junctions, seams of up to 0.2 ft):
+        // closed here (docs/sfrush_arcade.md#cracks-and-curbs). Rush 2049's arcade tracks are left as they are.
+        auto opaque = [&](int m) { return !g.js["materials"][size_t(m)].contains("alphaMode"); };
+        g.textured_mesh("TRACK", close_scenery_seams(scenery.list(), opaque, report));
+    }
+    else g.textured_mesh("TRACK", scenery.list());
     if (!banner_prims.empty()) {
         // CHKPNT: CHKPOINT's image in a material of its own (the other checkpoint banners keep theirs); FINISH at the
         // same size (Market's is 128 x 32 against CHKPOINT's 256 x 64), so the swap keeps the faces' coordinates.
