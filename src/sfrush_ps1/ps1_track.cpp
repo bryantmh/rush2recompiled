@@ -66,7 +66,10 @@ namespace {
         uint32_t page_loader, clut_loader;   // docs/sfrush_ps1.md#textures
         uint32_t tex_table;                  // func_800369B8: 0x800A7478 for track index 1, 0x800A77C0 for the others
         uint32_t banner_id_insn, banner_alt_insn;   // track_draw_chunks' finish banner swap (addiu id, lw the other)
-        uint32_t gate_counts, gate_sectors, gate_first, gate_times;   // checkpoint_test / checkpoint_passed's tables
+        // checkpoint_test / checkpoint_passed's tables (docs/sfrush_ps1.md#checkpoints): sector counts, the forward
+        // sector lists (where on its plane each gate is), first indices, and the gates' times (research only: the race
+        // time model sets the clock).
+        uint32_t gate_counts, gate_sectors, gate_first, gate_times;
         uint32_t start_insn;        // the race setup's forward start time (0x80015D60: addiu $v0, seconds)
         uint32_t bonus_insn;        // checkpoint_passed's extra on the first two gates (track 4 forward), 0: none
         uint32_t sections;          // track_draw_chunks' section table (32 bytes each: +0x18, +0x1C visible lists)
@@ -84,7 +87,8 @@ namespace {
         { 2, "embarcadero", "Embarcadero", "sfrush:embarcadero", false, 0x80038644, 0x8003AF18, 0x800A7478, 0x8004459C,
           0x800445AC, 0x800B2B08, 0x800AA394, 0x800B2B10, 0x800B2AE0, 0x80015DCC, 0, 0x800A0180, { 0x82, 0x83 }, 0x800A55B4,
           0 },
-        // Track 3's gate sectors forward (0x800AA3AC backward, gp+0x4C set).
+        // Track 3's gate sectors 0x800AA3BC (checkpoint_test 0x80054760 picks it or 0x800AA3AC by 0x800B271C; they
+        // differ at gate 0 only, box 0x3D against 0x00: the AI path crosses the finish plane in 0x3D).
         { 3, "market", "Market", "sfrush:market", false, 0x80039048, 0x8003B990, 0x800A77C0, 0x800445DC, 0x800445EC,
           0x800AA3A0, 0x800AA3BC, 0x800AA3CC, 0x800AA37C, 0x80015DA8, 0, 0x800A2798, { 0, 0 }, 0, 0 },
         { 4, "chinatown", "Chinatown", nullptr, true, 0x80039A88, 0x8003C408, 0x800A77C0, 0x80044628, 0x80044638,
@@ -2957,18 +2961,26 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                speed_attr(lane_speed[size_t(s)]));
     }
 
-    // Gates: TRACK<n>.CPF's four planes (s32 nx, ny, nz, d; 16384 = 1, the path's 0.1 ft units: n . (x, height, y) =
-    // d). Plane 0 is the finish line (docs/sfrush_ps1.md#checkpoints).
+    // Gates: TRACK<n>.CPF's planes, one a gate (s32 c0, c1, c2, d: c0 x + c1 height + c2 y, 0.1 ft, against d): 5 on
+    // Golden Gate, 6 Embarcadero, 9 Market, 4 Chinatown. Plane 0 is the finish line (docs/sfrush_ps1.md#checkpoints).
     std::vector<uint8_t> cpf;
     if (!disc.read("COLLDAT" + t + "/TRACK" + t + ".CPF", cpf) || cpf.size() < 64) {
         log += "the checkpoints couldn't be read\n";
         return false;
     }
+    std::vector<std::array<double, 4>> planes;
+    for (size_t o = 0; o + 16 <= cpf.size(); o += 16) {
+        const uint8_t* r = &cpf[o];
+        planes.push_back({ double(s32(r)), double(s32(r + 4)), double(s32(r + 8)), double(s32(r + 12)) });
+    }
+    // Market's gate 5 (box 0x27, its only one): checkpoint_test (0x800548F4-0x80054A34) tests plane 5's n . p against
+    // 0x4BC8000 there instead (forward: passed when n . p > 0x4BC8000; backward: when not over 0x4BC7FFF), passed
+    // the other way: the line y = 485 ft, not CPF's y = -6.3 ft. As a plane passed forward when below: -n . p < -0x4BC8000.
+    if (tr.n == 3 && planes.size() > 5) planes[5] = { 0.0, 0.0, -16384.0, -double(0x4BC8000) };
     auto plane_side = [&](int k, const V3& p) {
-        const uint8_t* r = &cpf[16 * k];
+        const auto& c = planes[size_t(k)];
         // Game (x, z) = PS1 (y, x); 0.1 ft.
-        double v = s32(r) / 16384.0 * p[2] * 10.0 + s32(r + 8) / 16384.0 * p[0] * 10.0 + s32(r + 4) / 16384.0 * -p[1] * 10.0;
-        return v - s32(r + 12) / 16384.0;
+        return (c[0] * p[2] * 10.0 + c[2] * p[0] * 10.0 + c[1] * -p[1] * 10.0 - c[3]) / 16384.0;
     };
     // The PS1's test (func_80054630, checkpoint_test): a car at gate k (car +0x300) passes it when n . p < d while its
     // sector (car +0x2FC, func_800554F0: the last of COLLDAT<n>/BOUNDS.DAT's boxes, s32 x min, x max, y min, y max in
@@ -3021,7 +3033,8 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     gates.push_back({ "FINISH", finish });
     std::vector<int> gate_plane = { 0 };
     size_t at = finish;
-    for (int k = 1; k < 4; k++) {
+    const int plane_count = int(planes.size());
+    for (int k = 1; k < plane_count; k++) {
         size_t found = m;
         for (size_t s = 1; s < m && found == m; s++) {
             size_t i = (at + s) % m;
@@ -3039,10 +3052,11 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
     // A run-in circuit: the PS1's finish plane is crossed only on the run-in (the toll plaza; the loop never comes
     // back through it, so a PS1 car passes it once), so it is a checkpoint there, as on the N64's Golden Gate, whose
     // course this is: its lap runs START (the bridge), the toll plaza, two checkpoints round the loop and FINISH at the
-    // PS1's gate 3 (docs/sfrush_arcade.md: the arcade version's gates, from the N64's, stand at the PS1's gates). The
-    // loop start (where the path's end comes back beside its run-in, a checkpoint as a run-in circuit needs:
+    // PS1's gate 3 (docs/sfrush_arcade.md: the arcade version's gates, from the N64's, stand at the PS1's gates; the
+    // PS1 counts its laps there too, checkpoint_test 0x800546C8), and gate 4 a checkpoint after the finish. The loop
+    // start (where the path's end comes back beside its run-in, a checkpoint as a run-in circuit needs:
     // docs/custom_tracks.md#run-in-circuits) is the path point nearest the end, short of the end's own stretch.
-    if (run_in && gates.size() == 4) {
+    if (run_in && gates.size() == 5) {
         size_t loop_start = m;
         double best = 1e30;
         for (size_t i = finish; i < m / 2; i++) {
@@ -3053,10 +3067,10 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             log += "the run-in's loop start couldn't be placed\n";
             return false;
         }
-        const size_t toll = finish, g1 = gates[1].second, g2 = gates[2].second, g3 = gates[3].second;
+        const size_t toll = finish, g1 = gates[1].second, g2 = gates[2].second, g3 = gates[3].second, g4 = gates[4].second;
         gates = { { "CHECKPOINT_1", toll }, { "CHECKPOINT_2", loop_start }, { "CHECKPOINT_3", g1 }, { "CHECKPOINT_4", g2 },
-                  { "FINISH", g3 } };
-        gate_plane = { 0, -1, 1, 2, 3 };
+                  { "FINISH", g3 }, { "CHECKPOINT_5", g4 } };
+        gate_plane = { 0, -1, 1, 2, 3, 4 };
         finish = g3;
     }
     else if (run_in) {
@@ -3073,8 +3087,136 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         }
         report.push_back(at_points + " of " + std::to_string(m));
     }
-    // Each gate as wide as the PS1's: its plane across its sector's box (the whole road, 120-178 ft on track 4; the
-    // corridor between the AI lines is narrower, and a car outside it would miss the gate), at the path's height.
+    // Each gate across the whole road where the AI path crosses its plane. From that point the plane's line is walked
+    // 1 ft at a time each way over the floor (ROAD, DIRT, and VERGE grass: a median or a shoulder), each step within
+    // 4 ft of the last one's height, until a wall, a drop, the floor's end or the end of the gate's PS1 sector boxes
+    // (the gate's own stretch: at a crossroads the line runs on down the cross street); grass running on 40 ft past the
+    // last road ends it too. The road (ROAD or DIRT) reached furthest each way, 15 ft to spare for a car on the
+    // shoulder (within the boxes), is the gate's end: the marker sits midway between the two ends and is
+    // as wide as they are apart, so Rush 2's gate test (func_800A1468: the line crossed within the marker's half width
+    // of it) counts a car anywhere across the road.
+    // Before, a gate spanned its PS1 sector box or the AI lanes where the path crosses, and on a road wider than that a
+    // car near the edge missed it, and every gate after it (GitHub issue 68).
+    struct FloorTri { V3 a, b, c; bool road; };
+    std::vector<FloorTri> floor_tris;
+    for (const Ground& gr : grounds) {
+        int s = gr.flags & 0x18;
+        if (s == 0x18) continue;     // water
+        for (int k = 0; k < gr.tri_count; k++) {
+            floor_tris.push_back({ gr.p[size_t(gr.tris[k][0])], gr.p[size_t(gr.tris[k][1])], gr.p[size_t(gr.tris[k][2])], s != 0x10 });
+        }
+    }
+    constexpr double floor_cell = 20.0;
+    std::map<std::pair<int, int>, std::vector<size_t>> floor_grid;
+    for (size_t ti = 0; ti < floor_tris.size(); ti++) {
+        const FloorTri& f = floor_tris[ti];
+        for (int gx = int(std::floor(std::min({ f.a[0], f.b[0], f.c[0] }) / floor_cell)); gx <= int(std::floor(std::max({ f.a[0], f.b[0], f.c[0] }) / floor_cell)); gx++) {
+            for (int gz = int(std::floor(std::min({ f.a[2], f.b[2], f.c[2] }) / floor_cell)); gz <= int(std::floor(std::max({ f.a[2], f.b[2], f.c[2] }) / floor_cell)); gz++) {
+                floor_grid[{ gx, gz }].push_back(ti);
+            }
+        }
+    }
+    // The floor at (x, z) nearest height ref and within tol of it: its height and whether it is road.
+    auto floor_near = [&](double x, double z, double ref, double tol, double& y, bool& road) {
+        auto it = floor_grid.find({ int(std::floor(x / floor_cell)), int(std::floor(z / floor_cell)) });
+        if (it == floor_grid.end()) return false;
+        bool found = false;
+        for (size_t ti : it->second) {
+            const FloorTri& f = floor_tris[ti];
+            double d = (f.b[2] - f.c[2]) * (f.a[0] - f.c[0]) + (f.c[0] - f.b[0]) * (f.a[2] - f.c[2]);
+            if (std::fabs(d) < 1e-9) continue;
+            double l0 = ((f.b[2] - f.c[2]) * (x - f.c[0]) + (f.c[0] - f.b[0]) * (z - f.c[2])) / d;
+            double l1 = ((f.c[2] - f.a[2]) * (x - f.c[0]) + (f.a[0] - f.c[0]) * (z - f.c[2])) / d;
+            double l2 = 1.0 - l0 - l1;
+            if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) continue;
+            double h = l0 * f.a[1] + l1 * f.b[1] + l2 * f.c[1];
+            if (std::fabs(h - ref) > tol || (found && std::fabs(h - ref) >= std::fabs(y - ref))) continue;
+            y = h, road = f.road, found = true;
+        }
+        return found;
+    };
+    // How far gate k's road reaches from c along (u[0], u[1]) in x and z, ft, with the 15 ft shoulder.
+    // Whether a wall of the written collision (COL_WALL: the PS1's walls given their heights above) stands across p-q
+    // 1-4 ft over the floor at p, where a car drives. The PS1's own wall lines have no height: under the Embarcadero
+    // overpass the street's walls run under the deck the course drives over.
+    struct WallFace { V2 a, b; double low, high; };
+    std::vector<WallFace> wall_faces;
+    {
+        const Mesh& wm = by_surface["WALL"];
+        for (const auto& t : wm.tris) {
+            // gl() is game ft in meters (x as the game frame has it).
+            V3 v[3];
+            for (int c = 0; c < 3; c++) v[c] = wm.verts[t[size_t(c)]] * 3.2808399;
+            // A face is upright: its x/z extent is a segment between its two farthest corners.
+            int i0 = 0, i1 = 1;
+            double best = -1.0;
+            for (int a = 0; a < 3; a++) {
+                for (int b = a + 1; b < 3; b++) {
+                    double d = std::hypot(v[a][0] - v[b][0], v[a][2] - v[b][2]);
+                    if (d > best) best = d, i0 = a, i1 = b;
+                }
+            }
+            if (best < 0.1) continue;
+            wall_faces.push_back({ { v[i0][0], v[i0][2] }, { v[i1][0], v[i1][2] }, std::min({ v[0][1], v[1][1], v[2][1] }),
+                                   std::max({ v[0][1], v[1][1], v[2][1] }) });
+        }
+    }
+    std::map<std::pair<int, int>, std::vector<size_t>> face_grid;
+    for (size_t k = 0; k < wall_faces.size(); k++) {
+        const WallFace& w = wall_faces[k];
+        for (int gx = int(std::floor(std::min(w.a[0], w.b[0]) / wall_cell)); gx <= int(std::floor(std::max(w.a[0], w.b[0]) / wall_cell)); gx++) {
+            for (int gz = int(std::floor(std::min(w.a[1], w.b[1]) / wall_cell)); gz <= int(std::floor(std::max(w.a[1], w.b[1]) / wall_cell)); gz++) {
+                face_grid[{ gx, gz }].push_back(k);
+            }
+        }
+    }
+    auto wall_across = [&](const V3& p, const V3& q) {
+        std::set<size_t> seen;
+        for (const V3& e : { p, q }) {
+            auto it = face_grid.find({ int(std::floor(e[0] / wall_cell)), int(std::floor(e[2] / wall_cell)) });
+            if (it == face_grid.end()) continue;
+            for (size_t k : it->second) {
+                if (!seen.insert(k).second) continue;
+                const WallFace& w = wall_faces[k];
+                if (w.high < p[1] + 1.0 || w.low > p[1] + 4.0) continue;
+                auto orient = [](double ax, double az, double bx, double bz, double cx, double cz) {
+                    return (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+                };
+                double d1 = orient(w.a[0], w.a[1], w.b[0], w.b[1], p[0], p[2]);
+                double d2 = orient(w.a[0], w.a[1], w.b[0], w.b[1], q[0], q[2]);
+                double d3 = orient(p[0], p[2], q[0], q[2], w.a[0], w.a[1]);
+                double d4 = orient(p[0], p[2], q[0], q[2], w.b[0], w.b[1]);
+                if (((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0))) return true;
+            }
+        }
+        return false;
+    };
+    // why: what ended the walk (for the report).
+    auto road_reach = [&](int k, const V3& c, const V2& u, const char*& why) {
+        double ref = c[1], last_road = 0.0;
+        int grass = 0, gap = 0, s = 1;
+        V3 prev = c;
+        why = "the walk's end";
+        for (; s <= 2000; s++) {
+            V3 q{ c[0] + u[0] * s, ref, c[2] + u[1] * s };
+            double y = 0.0;
+            bool road = false;
+            if (!gate_has(k, sector_of(q))) { why = "the gate's boxes"; break; }
+            // The PS1's floor polygons leave cracks between them: up to 8 ft with no floor is stepped over.
+            if (!floor_near(q[0], q[2], ref, 4.0 + gap * 0.5, y, road)) {
+                if (++gap > 8) { why = "no floor"; break; }
+                continue;
+            }
+            gap = 0;
+            q[1] = y;
+            if (wall_across(prev, q)) { why = "a wall"; break; }
+            ref = y, prev = q;
+            if (road) last_road = s, grass = 0;
+            else if (++grass > 40) { why = "grass"; break; }
+        }
+        // The shoulder past a wall too (a curb's strip of sidewalk behind it), but not past the gate's boxes.
+        return std::string(why) == "the gate's boxes" ? std::min(last_road + 15.0, double(s - 1)) : last_road + 15.0;
+    };
     for (size_t gi = 0; gi < gates.size(); gi++) {
         const auto& [gname, i] = gates[gi];
         int k = gate_plane[gi];
@@ -3084,40 +3226,31 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             g.empty(gname, a49::gate_matrix(for_a49(mid[i]), for_a49({ tg[0], 0.0, tg[1] }), std::max(halves[i], 30.0) + 60.0));
             continue;
         }
-        const uint8_t* r = &cpf[16 * k];
-        // In PS1 (x, y) (0.1 ft): n . (x, y) = d, the height term left out (the planes are upright on track 4).
-        double nx = s32(r), ny = s32(r + 8), dd = s32(r + 12);
-        int sector = sector_of(mid[i]);
-        V3 center = mid[i];
-        double half = std::max(halves[i], 30.0) + 10.0;
-        if (sector >= 0) {
-            const uint8_t* bx = &bounds[size_t(sector) * 16];
-            double x0 = s32(bx), x1 = s32(bx + 4), y0 = s32(bx + 8), y1 = s32(bx + 12);
-            std::vector<V2> ends;
-            if (ny != 0)
-                for (double x : { x0, x1 }) {
-                    double y = (dd - nx * x) / ny;
-                    if (y >= y0 && y <= y1) ends.push_back({ x, y });
-                }
-            if (nx != 0)
-                for (double y : { y0, y1 }) {
-                    double x = (dd - ny * y) / nx;
-                    if (x >= x0 && x <= x1) ends.push_back({ x, y });
-                }
-            if (ends.size() >= 2) {
-                // Game (x, z) = PS1 (y, x) / 10.
-                center[0] = (ends[0][1] + ends[1][1]) / 20.0;
-                center[2] = (ends[0][0] + ends[1][0]) / 20.0;
-                half = std::hypot(ends[0][0] - ends[1][0], ends[0][1] - ends[1][1]) / 20.0;
-            }
-        }
-        // And wide enough for every lane where it crosses, 15 ft to spare: a drone on a lane outside the gate never
-        // counts it (Embarcadero's snow lanes ran 68-73 ft from its overpass gate's center, 60 ft wide: 5 of 7 drones
-        // never counted a lap).
+        // The plane in game (x, z): c2 x + c0 z (the height term is under 0.2% of the others), its unit normal n.
+        const auto& pl = planes[size_t(k)];
+        const double len = std::hypot(pl[2], pl[0]);
+        const V2 n{ pl[2] / len, pl[0] / len };
+        // The crossing: the path point past it moved onto the plane, on the floor there.
+        const double off = plane_side(k, mid[i]) * 16384.0 / (10.0 * len);
+        V3 c{ mid[i][0] - n[0] * off, mid[i][1], mid[i][2] - n[1] * off };
+        // The floor there, or (the path in the air over a crest or a jump) the floor below it.
+        double y = 0.0;
+        bool road = false;
+        if (floor_near(c[0], c[2], c[1], 10.0, y, road) || floor_near(c[0], c[2], c[1] - 30.0, 30.0, y, road)) c[1] = y;
+        const V2 u{ -n[1], n[0] };
+        const char *why_a = nullptr, *why_b = nullptr;
+        const double reach_a = road_reach(k, c, u, why_a), reach_b = road_reach(k, c, { -u[0], -u[1] }, why_b);
+        const double mid_off = (reach_a - reach_b) / 2.0;
+        V3 center{ c[0] + u[0] * mid_off, c[1], c[2] + u[1] * mid_off };
+        double half = (reach_a + reach_b) / 2.0;
+        // Every AI lane where it crosses is on it too (they keep to the road; this only guards a lane the walk missed).
         for (const auto& l : lanes4) half = std::max(half, std::hypot(l[i][0] - center[0], l[i][2] - center[2]) + 15.0);
         // Forward: against the normal (the gate is passed going from n . p > d to below).
-        double len = std::hypot(nx, ny);
-        g.empty(gname, a49::gate_matrix(for_a49(center), for_a49({ -ny / len, 0.0, -nx / len }), half));
+        g.empty(gname, a49::gate_matrix(for_a49(center), for_a49({ -n[0], 0.0, -n[1] }), half));
+        char why[192];
+        snprintf(why, sizeof(why), "%s (plane %d): %.0f ft across, %.0f ft (to %s) and %.0f ft (to %s) either side of the path at (%.0f, %.0f, %.0f)",
+                 gname.c_str(), k, 2.0 * half, reach_a, why_a, reach_b, why_b, c[0], c[1], c[2]);
+        report.push_back(why);
     }
 
     // The knock-over props (docs/sfrush_ps1.md#props): track 4's table 0x800A58B4 (func_800155F8; 16 bytes: x, y,
@@ -3370,52 +3503,12 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
         }
     }
 
-    // The PS1's timer (docs/sfrush_ps1.md#race-times): the race setup (0x80015D60) starts the clock at 45 on track 4
-    // forward (addiu 0x2D at 0x80015D80); passing gate k (checkpoint_passed, 0x80054130) adds byte k of 0x800B2AE8
-    // (the stretch after it: 26, 29, 11, 32), and 5 more (0x800542D8) while the player has passed fewer than 3 gates
-    // (the first two checkpoints of lap 1). Rush 2 grants checkpoint k's time when it is passed, too. The times stand
-    // as seconds: on the courses both versions have, the PS1's lap times are the N64's (real seconds) to 10%.
-    // In snow checkpoint_passed adds 8 more at every gate, the finish line too (0x80054358, while gp+0x40 is 1), and the
-    // race setup starts the clock at 60 whatever the track (0x80015E04). The other tracks (forward): 38 on tracks 1 and 2
-    // (0x80015DF0, 0x80015DCC), 60 on track 3 (0x80015DA8), each gate's time from their own tables (gp+0xC60, set by
-    // checkpoint_passed per track index), and no first-gates bonus.
-    // Snow keeps no times of its own: the PS1's 8 s more a gate were for its snow's two halvings, which the recomp keeps
-    // one of (the quarter from 64 mph played too slowly), so the race time model times it with the track's traction
-    // (src/race_time_model.cpp), the clock as tight as on any converted track.
-    std::string race_toml;
-    if (cond.condition == Condition::snow) {
-        report.push_back("race times: the race time model's, with the snow's traction");
-    }
-    else {
-        constexpr uint32_t snow_insn = 0x80054358;
-        const uint32_t start_insn = cond.condition == Condition::snow ? snow_start_insn : stunt ? stunt_start_insn : tr.start_insn;
-        const uint32_t gate_times = tr.gate_times, bonus_insn = tr.bonus_insn;
-        if (!exe.in(start_insn, 4) || !exe.in(gate_times, 4) || !exe.in(snow_insn, 4) ||
-            exe.w(start_insn) >> 16 != 0x2402 || exe.w(snow_insn) >> 16 != 0x2442 ||
-            (bonus_insn != 0 && (!exe.in(bonus_insn, 4) || exe.w(bonus_insn) >> 16 != 0x2482))) {
-            log += "the race times couldn't be read\n";
-            return false;
-        }
-        int start = int(exe.w(start_insn) & 0xFFFF), bonus = bonus_insn != 0 ? int(exe.w(bonus_insn) & 0xFFFF) : 0;
-        int snow = cond.condition == Condition::snow ? int(exe.w(snow_insn) & 0xFFFF) : 0;
-        // A gate's time by its PS1 plane; a run-in's loop start (no PS1 gate) adds nothing.
-        auto gate_time = [&](int k) { return k < 0 ? 0 : int(uint8_t(exe.b(gate_times + uint32_t(k)))) + snow; };
-        int finish_plane = 0;
-        for (size_t gi = 0; gi < gates.size(); gi++) if (gates[gi].first == "FINISH") finish_plane = gate_plane[gi];
-        race_toml = "[race]\nstart_time = " + std::to_string(start) + "\nfinish_time = " + std::to_string(gate_time(finish_plane)) +
-                    "\ncheckpoint_time = [";
-        int listed = 0;
-        for (size_t gi = 0; gi < gates.size(); gi++) {
-            if (gates[gi].first == "FINISH") continue;
-            int k = gate_plane[gi];
-            race_toml += (listed > 0 ? ", [" : "[") + std::to_string(gate_time(k) + (listed < 2 ? bonus : 0)) + ", " +
-                         std::to_string(gate_time(k)) + "]";
-            listed++;
-        }
-        race_toml += "]\n\n";
-        report.push_back("race times: start " + std::to_string(start) + " s, finish +" + std::to_string(gate_time(finish_plane)) +
-                         " s, " + race_toml.substr(race_toml.find("checkpoint_time")));
-    }
+    // The race clock: the race time model's (src/race_time_model.cpp: the time Rush 2's average car needs along the AI
+    // lanes, with the track's traction), as on every converted track, so track.toml has no [race] times. The PS1's own
+    // clock (docs/sfrush_ps1.md#race-times) is research only. Snow is timed with its snow traction, as before.
+    const std::string race_toml;
+    report.push_back(cond.condition == Condition::snow ? "race times: the race time model's, with the snow's traction"
+                                                       : "race times: the race time model's");
 
     // What the conditions change in track.toml (docs/sfrush_ps1.md#snow-and-night).
     std::string condition_toml, look_toml, menu_toml = std::string("variant = \"") + cond.variant + "\"\n";

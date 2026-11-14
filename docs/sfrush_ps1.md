@@ -388,20 +388,44 @@ What the converter writes as `AIPATH_main` and `AIPATH_lane1-4` (`build_conditio
 
 ## Checkpoints
 
-`COLLDAT<n>/TRACK<n>.CPF` (loaded to 0x80113490 by the track's loader, `func_8004FBFC` for track 4): four planes of s32
-nx, ny, nz, d (16384 = 1; n . (x, -height, y) = d in 0.1 ft). Plane 0 is the finish line. **[V]**
+`COLLDAT<n>/TRACK<n>.CPF` (loaded to 0x80113490 by the track's loader, `func_8004FBFC` for track 4): one plane a gate
+of s32 c0, c1, c2, d (16384 = 1; c0 x + c1 height + c2 y against d, 0.1 ft): 5 on Golden Gate, 6 on Embarcadero, 9
+on Market, 4 on Chinatown. Plane 0 is the finish line. **[V]**
 
 - **Sectors:** `func_8004FBFC` also loads `COLLDAT<n>/BOUNDS.DAT` to 0x800D8168 (49 records on track 4, the count in
   gp+0xE90): s32 x min, x max, y min, y max (0.1 ft). `func_800554F0` (car_sector) gives a car the last box that holds
-  it (car +0x2FC; tracks 1 and 3 then patch a few overlapping boxes, 0x80052F00 on). **[V]**
+  it (car +0x2FC). While 0x800B2740 (a mode index, 0-3, set by the front end `func_8001ED30`) is 1 it then gives box
+  0x37 as 0x2B and box 0x41 as 0x20 (0x800555E4-0x80055664); no gate lists any of the four. **[V]**
 - **The test:** `func_80054630` (checkpoint_test), each car each frame: a car at gate k (car +0x300) tests plane k
   only while its sector is one of gate k's, from per-track lists (track 4: counts 0x800B2B18, sectors 0x800B2B1C,
-  first index 0x800AA3D8; one sector a gate: 1, 9, 19, 21). Forward (0x800B271C = 1) n . p < d passes the gate (+1,
-  4 wraps to 0; passing gate 0 counts the lap at car +0x68), backward courses count down crossing the other way.
-  `func_80054130` is the pass event. **[V]**
-- **Into Rush 2:** each gate goes where the AI path crosses its plane (from n . p > d to below) inside one of its
-  sectors, the finish nearest the path's first point and each checkpoint the first such crossing after the gate
-  before it (path points 0, 279, 613 and 724 of 1121 on track 4).
+  first index 0x800AA3D8; one sector a gate: 1, 9, 19, 21; track 1: 0x800B2AF8, 0x800AA388, 0x800B2B00; track 2:
+  0x800B2B08, 0x800AA394, 0x800B2B10; track 3: 0x800AA3A0, 0x800AA3AC or 0x800AA3BC, 0x800AA3CC). With 0x800B271C =
+  1 (gp+0x4C; the AI path PATHDAT's direction: it crosses gates 1, 2, 3... going from n . p > d to below) n . p < d
+  passes the gate (+1; Golden Gate wraps 5 to 1, Embarcadero 6 to 0, Market 9 to 0, Chinatown 4 to 0; the lap counts,
+  car +0x68, on passing gate 0, Golden Gate's gate 3); otherwise they count down crossing the other way. Market's two
+  sector lists differ at gate 0 only (box 0x00 against 0x3D). `func_80054130` is the pass event. **[V]**
+- **Market's gate 5** (box 0x27, its only one) tests plane 5's n . p against 0x4BC8000 instead (0x800548F4-0x80054A34;
+  passed when over it with 0x800B271C = 1, else when not over 0x4BC7FFF): the line y = 485 ft, passed the other way,
+  not CPF's y = -6.3 ft. A rule after it (0x80054B8C) passes gate 7 in box 0x45 on Market whatever the plane, but it
+  runs only inside gate 7's own boxes, which are 0x34 alone: it never fires. **[V]**
+- **No overflow:** the PS1's n . p is 32-bit (`mult`/`mflo`, `addu`); over every gate's boxes the sum stays under
+  1.2 x 10^9, so it is the plain product. **[V]**
+- **Into Rush 2:** every plane is a gate (until 2026-11-13 only planes 0-3 were: Embarcadero's gates 4-5 and Market's
+  4-8, each with its CHECKPOINT banner, counted nothing; GitHub issue 68). Each goes where the AI path crosses its
+  plane (from n . p > d to below) inside one of its sectors, the finish nearest the path's first point and each
+  checkpoint the first such crossing after the gate before it (path points 0, 279, 613 and 724 of 1121 on track 4).
+  Market's gate 5 uses its real line (above). Golden Gate's lap is toll plaza (gate 0, a checkpoint: [Run-in](#run-in)),
+  loop start, gates 1 and 2, FINISH at gate 3, gate 4.
+- **How wide:** Rush 2 counts a gate when a car crosses its line within the marker's half width of it
+  (`func_800A1468`), so each marker spans the whole road there. From the crossing the plane's line is walked 1 ft at
+  a time each way over the floor (road, dirt, and grass up to 40 ft past the last road; cracks up to 8 ft stepped
+  over; each step within 4 ft of the last one's height; a written COL_WALL face standing 1-4 ft over the floor ends
+  it), but never out of the gate's own boxes (at a crossroads the line runs on down the cross street). The road
+  reached furthest each way, 15 ft to spare, is the marker's end; the AI lanes are on it too. Before, a marker spanned
+  its box or the lanes where the path crosses, and a car near the edge of a wider road missed it and every gate after
+  it. `tools/gate_shortcuts.py` on every version finds no floor beside a gate left out of it and no way round one;
+  what it lists inside a radius is the same road banked (Golden Gate) or, under Embarcadero's overpass (gate 1), the
+  street 92 ft below, which the PS1's flat boxes count too.
 
 ## Start and finish banner
 
@@ -564,10 +588,10 @@ track 4 forward (gp+0x70 the track, gp+0x4C the direction), 60 or 180 in other m
   treated as real seconds: on the courses both versions have the PS1's lap times are the N64's to 10% (track 2: 90
   against 100 s), and a drone with the converted cars reaches track 4's first checkpoint in 42 s of the PS1's 45. A
   frame at the 25 frames a second the car conversion implies would make them 2.4 times longer. **[I]**
-- **Into Rush 2:** the track.toml `[race]` times: `start_time` 45, `finish_time` 26 (the finish line's own time;
-  Rush 2's custom tracks otherwise add the start time again there), `checkpoint_time` [34, 29], [16, 11], [32, 32].
-  Rush 2's difficulty scaling (x 1 + (5 - difficulty) x 0.075) applies to them as to every custom track's, in place
-  of the PS1's difficulty bonus.
+- **Into Rush 2:** none of this. The track.toml has no `[race]` times, so the race clock is the race time model's
+  (src/race_time_model.cpp: the time Rush 2's average car needs along the AI lanes, with the track's traction), as on
+  every converted track; the snow versions always were (with their snow traction). Until 2026-11-13 the day and night
+  versions took the PS1's times above for planes 0-3.
 
 ## Run-in
 
@@ -582,8 +606,9 @@ the loop at point 29; its end (point 174) comes back beside point 29 (60 ft) ins
   1/2560 ft, y down: lui/ori 0x80051708 / 0x8005170C, + 0x500 a car): on the bridge's north approach, 210 ft before
   the path's first point and 3,300 ft before the toll plaza. **[V]**
 - **The gates:** the finish plane (gate 0) is crossed once, at the toll plaza on the run-in, and the loop never comes
-  back through its sector (4): every path point of the loop is in other sectors. Gates 1-3 are on the loop (points 42,
-  86, 121). **[V]** How the PS1 counts a second lap there isn't worked out.
+  back through its sector (4): every path point of the loop is in other sectors. Gates 1-4 are on the loop (PATHDAT
+  points 42, 86, 121, 158). After gate 4 the PS1 goes back to gate 1, and it counts a lap on passing gate 3
+  (checkpoint_test, [Checkpoints](#checkpoints)). **[V]**
 - **Not the run-in:** `T1ROAD/T5ROAD2.DAT` replaces `T1ROAD2` (func_80036C40) while 0x800B2AA0 is set: the stunt
   road ([Stunt track](#stunt-track)), which starts on the same grid. **[V]**
 - **Into Rush 2** (`src/sfrush_ps1/ps1_track.cpp`, `run_in_grid`): a run-in circuit (`run_in = true`,
