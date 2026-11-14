@@ -201,7 +201,8 @@ To look at a spot on a track, don't hold the gas and hope: watch a drone drive t
 `tools/test_race.py TRACK --drones 1 --env RUSH2_TEST_RACE_VIEW_CAR=1 --env RUSH2_TEST_RACE_VIEW_LANE=1` (the view on
 drone 1, kept to lane 1 of 0-3, left to right), with `--shots` as it passes. `--env RUSH2_TEST_RACE_VIEW_MODE=1`
 puts that camera in the hood view (0 bumper, 1 hood, 2 and 3 chase; docs/camera.md), as a player's screenshot from
-the hood or bumper camera shows the spot.
+the hood or bumper camera shows the spot. Without `RUSH2_TEST_RACE_VIEW_CAR` it sets every player's camera, so
+`--cars A,B,C,D` shows four cars in that view at once (split screen).
 
 `--env RUSH2_TEST_RACE_FINISH_BANNER=1` turns the finish banner to FINISH as the race starts (Rush 2's last-lap swap,
 which otherwise needs a player past the last checkpoint of the last lap). The grid is under or past most banners, so

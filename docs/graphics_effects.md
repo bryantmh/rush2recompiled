@@ -372,7 +372,11 @@ renderer may still read). The list is rebuilt when a lamp comes on or goes off o
   lamp's texels over the part's own tile (size, wrap and G_TEXTURE scale copied), PRIM the lamp's color (its alpha the
   mask's opacity: a headlamp 0xF0, a braking tail lamp 0xFF, a dim one 0x90), unshaded and unfogged, blended without
   writing depth (G_RM_PASS, G_RM_ZB_XLU_SURF2), inside a push and pop of the other mode, combiner, PRIM and geometry
-  mode. It is a model of its own drawn after the cars, not a change to the cars' lists (the first try, which injected
+  mode. Each copied triangle is wound counterclockwise seen from outside the body (its normal away from the body's
+  middle) and drawn with G_CULL_FRONT: Rush 2's camera frame flips handedness, so that is the face seen from inside
+  (G_CULL_BACK left the backs drawn). A lens glows only seen from in front: the bumper camera sits behind the car's
+  own lamps, and on Rush 2049's Magnum and GX-2 the backs of the headlamp lenses floated in front of the view (GitHub
+  issue 70; `RUSH2_TEST_LAMP_CULL=0` draws them two-sided again, `b` culls back faces, to compare). It is a model of its own drawn after the cars, not a change to the cars' lists (the first try, which injected
   the overlay into the body part's list, turned the parts drawn after it black).
 - **The lamps for RT64:** `gEXSetCarLight(level, head reach, tail reach)` (110 of 255, 150 ft, 22 ft), then a vertex
   per lit lamp in triangles of three: its position, its color times its strength (0-255 of its kind's), alpha 0x80

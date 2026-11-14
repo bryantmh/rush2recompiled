@@ -114,13 +114,19 @@ namespace {
     constexpr uint32_t panel_shifts = 0x800CE180; // u8 per panel
     constexpr int tail_first = 161, tail_last = 175;   // Rush 2's tail light ramp (func_800599A0)
     // Bumped whenever what is found changes, so the disk cache is found again.
-    constexpr uint32_t finder_version = 7;
+    constexpr uint32_t finder_version = 8;
 
     std::atomic_bool enabled = false;
     std::atomic_bool braking[max_cars] = {};
     const bool log_on = std::getenv("RUSH2_CAR_LIGHTS_LOG") != nullptr;
     const bool test_on = std::getenv("RUSH2_CAR_LIGHTS_TEST") != nullptr;
     const char* const dump_dir = std::getenv("RUSH2_CAR_LIGHTS_DUMP");
+    // RUSH2_TEST_LAMP_CULL (test aid): 0 the lens glow two-sided, as before issue 70; b back faces culled (the wrong
+    // side, see build_list). To compare the in-car views.
+    const uint32_t lens_cull = [] {
+        const char* v = std::getenv("RUSH2_TEST_LAMP_CULL");
+        return v == nullptr ? 0x200u : v[0] == '0' ? 0u : v[0] == 'b' ? 0x400u : 0x200u;
+    }();
 
     float read_f(uint8_t* rdram, uint32_t at) {
         uint32_t w = (uint32_t)MEM_W(0, (int32_t)at);
@@ -1248,9 +1254,20 @@ namespace {
                 LensTriangle lt;
                 lt.lamp = lamp;
                 lt.mask = it->second;
+                // Wound counterclockwise seen from outside the body (the normal (B - A) x (C - A) away from the body's
+                // middle) and drawn with G_CULL_FRONT, which in Rush 2's view culls the side seen from inside (its
+                // camera frame flips handedness, so what F3DEX2 calls front is the clockwise side here: G_CULL_BACK left
+                // the backs drawn, checked in game). So a lens glows only seen from in front of it: from the bumper
+                // camera, which sits behind the car's own lamps, the lenses' backs floated in front of the view on Rush
+                // 2049's Magnum and GX-2 (issue 70).
+                float e1[3], e2[3], out = 0.0f;
+                for (int k = 0; k < 3; k++) e1[k] = t.p[1][k] - t.p[0][k], e2[k] = t.p[2][k] - t.p[0][k];
+                const float n[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+                for (int k = 0; k < 3; k++) out += n[k] * ((t.p[0][k] + t.p[1][k] + t.p[2][k]) / 3.0f - center[k]);
+                const int order[3] = { 0, out < 0.0f ? 2 : 1, out < 0.0f ? 1 : 2 };
                 for (int v = 0; v < 3; v++) {
                     for (int w = 0; w < 4; w++) {
-                        uint32_t word = (uint32_t)MEM_W(w * 4, (int32_t)t.v[v]);
+                        uint32_t word = (uint32_t)MEM_W(w * 4, (int32_t)t.v[order[v]]);
                         memcpy(lt.vertices.data() + v * 16 + w * 4, &word, 4);
                     }
                 }
@@ -1347,7 +1364,7 @@ namespace {
             gEXPopGeometryMode(&pop[3]);
             for (const GfxCommand& c : push) write_cmd(rdram, at, c.values.word0, c.values.word1);
             write_cmd(rdram, at, 0xE7000000, 0);               // G_RDPPIPESYNC
-            write_cmd(rdram, at, 0xD9F9F9FF, 0);               // no culling, lighting or texture generation
+            write_cmd(rdram, at, 0xD9F9F9FF, lens_cull);  // G_CULL_FRONT (see the lens triangles); no lighting or texgen
             write_cmd(rdram, at, 0xE3000A01, 0x00100000);      // cycle type 2-cycle
             write_cmd(rdram, at, 0xE3001001, 0);               // TEXTLUT = NONE
             write_cmd(rdram, at, 0xE3000F00, 0);               // TEXTLOD = TILE
