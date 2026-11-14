@@ -1200,9 +1200,37 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         V3 pos;
         std::vector<std::string> script;
         bool card = false;      // a worlds.rom card the arcade turns to the camera (name FF_)
+        const char* prop = nullptr;     // a breakable's PROP_ kind (breakable_kind)
     };
     std::vector<Instance> instances;
     size_t unnamed = 0, key_markers = 0;
+    // Rush The Rock draws N64 SF Rush's breakables (docs/sfrush_arcade.md#breakables) as plain scenery: its cone, parking
+    // meter and traffic light models and its single tree cards, which stand where the N64 courses place theirs
+    // (tools/arcade_props.py lists the matches). They become props, Rush 2's own breakables as on the N64 courses
+    // (src/rush1/track1_convert.cpp): KNOCK cones, METER meters, TIP traffic lights (the N64's CURVEHIT class) and TREE
+    // trees. Told apart by their texture, size and triangle count (a tree: one card object in a tree texture the N64
+    // tree spots carry, not a clump or a row).
+    auto breakable_kind = [&](const Object* o, const M3& M, const V3& pos) -> const char* {
+        const Lod& lod = o->lod0;
+        if (!rock || lod.tris.empty() || lod.verts.empty()) return nullptr;
+        std::set<std::string> tex;
+        for (const auto& tr : lod.tris) tex.insert(tr[3] < t.textures.size() ? upper(t.textures[tr[3]].name) : "");
+        V3 lo{ 1e30, 1e30, 1e30 }, hi{ -1e30, -1e30, -1e30 };
+        for (const Vertex& v : lod.verts) {
+            V3 p = mul(v.pos, M) + pos;
+            for (int k = 0; k < 3; k++) lo[k] = std::min(lo[k], p[k]), hi[k] = std::max(hi[k], p[k]);
+        }
+        double height = hi[1] - lo[1], width = std::max(hi[0] - lo[0], hi[2] - lo[2]);
+        if (tex.size() != 1) return nullptr;
+        const std::string& name = *tex.begin();
+        if (name == "RED" && lod.tris.size() == 19 && height < 6) return "KNOCK";
+        if (name == "PARKMETER" && height < 8) return "METER";
+        if (name == "SIGNAL3" && height < 25 && width < 6) return "TIP";
+        static const std::set<std::string> trees = { "T1_TREE1", "T1_TREE4", "T1_TREE5", "T1_TREE9A", "DECID2", "DECID2A",
+                                                     "JUNIMED4" };
+        if (trees.count(name) && lod.tris.size() <= 8 && height >= 8 && height <= 70 && width <= 60) return "TREE";
+        return nullptr;
+    };
     for (const WorldEntry& w : worlds) {
         // The Rock's TRACK5-7 have placements with no name (111, 100 and 65): nothing to place.
         if (w.name.empty()) { unnamed++; continue; }
@@ -1220,7 +1248,7 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         }
         // The arcade's worlds loader (ProjectR 0x1402D69EE) gives a placement named FF_ the flag dobs' `frontface`
         // sets (0x2000000): mostly trees, plus Presidio's bridge glows and Mission's glare sprites.
-        instances.push_back({ o, w.m, w.pos, {}, starts_with(upper(w.name), "FF_") });
+        instances.push_back({ o, w.m, w.pos, {}, starts_with(upper(w.name), "FF_"), breakable_kind(o, w.m, w.pos) });
     }
     if (unnamed) report.push_back("worlds.rom: " + std::to_string(unnamed) + " placements with no name, left out");
     if (key_markers) report.push_back("worlds.rom: " + std::to_string(key_markers) + " key markers (ATARI5 cubes), left out");
@@ -1315,6 +1343,7 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         }
     }
     int billboards = 0, knocks = 0;
+    std::map<std::string, int> breakables;  // PROP_ kind -> count (breakable_kind)
     // A mesh in glTF space (default material) for collision or a trigger box.
     struct ColMesh {
         std::vector<V3> verts, normals;
@@ -1465,6 +1494,26 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         const Lod& lod = in.o->lod0;
         std::vector<V3> local;
         for (const Vertex& v : lod.verts) local.push_back(mul(v.pos, in.M));
+        if (in.prop) {
+            // A breakable (breakable_kind): its origin at its foot (the middle of its base), which Rush 2 tips and
+            // hits it about.
+            V3 lo{ 1e30, 1e30, 1e30 }, hi{ -1e30, -1e30, -1e30 };
+            for (const V3& p : local) for (int k = 0; k < 3; k++) lo[k] = std::min(lo[k], p[k]), hi[k] = std::max(hi[k], p[k]);
+            V3 foot{ (lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2 };
+            std::vector<V3> rel;
+            for (const V3& p : local) rel.push_back(p - foot);
+            PrimSet prims;
+            add_tris(prims, lod, rel, 0.0);
+            char suffix[16];
+            snprintf(suffix, sizeof(suffix), ".%03d", billboards);
+            Glb::Trs trs;
+            trs.translation = to_gltf(in.pos + foot);
+            g.textured_mesh(std::string("PROP_") + in.prop + "_" + in.o->name + suffix, prims.list(), trs);
+            billboards++;
+            breakables[in.prop]++;
+            tri_count += lod.tris.size();
+            continue;
+        }
         if (words.count("coin") || starts_with(upper(in.o->name), "GOLDCOIN")) {
             // The arcade's coin pickups: left out (mods have no collectibles; Rush 2049's coins are its hidden
             // collectibles, a different thing).
@@ -2363,6 +2412,7 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         log += line;
     }
     if (knocks) log += "props: KNOCK " + std::to_string(knocks) + "\n";
+    for (const auto& [kind, count] : breakables) log += "breakables: PROP_" + kind + " " + std::to_string(count) + "\n";
     for (const std::string& r : report) log += r + "\n";
     return true;
 }

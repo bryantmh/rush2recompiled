@@ -40,7 +40,7 @@ namespace {
     // MSVC lays the structs out; other standard libraries size their members differently).
 #ifdef _MSC_VER
     static_assert(sizeof(rush2::track1::ConvertedTrack) == 392, "update track_cache.cpp for ConvertedTrack (track1)");
-    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 560, "update track_cache.cpp for ConvertedTrack (2049)");
+    static_assert(sizeof(rush2::track2049::ConvertedTrack) == 576, "update track_cache.cpp for ConvertedTrack (2049)");
     static_assert(sizeof(rush2::track1::ConvertedTrack::Timing) == 64, "update track_cache.cpp for Timing");
     static_assert(sizeof(rush2::track2049::TexFlipbook) == 72, "update track_cache.cpp for TexFlipbook");
     static_assert(sizeof(rush2::track2049::TexScroll) == 72, "update track_cache.cpp for TexScroll");
@@ -336,6 +336,7 @@ namespace {
         w.pods(t.mover_paths);
         w.pods(t.mover_collision);
         for (const auto& l : t.lane_time) w.pods(l);
+        w.strmap(t.record_models);
     }
 
     void read(Reader& r, rush2::track2049::ConvertedTrack& t) {
@@ -389,6 +390,7 @@ namespace {
         r.pods(t.mover_paths);
         r.pods(t.mover_collision);
         for (auto& l : t.lane_time) r.pods(l);
+        r.strmap(t.record_models);
     }
 
     std::filesystem::path blob_file(const std::string& name) {

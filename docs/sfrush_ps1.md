@@ -915,7 +915,7 @@ cable car) and `T2KNOCK/T2K003.PSV`, into gp+0xD60, 0xD64 and 0xD6C. **[V]**
 - **Behavior:** `func_80041244` (props_update) knocks a cone away when a car hits it. On track 4 each tram runs back
   and forth along x between 6397 and 22115 at 24 a frame (state 1 up, 2 down, turning at either end; two start at
   each end), and wrecks (car +0x352 bit 0x8000) a car within 23.2 ft along and 9.6 ft across it. **[V]**
-- **Into Rush 2:** cones are `PROP_KNOCK_cone_*` (knocked flying as Rush 2049's cones are), trams `MOVE_tram_*`
+- **Into Rush 2:** cones are `PROP_KNOCK_cone_*` (knocked flying as Rush 2's cones are: custom_tracks.md#props), trams `MOVE_tram_*`
   pingpong movers from the green light, a leg 1572 ft in 26.2 s (24 a frame at the 25 frames a second the car
   conversion implies: [Car physics](#car-physics)), each with a `COL_WALL_` box of its body, which pushes cars (Rush
   2 has no wreck-on-touch surface; a hard hit still wrecks by Rush 2's crash threshold). The models use the track's

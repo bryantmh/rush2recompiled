@@ -88,14 +88,10 @@ int main(int argc, char** argv) {
         }
         write_all(outdir / "pickups.txt", std::vector<uint8_t>(text.begin(), text.end()));
     }
-    if (!out.track.prop_records.empty()) {
-        // Props (PROP_*): record type x y z (game ft) per line.
+    if (!out.track.record_models.empty()) {
+        // Props (PROP_*): each breakable record and the model it draws, a line each.
         std::string text;
-        for (const auto& p : out.track.prop_records) {
-            char line[96];
-            snprintf(line, sizeof(line), "%d %d %.2f %.2f %.2f\n", p.record, p.type, p.pos[0], p.pos[1], p.pos[2]);
-            text += line;
-        }
+        for (const auto& [record, model] : out.track.record_models) text += record + " " + model + "\n";
         write_all(outdir / "props.txt", std::vector<uint8_t>(text.begin(), text.end()));
     }
     printf("OK: wrote %s\n", outdir.string().c_str());

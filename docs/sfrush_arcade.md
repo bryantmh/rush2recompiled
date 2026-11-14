@@ -140,9 +140,34 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   lap. The converter makes that banner's CHKPOINT faces the custom track's FINISH_BANNER (a CHKPNT material) with
   FINISH's image (scaled to CHKPOINT's size) as the FINISH material (custom_tracks.md#finish-banner), as the PS1 tracks
   do. Checked in game with `RUSH2_TEST_RACE_FINISH_BANNER=1` (Downtown, Market).
+- **Breakables:** see [Breakables](#breakables).
 - The exe's table of 84 TEMPL names at 0x1406F4798 (per track: 64, 19, 1 names with value 0x20, placed through
   0x1402C4930 with that flag at the object record's +4) is not the road: only 7 of Golden Gate's 51 road objects
   are in it.
+
+## Breakables
+
+The arcade draws N64 SF Rush's knock-over objects as plain scenery that stands still: its cone, parking meter and
+traffic light models and its single tree cards stand where the N64 courses place their cones, meters, traffic lights,
+trees and trash munchers, mostly within 0.1-0.5 ft (`tools/arcade_props.py` lists them). The converter
+(`breakable_kind` in src/arcade2049/arcade_track.cpp) makes every placement of those objects a prop, Rush 2's own
+breakable as on the N64 courses (src/rush1/track1_convert.cpp; custom_tracks.md#props), its origin at its foot:
+
+| Arcade object | Rule | Prop | Rush 2 class (as the N64's) |
+|---|---|---|---|
+| cone | texture RED, 19 triangles, under 6 ft | `PROP_KNOCK_` | CONE1 |
+| parking meter | PARKMETER, under 8 ft | `PROP_METER_` | METER |
+| traffic light | SIGNAL3, under 25 ft tall and 6 ft across | `PROP_TIP_` | CURVEHIT (the N64's PMUNCH) |
+| tree | one of T1_TREE1, 4, 5, 9A, DECID2, DECID2A, JUNIMED4 (the textures at N64 tree and muncher spots), at most 8 triangles, 8-70 ft tall, at most 60 ft across | `PROP_TREE_` | TREEHIT |
+
+Matched by object, not by spot: Market and Downtown place twice as many meters as the N64 (48 and 24, against 26 and
+12 at N64 spots), Sunset 11 meters away from the N64's, and The Rock 74 small trees where the N64 has cones. Tree
+clumps and rows (more triangles, wider) stay scenery. Counts: Golden Gate 38 trees; Embarcadero 78 cones, 15
+traffic lights, 9 trees; Market 48 meters, 15 trees; Downtown 24 meters, 21 trees; The Heights 14 cones, 5 meters, 1
+tree; Sunset 11 meters, 5 trees; The Rock 74 trees (at most 102 a track, under Rush 2's 130 with the keys). The N64's
+flags, fences, windows and gas sign have no arcade object that comes apart in pieces, so they stay scenery. Like the
+N64 courses, the arcade versions take SF Rush's hit test (src/rush1/track1.cpp `rush2_track1_breakable_hit`). Checked in
+game 2026-11-13 (Embarcadero cones and traffic light, Market meter and tree, cones also without the Rush 2049 ROM).
 
 ## Gates
 

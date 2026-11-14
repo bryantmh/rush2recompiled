@@ -865,7 +865,8 @@ def check_movers(c, out, report, fails):
 
 # --- billboards, props, translucency, far movers, authored AI values (objects=True) -----------------------------------
 # A case with objects=True adds: three BILLBOARD_ cards (two of one mesh and scale, which share a model) in a BLEND
-# material, both PROP_ kinds and a billboard prop, a translucent TRACK_glass card, MOVE_far whose mesh
+# material, every PROP_ kind (Rush 2 breakable records of its class) and a billboard prop, a translucent TRACK_glass
+# card, MOVE_far whose mesh
 # reaches past the 2000 ft vertex reach, and _SPEED / _AI_MODE on AIPATH_main; check_objects() reads them back.
 
 OBJ_SPEED, OBJ_MODE = 77, 5
@@ -886,9 +887,11 @@ def object_defs(c):
 
     return dict(
         billboards=[('a', beside(0.12 * L), 2.0), ('b', beside(0.14 * L), 2.0), ('c', beside(0.16 * L), 1.0)],
-        props=[('KNOCK_box', -2, beside(0.20 * L), quat_axis((0, 1, 0), 30), False),
-               ('TIP_sign', -3, beside(0.22 * L), (0, 0, 0, 1), False),
-               ('KNOCK_card', -2, beside(0.24 * L), (0, 0, 0, 1), True)],
+        props=[('KNOCK_box', 'CONE1', beside(0.20 * L), quat_axis((0, 1, 0), 30), False),
+               ('TIP_sign', 'CURVEHIT', beside(0.22 * L), (0, 0, 0, 1), False),
+               ('KNOCK_card', 'CONE1', beside(0.24 * L), (0, 0, 0, 1), True),
+               ('TREE_tree', 'TREEHIT', beside(0.26 * L), (0, 0, 0, 1), False),
+               ('METER_meter', 'METER', beside(0.28 * L), (0, 0, 0, 1), False)],
         glass=beside(0.30 * L), far=beside(0.70 * L))
 
 
@@ -916,7 +919,7 @@ def build_objects(g, c):
 
 def check_objects(c, out, report, fails, fwd):
     d = object_defs(c)
-    for rx in (r'^Billboards: 3 BILLBOARD_', r'^Props: 3 PROP_', r'^MOVE_far: .* [1-9]\d* triangles'):
+    for rx in (r'^Billboards: 3 BILLBOARD_', r'^Props: 5 PROP_', r'^MOVE_far: .* [1-9]\d* triangles'):
         if not re.search(rx, report, re.M):
             fails.append('no report line /%s/' % rx)
     pl = open(os.path.join(out, 'placement.bin'), 'rb').read()
@@ -942,16 +945,16 @@ def check_objects(c, out, report, fails, fwd):
             fails.append('BILLBOARD_%s flags %#x: want a camera card (0x8000) in the late pass (0x40000)' % (name, r['flags']))
     if len(names) == 3 and (names['a'] != names['b'] or names['a'] == names['c']):
         fails.append('billboard models %s: a and b (same mesh and scale) should share one, c have its own' % names)
+    # props.txt: each prop's breakable record and the model it draws (ConvertedTrack::record_models).
     pf = os.path.join(out, 'props.txt')
-    props = [l.split() for l in open(pf).read().splitlines()] if os.path.exists(pf) else []
-    for name, kind, p, rot, bill in d['props']:
+    props = dict(l.split() for l in open(pf).read().splitlines()) if os.path.exists(pf) else {}
+    for name, cls, p, rot, bill in d['props']:
         r = at(p)
-        rows = [pr for pr in props if r and int(pr[0]) == recs.index(r)]
-        if not r or not rows:
-            fails.append('PROP_%s: no prop record' % name)
+        if not r or r['name'] not in props:
+            fails.append('PROP_%s: no breakable record drawing its model' % name)
             continue
-        if int(rows[0][1]) != kind:
-            fails.append('PROP_%s type %s, want %d' % (name, rows[0][1], kind))
+        if not r['name'].startswith(cls + 'P'):
+            fails.append('PROP_%s record %s, want class %s' % (name, r['name'], cls))
         if bool(r['flags'] & 0x8000) != bill:
             fails.append('PROP_%s flags %#x: camera card should be %s' % (name, r['flags'], bill))
         if name == 'KNOCK_box' and abs(abs(r['m'][0]) - math.cos(math.radians(30))) > 1e-3:

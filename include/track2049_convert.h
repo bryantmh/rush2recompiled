@@ -30,16 +30,11 @@ namespace rush2::track2049 {
     // (kind 0, sub-kinds 1-2) and CACTUS. The record draws the 2049 model renamed X49<model>; poses are world space.
     struct PropRecord {
         int record;         // record index in the placement file
-        int type;           // row of 2049's type table (main 0x80117530), or a custom track's prop_knock / prop_tip
+        int type;           // row of 2049's type table (main 0x80117530)
         int direction;      // 0 both directions, 1 forward races only (_FW), 2 backward only (_BW)
         float m[9], pos[3]; // the object's pose
         float parent_m[9], parent_pos[3]; // its parent record's pose (identity and 0 for a top-level record)
     };
-
-    // A custom track's props (PROP_KNOCK_*, PROP_TIP_*) react as these 2049 types, looked up by name in the type table
-    // when the race starts (the mod's own model is drawn).
-    constexpr int prop_knock = -2;      // CONE1: knocked flying, gone after 5 s
-    constexpr int prop_tip = -3;        // STOPHIT: tips over and stays down
 
     // A battle arena's weapon or power-up pickup (WEPICON_*): drawn by a placement record of its model, which
     // src/rush2049/battle.cpp hides and shows. kind: 0-7 the weapons CANN, GATT, GREN, MINE, MISS, RAM, ROCK, SONC (2049's
@@ -120,7 +115,10 @@ namespace rush2::track2049 {
         float sky_scale = 1.0f;
         std::vector<PathRecord> path_records;
         std::vector<SpinRecord> spin_records;
-        std::vector<PropRecord> prop_records;
+        std::vector<PropRecord> prop_records;       // A Rush 2049 track's.
+        // A custom track's breakable records (its PROP_ objects) -> the model each draws: the class's model lookup is
+        // redirected to it (rush2::track1::set_redirects), as an SF Rush track's breakables.
+        std::map<std::string, std::string> record_models;
         std::vector<PickupRecord> pickup_records;   // Battle arenas only.
         std::vector<int> pool_records;              // Battle arenas: placement records of the projectile and effect pool.
         std::vector<float> solid_triangles;         // Battle arenas: the collision's solid polygons, 9 floats a triangle.

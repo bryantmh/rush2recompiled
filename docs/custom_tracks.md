@@ -678,21 +678,22 @@ row of trees costs little.
 
 ### Props
 
-Meshes named `PROP_<kind>_<name>` react when a car hits them, the way Rush 2049's do:
+Meshes named `PROP_<kind>_<name>` are knocked over when a car hits them. They are Rush 2's own breakables, drawn with
+your mesh: they move and sound as Rush 2's do.
 
-| Name | When a car hits it | As Rush 2049's |
+| Name | Rush 2's | Sound |
 |---|---|---|
-| `PROP_KNOCK_*` | Flies off spinning and is gone after 5 seconds | cones |
-| `PROP_TIP_*` | Turns to face the car, tips over and stays down | road signs |
+| `PROP_KNOCK_*` | cone | a cone's |
+| `PROP_TIP_*` | metal sign | a sign's |
+| `PROP_TREE_*` | tree | a tree's |
+| `PROP_METER_*` | parking meter (always faces the camera, as Rush 2's flat meters do) | a meter's |
 
-Put each prop's origin at its foot: a sign tips over about it. Its location, rotation and scale are kept. Give a prop
-a custom property `billboard` set to True (Object Properties > Custom Properties) to make it a billboard too: it faces
-the camera and keeps facing it as it flies off, which suits flat cones. Every prop is back in place at the start of
-each race. There are no collectibles (coins, keys) on custom tracks (the game's own arcade versions of the stock
-courses carry their course's: docs/arcade2049.md#coins-and-keys-on-the-arcade-versions).
-
-Props react only when the Rush 2049 ROM is set in the Games tab, because their movement and sounds come from
-Rush 2049. Without it they stand still and cars drive through them.
+Put each prop's origin at its foot: Rush 2 knocks it over about that point, and a car hits it there. Its location,
+rotation and scale are kept. Give a prop a custom property `billboard` set to True (Object Properties > Custom
+Properties) to make it a billboard too: it faces the camera, which suits flat cones. Every prop is back in place at the
+start of each race. Rush 2 holds 130 breakables on a track; props past that aren't placed (the report says so). There
+are no collectibles (coins, keys) on custom tracks (the game's own arcade versions of the stock courses carry their
+course's: docs/arcade2049.md#coins-and-keys-on-the-arcade-versions).
 
 ### See-through materials
 
@@ -964,7 +965,7 @@ Every name, custom property and setting a track can use, on one page. Each links
 | `TRIGGER_<name>` | A box that sets off moving objects ([Trigger boxes](#trigger-boxes)) |
 | `MOVE_<name>` | A moving object; its children move with it ([Moving objects](#moving-objects)) |
 | `BILLBOARD_<name>` | Turns to face the camera ([Billboards](#billboards)) |
-| `PROP_KNOCK_*`, `PROP_TIP_*` | Knocked flying or tipped over by cars ([Props](#props)) |
+| `PROP_KNOCK_*`, `PROP_TIP_*`, `PROP_TREE_*`, `PROP_METER_*` | Knocked over by cars as Rush 2's cones, signs, trees and meters ([Props](#props)) |
 | `SKY` | Your own sky dome ([Your own sky](#your-own-sky)) |
 | `FINISH_BANNER`, `FINISH_BANNER_LAST` | The finish banner, CHKPNT turning to FINISH on the last lap ([Finish banner](#finish-banner)) |
 | `START_1` to `START_4`, `PICKUP_<kind>` | Arenas only ([Stunt and battle arenas](#stunt-and-battle-arenas)) |
@@ -1179,11 +1180,16 @@ merges and renames as needed.
   culling box. A billboard's record carries node flag 0x8000: `scene_walk` (0x8007B518, branch at 0x8007B860) then
   draws it with `view_billboard_basis_8007BF2C`'s yaw-only matrix at its pose's position only (no rotation or scale),
   showing the model's -z side, so the converter turns a billboard's mesh half a turn about y (Blender's front then
-  faces the camera) and keeps its scale in the vertices. Props are listed as `PropRecord`s of type
-  `rush2::track2049::prop_knock` (-2) or `prop_tip` (-3), handed to `set_prop_data` like a 2049 track's;
-  `src/rush2049/track2049_props.cpp` resolves them at race setup to the rows of 2049's CONE1 and STOPHIT types
-  (`movers::classify`), so the mod's own model reacts as those do. Custom tracks have no collectibles.
-  `track_mod_cases.py`'s `objects` case checks the records, flags, shared models and prop types.
+  faces the camera) and keeps its scale in the vertices. A prop is a Rush 2 breakable instead (`prop_classes` in
+  `src/track_mod/track_mod_convert.cpp`): a child record of its nearest section, as a stock track's keys are, named
+  `<class>P<n>` (CONE1, CURVEHIT, TREEHIT, METER: the placement classifier func_800815DC takes the class from the name's
+  prefix), at its world position (the placement walker makes it relative to its section). The class's model lookup
+  is redirected to the prop's own model (`ConvertedTrack::record_models`, applied with `rush2::track1::set_redirects`
+  by src/rush2049/track2049.cpp, as an SF Rush track's breakables are), whose name record carries the behaviour id of
+  the model the class normally draws (2 for CONE1O1, 5 for the others: docs/rush2049_research/placement.md#13-behaviour-ids),
+  so Rush 2's own breakable code hits, moves and sounds it. Before 2026-11-13 props ran Rush 2049's prop code and
+  needed the 2049 ROM. Custom tracks have no collectibles. `track_mod_cases.py`'s `objects` case checks the records,
+  flags, shared models and prop classes.
 - **Sections:** visible triangles go into 1,024 ft grid cells by their center (s16 vertices at 1/16 ft reach 2,000 ft
   from the record). A triangle wider than a cell, or reaching past its cell's 2,000 ft, joins the first such section
   whose origin reaches all its corners, else starts one at its center. Before, each got a section of its own: the

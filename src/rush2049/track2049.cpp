@@ -280,7 +280,8 @@ namespace {
                                                  std::vector<std::string>(names.begin(), names.end()));
             }
             rush2::track2049::set_texanim_data({});
-            rush2::track2049::set_prop_data(track.prop_records, track.geometry);   // PROP_KNOCK_* / PROP_TIP_*
+            // Its PROP_ objects are Rush 2's own breakables (record_models, applied with the redirects), not 2049 props.
+            rush2::track2049::set_prop_data({}, track.geometry);
             // A battle arena's PICKUP_ markers (drawn with Rush 2049's models, src/rush2049/battle.cpp) and every custom
             // track's solid triangles, which the weapons' shots stop on.
             rush2::battle::set_data(track.pickup_records, {}, track.geometry, track.solid_triangles);
@@ -417,17 +418,22 @@ namespace {
         if (is_cs_k(loaded_track)) {
             rush2::track1::set_redirects(rdram, cs_track.record_models, cs_track.piece_models);
         }
-        else if (int course = is_mod_k(loaded_track) ? rush2::collectibles::raced_arcade_course() : -1;
-                 rush2::collectibles::key_course(course)) {
-            // An arcade or PS1 version of an SF Rush course, or the PS1's Chinatown: its keys
-            // (src/arcade2049/arcade_collectibles.cpp; KEYP1-4 the PS1's own) draw SF Rush's key and are taken by SF
-            // Rush's hit test, as on the course itself.
-            std::map<std::string, std::string> keys;
-            if (course < rush2::collectibles::sfrush_courses) {
-                for (int n = 1; n <= rush2::collectibles::sfrush_keys[size_t(course)]; n++) keys["KEY" + std::to_string(n)] = "KEYL1";
+        else if (is_mod_k(loaded_track)) {
+            // A custom track's props (PROP_*): Rush 2 breakable records drawing their own models (track.record_models).
+            // An arcade or PS1 version of an SF Rush course, or the PS1's Chinatown, also has its keys
+            // (src/arcade2049/arcade_collectibles.cpp; KEYP1-4 the PS1's own), which draw SF Rush's key; there SF Rush's
+            // hit test takes them and the props, as on the course itself.
+            std::map<std::string, std::string> records = track.record_models;
+            int course = rush2::collectibles::raced_arcade_course();
+            bool sfrush = rush2::collectibles::key_course(course);
+            if (sfrush) {
+                if (course < rush2::collectibles::sfrush_courses) {
+                    for (int n = 1; n <= rush2::collectibles::sfrush_keys[size_t(course)]; n++) records["KEY" + std::to_string(n)] = "KEYL1";
+                }
+                for (int n = 1; n <= rush2::collectibles::ps1_keys; n++) records["KEYP" + std::to_string(n)] = "KEYL1";
             }
-            for (int n = 1; n <= rush2::collectibles::ps1_keys; n++) keys["KEYP" + std::to_string(n)] = "KEYL1";
-            rush2::track1::set_redirects(rdram, keys, {}, true);
+            if (!records.empty()) rush2::track1::set_redirects(rdram, records, {}, sfrush);
+            else rush2::track1::clear_redirects();
         }
         else {
             rush2::track1::clear_redirects();   // another track replaced a Cal Speed one in the slot

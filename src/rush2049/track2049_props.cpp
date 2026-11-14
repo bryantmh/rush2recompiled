@@ -21,7 +21,8 @@
 // The converter places each prop as a record drawing its 2049 model (X49<model>) and lists the records
 // (PropRecord). Rush 2's placement walk gives each record a scene node whose matrix pointer points at the record's
 // 12 floats, so writing a prop's pose there moves it, as for the moving objects (src/rush2049/track2049_movers.cpp, whose
-// hooks call this file). Props present in one race direction only (_FW, _BW) are hidden in the other.
+// hooks call this file). Props present in one race direction only (_FW, _BW) are hidden in the other. Custom tracks'
+// props are Rush 2's own breakables instead (src/track_mod/track_mod_convert.cpp prop_classes).
 
 #include <algorithm>
 #include <cmath>
@@ -279,11 +280,7 @@ namespace {
             uint32_t node = nodes + i * node_size;
             node_of_matrix[(uint32_t)MEM_W(0, (int32_t)(node + 4))] = node;
         }
-        for (auto rec : prop_records) {
-            // A custom track's props react as a 2049 type found by name.
-            if (rec.type == rush2::track2049::prop_knock || rec.type == rush2::track2049::prop_tip) {
-                rec.type = movers::classify(types, rec.type == rush2::track2049::prop_knock ? "CONE1" : "STOPHIT");
-            }
+        for (const auto& rec : prop_records) {
             if (rec.type < 0 || rec.type >= (int)types.size()) {
                 continue;
             }

@@ -92,7 +92,7 @@ def set_options(name, pairs):
 USER_SETTINGS = ['graphics.json', 'general.json', 'cheats.json', 'circuit.json', 'npc_cars.json']
 
 
-def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=(), user_settings=False, no_mods=()):
+def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=(), user_settings=False, no_mods=(), no_roms=()):
     os.makedirs(DATA, exist_ok=True)
     for n in os.listdir(DATA):
         p = os.path.join(DATA, n)
@@ -102,7 +102,10 @@ def prepare_data(track, extra_mods, games=(), configs=(), mod_dirs=(), user_sett
             shutil.rmtree(p)
     for rom in ROMS:
         src, dst = os.path.join(BUILD, rom), os.path.join(DATA, rom)
-        if os.path.exists(src) and not os.path.exists(dst):
+        if rom in no_roms:
+            if os.path.exists(dst):
+                remove_link(dst)
+        elif os.path.exists(src) and not os.path.exists(dst):
             link(src, dst)
     if os.path.exists(os.path.join(BUILD, 'games.json')):
         shutil.copyfile(os.path.join(BUILD, 'games.json'), os.path.join(DATA, 'games.json'))
@@ -205,6 +208,8 @@ def main():
     ap.add_argument('--finish', type=float)
     ap.add_argument('--mod', action='append', default=[])
     ap.add_argument('--no-mod', action='append', default=[], help='an installed mod (its id) to leave off for the run')
+    ap.add_argument('--no-rom', action='append', default=[], choices=ROMS,
+                    help="a ROM file to leave out of the run's data folder (e.g. rush2049.z64: the game without Rush 2049)")
     ap.add_argument('--mod-dir', action='append', default=[], help='a mod folder to link in (or a .rtz to copy in), '
                     'in place of the installed mod with the same id (its mod.json id)')
     ap.add_argument('--out', default=os.path.join(REPO, 'tmp', 'test_race', 'out'))
@@ -240,7 +245,7 @@ def main():
         DATA = os.path.abspath(a.data)
     if a.records and not os.path.isfile(a.records):
         sys.exit('no placement file %s (the converted track: track_mod_test.exe output)' % a.records)
-    mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir, a.user_settings, a.no_mod)
+    mods = prepare_data(a.track, a.mod, a.games, a.config, a.mod_dir, a.user_settings, a.no_mod, a.no_rom)
     if a.saves:
         os.makedirs(os.path.join(DATA, 'saves'), exist_ok=True)
         for n in os.listdir(a.saves):

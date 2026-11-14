@@ -17,9 +17,9 @@
 //   SKY                       the sky: its own model SKYO1, drawn around the camera without depth or fog.
 //   BILLBOARD_<name>          a card that turns about its vertical axis to face the camera (Rush 2's node flag
 //                             0x8000): its own model, shared by billboards of the same mesh and scale.
-//   PROP_KNOCK_*, PROP_TIP_*  props a car knocks flying (gone after 5 s) or tips over, as Rush 2049's cone and signs
-//                             (src/rush2049/track2049_props.cpp): its own model, shared by props of the same mesh and
-//                             scale, at the node's position and rotation.
+//   PROP_KNOCK_*, PROP_TIP_*, PROP_TREE_*, PROP_METER_*  props cars hit: Rush 2's own breakable cones, signs, trees and
+//                             parking meters (prop_classes) drawn with the prop's own model, shared by props of the same
+//                             mesh and scale, at the node's position and rotation.
 //   anything else with a mesh the visible track.
 //
 // Formats: geometry docs/rush2049_research/geometry.md section 2, placement docs/rush2049_research/placement.md,
@@ -52,6 +52,22 @@ namespace {
     constexpr float feet_per_meter = 3.2808399f;
     constexpr float section_size = 1024.0f;     // ft: visual sections (models) on a grid
     constexpr float vertex_reach = 2000.0f;     // ft: s16 vertices at 1/16 ft reach 2047 ft from their record
+    // Props (PROP_<kind>_*) are Rush 2's own breakables (docs/custom_tracks.md#props): a record of the class whose
+    // name it starts with (the placement classifier, func_800815DC), drawing the prop's model (the class's model lookup
+    // redirected to it, ConvertedTrack::record_models), which carries the behaviour id of the model the class normally
+    // draws (docs/rush2049_research/placement.md#13-behaviour-ids). Rush 2 then hits, moves and sounds it as its
+    // own cones, signs, trees and meters, as the SF Rush and California Speed tracks' breakables
+    // (src/rush1/track1_convert.cpp). Index 0 is no prop.
+    struct PropClass {
+        const char* kind;       // after PROP_
+        const char* record;     // the class (record name prefix)
+        uint16_t behaviour;     // of CONE1O1, CURVEHITO1, TREEHIT1O1, METERO1
+        const char* what;
+    };
+    constexpr PropClass prop_classes[] = { { "", "", 0, "" }, { "KNOCK", "CONE1", 2, "cone" },
+        { "TIP", "CURVEHIT", 5, "sign" }, { "TREE", "TREEHIT", 5, "tree" }, { "METER", "METER", 5, "parking meter" } };
+    // Rush 2 holds 0x82 breakables (func_800BB27C), the course's keys among them.
+    constexpr size_t max_breakables = 0x82;
     constexpr float spine_step = 20.0f;         // ft between AI path points (the stock files' spacing)
     constexpr int max_checkpoints = 9;          // 10 checkpoint records, the finish line one of them
     constexpr int leaf_limit = 12;              // polygons per quadtree leaf before it splits
@@ -1801,8 +1817,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
         if (starts(name, "PROP_")) {
             std::string kind = upper(name.substr(5));
-            int type = starts(kind, "KNOCK") ? rush2::track2049::prop_knock : starts(kind, "TIP") ? rush2::track2049::prop_tip : 0;
-            if (!type) report.warning(n.name + ": unknown prop; use PROP_KNOCK_<name> or PROP_TIP_<name>. Ignored.");
+            int type = 0;
+            for (int k = 1; k < int(std::size(prop_classes)); k++) {
+                if (starts(kind, prop_classes[k].kind)) type = k;
+            }
+            if (!type) {
+                report.warning(n.name + ": unknown prop; use PROP_KNOCK_<name>, PROP_TIP_<name>, PROP_TREE_<name> or "
+                               "PROP_METER_<name>. Ignored.");
+            }
             else if (!mesh) report.warning(n.name + " has no mesh; ignored.");
             else prop_nodes.push_back({ type, &n });
             continue;
@@ -3555,12 +3577,13 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // only), turned half a turn so the face toward Blender's front view (-Y) is the one the camera sees: the game shows
     // the model's -z side. Billboards of the same mesh and scale share a model.
     // Props likewise, in their node's frame without the half turn, drawn at the node's rotation.
-    struct BillboardModel { std::string name; std::vector<VisualTri> tris; Section section; };
-    // prop: PropRecord::type, 0 = a plain billboard; card: drawn as a camera card (a billboard, or a prop with the
+    // behaviour: a prop model's (its class's, prop_classes), 0 for a billboard's.
+    struct BillboardModel { std::string name; std::vector<VisualTri> tris; Section section; uint16_t behaviour = 0; };
+    // prop: prop_classes index, 0 = a plain billboard; card: drawn as a camera card (a billboard, or a prop with the
     // custom property billboard = true, which flies off still facing the camera).
     struct Billboard { size_t model; Vec3 pos; Vec3 axes[3]; int prop = 0; bool card = true; };
     std::vector<BillboardModel> billboard_models;
-    std::vector<Billboard> billboards;
+    std::vector<Billboard> billboards, props;   // props: the PROP_ objects, placed as breakable records (below)
     std::vector<std::pair<int, const rush2::gltf::Node*>> placed_nodes;
     for (const auto* n : billboard_nodes) placed_nodes.push_back({ 0, n });
     placed_nodes.insert(placed_nodes.end(), prop_nodes.begin(), prop_nodes.end());
@@ -3606,13 +3629,14 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 key.append((const char*)&t.material, sizeof(t.material));
             }
             key.push_back(card ? 'B' : 'P');
+            key.push_back(char('0' + prop));     // a model carries its class's behaviour id
             auto [it, added] = model_of.try_emplace(key, billboard_models.size());
             if (added) {
                 char nm[32];
                 snprintf(nm, sizeof(nm), "%s%c%03zu", prefix.c_str(), prop ? 'P' : 'B', billboard_models.size());
-                billboard_models.push_back({ nm, std::move(tris), {} });
+                billboard_models.push_back({ nm, std::move(tris), {}, prop_classes[prop].behaviour });
             }
-            billboards.push_back({ it->second, o, { ax[0], ax[1], ax[2] }, prop, card });
+            (prop ? props : billboards).push_back({ it->second, o, { ax[0], ax[1], ax[2] }, prop, card });
             billboard_count += !prop;
         }
         if (far) {
@@ -3621,10 +3645,6 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         }
         if (billboard_count) {
             report.info("Billboards: " + std::to_string(billboard_count) + " BILLBOARD_ objects; they turn to face the camera.");
-        }
-        if (billboards.size() > billboard_count) {
-            report.info("Props: " + std::to_string(billboards.size() - billboard_count) + " PROP_ objects (they react to "
-                        "cars when the Rush 2049 ROM is set in the Games tab).");
         }
     }
     if (vtris.empty() && !collision_nodes.empty()) {
@@ -3854,6 +3874,44 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     }
     if (!extra_records.empty()) {
         report.info(std::to_string(extra_records.size()) + " collectible(s) of the course placed.");
+    }
+    // The props: a breakable record each (<class>P<n>), placed with the collectibles, whose class's model lookup draws
+    // the prop's model (ConvertedTrack::record_models). A card prop's record has the camera card flag.
+    std::vector<rush2::track_mod::Extras::Record> prop_records;
+    std::set<const rush2::track_mod::Extras::Record*> card_records;
+    {
+        size_t room = max_breakables > extra_records.size() ? max_breakables - extra_records.size() : 0;
+        if (props.size() > room) {
+            report.warning(std::to_string(props.size()) + " PROP_ objects: Rush 2 holds " + std::to_string(max_breakables) +
+                           " breakables" + (extra_records.empty() ? "" : " (the course's collectibles among them)") +
+                           ", so the last " + std::to_string(props.size() - room) + " aren't placed.");
+            props.resize(room);
+        }
+        std::map<int, size_t> per_class;
+        prop_records.reserve(props.size());
+        for (size_t i = 0; i < props.size(); i++) {
+            const Billboard& p = props[i];
+            rush2::track_mod::Extras::Record r;
+            char nm[32];
+            snprintf(nm, sizeof(nm), "%sP%zu", prop_classes[p.prop].record, i);
+            r.name = nm;
+            for (int k = 0; k < 9; k++) r.m[size_t(k)] = p.card ? ((k % 4) == 0 ? 1.0f : 0.0f) : p.axes[k / 3][k % 3];
+            for (int c = 0; c < 3; c++) r.pos[size_t(c)] = p.pos[size_t(c)];
+            out.track.record_models[r.name] = billboard_models[p.model].name;
+            prop_records.push_back(std::move(r));
+            if (p.card) card_records.insert(&prop_records.back());
+            per_class[p.prop]++;
+        }
+        for (const auto& r : prop_records) extra_records.push_back(&r);
+        if (!props.empty()) {
+            std::string b = "Props: " + std::to_string(props.size()) + " PROP_ objects, Rush 2's own breakables (";
+            bool first = true;
+            for (const auto& [k, n] : per_class) {
+                b += (first ? "" : ", ") + std::to_string(n) + " " + prop_classes[k].what + (n == 1 ? "" : "s");
+                first = false;
+            }
+            report.info(b + ").");
+        }
     }
 
     // ---- geometry container (docs/rush2049_research/geometry.md section 2) ----
@@ -4150,10 +4208,10 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         const Section* sec = names[i] == "SKYO1" && (!stris.empty() || stock_sky_model) ? &sky_model : nullptr;
         for (const Section& s : sections) if (s.name == names[i]) sec = &s;
         for (const Mover& mv : movers) if (mv.model == names[i]) sec = &mv.section;
-        for (const BillboardModel& bm : billboard_models) if (bm.name == names[i]) sec = &bm.section;
+        uint16_t behaviour = 0;                      // a plain model
+        for (const BillboardModel& bm : billboard_models) if (bm.name == names[i]) sec = &bm.section, behaviour = bm.behaviour;
         if (finish_model.list && names[i] == prefix + "FINISH") sec = &finish_model;
         if (!seatris.empty() && names[i] == "FILLSEA") sec = &sea_section;
-        uint16_t behaviour = 0;                      // a plain model
         for (const ExtraCopy& ec : extra_copies) {
             if (ec.section.name == names[i]) { sec = &ec.section; behaviour = ec.behaviour; }
         }
@@ -4203,16 +4261,6 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         for (float f : pos) addf(pl, f);
         bool late = bm ? bm->section.late : !mv && !is_finish && sections[i].late;
         add32(pl, 0x40 | (late ? late_pass : 0) | ((bb && bb->card) || (mv && mv->card) ? camera_card : 0));
-        if (bb && bb->prop) {
-            rush2::track2049::PropRecord r{};
-            r.record = int(i);
-            r.type = bb->prop;
-            r.direction = 0;
-            memcpy(r.m, rm, sizeof(r.m));
-            memcpy(r.pos, pos.data(), sizeof(r.pos));
-            for (int k = 0; k < 9; k++) r.parent_m[k] = (k % 4) == 0 ? 1.0f : 0.0f;
-            out.track.prop_records.push_back(r);
-        }
         add16(pl, uint16_t(i + 1 < records ? int16_t(i + 1) : int16_t(-1)));
         auto child = first_child.find(int(i));
         add16(pl, !is_finish && !mv && !bb && child != first_child.end() ? uint16_t(child->second) : 0xFFFF);
@@ -4228,7 +4276,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             add_name(pl, r.name);
             for (float f : r.m) addf(pl, f);
             for (float f : r.pos) addf(pl, f);
-            add32(pl, 0x40);
+            add32(pl, 0x40 | (card_records.count(&r) ? camera_card : 0));
             add16(pl, uint16_t(j + 1 < kids.size() ? int16_t(first_child[s] + j + 1) : int16_t(-1)));
             add16(pl, 0xFFFF);
             add32(pl, 0);
