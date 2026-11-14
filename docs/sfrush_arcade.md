@@ -135,6 +135,11 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   5 at keys the arcade_collectibles.py floor test drops too). They are the arcade's own pickups and are left out, as
   the 2049 arcade's coins are; the SF Rush keys go there instead (arcade2049.md#coins-and-keys-on-the-arcade-versions).
   ATARI5 also shows on signs on TRACK1 and TRACK3, which have other textures and stay.
+- **Finish banner:** every track has a banner drawn in CHKPOINT 19-203 ft from its lap line ('F' in rock_gates), and no
+  placed object uses its FINISH texture (256 x 64; Market's 128 x 32): the arcade puts FINISH on the banner for the last
+  lap. The converter makes that banner's CHKPOINT faces the custom track's FINISH_BANNER (a CHKPNT material) with
+  FINISH's image (scaled to CHKPOINT's size) as the FINISH material (custom_tracks.md#finish-banner), as the PS1 tracks
+  do. Checked in game with `RUSH2_TEST_RACE_FINISH_BANNER=1` (Downtown, Market).
 - The exe's table of 84 TEMPL names at 0x1406F4798 (per track: 64, 19, 1 names with value 0x20, placed through
   0x1402C4930 with that flag at the object record's +4) is not the road: only 7 of Golden Gate's 51 road objects
   are in it.

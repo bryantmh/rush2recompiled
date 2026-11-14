@@ -1281,6 +1281,39 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
     }
 
     PrimSet scenery, sky;
+    // Rush The Rock's finish banner: the placed object whose CHKPOINT faces are nearest its lap line ('F' in
+    // rock_gates, 19-203 ft from it on the seven tracks; no object is drawn in its FINISH image, which the arcade puts
+    // on the banner for the last lap). Its CHKPOINT faces become the custom track's FINISH_BANNER in a CHKPNT
+    // material, with FINISH's image as the FINISH material (docs/custom_tracks.md#finish-banner), as the PlayStation
+    // tracks' banners are made (src/sfrush_ps1/ps1_track.cpp).
+    const Instance* banner = nullptr;
+    int chk_texture = -1, finish_texture = -1;
+    PrimSet banner_prims;
+    if (rock) {
+        for (size_t i = 0; i < t.textures.size(); i++) {
+            if (t.textures[i].name == "CHKPOINT") chk_texture = int(i);
+            if (t.textures[i].name == "FINISH") finish_texture = int(i);
+        }
+        const RockGate* lap_line = nullptr;
+        for (const RockGate& rg : rock_gates) {
+            if (std::strcmp(rg.folder, folder) == 0 && rg.role == 'F') lap_line = &rg;
+        }
+        double best = 300.0;
+        for (const Instance& in : instances) {
+            if (!lap_line || chk_texture < 0 || finish_texture < 0) break;
+            V3 sum{};
+            size_t count = 0;
+            for (const auto& tr : in.o->lod0.tris) {
+                if (tr[3] != chk_texture) continue;
+                for (int c = 0; c < 3; c++) {
+                    if (tr[c] < in.o->lod0.verts.size()) sum = sum + mul(in.o->lod0.verts[tr[c]].pos, in.M) + in.pos, count++;
+                }
+            }
+            if (!count) continue;
+            double d = norm(sum * (1.0 / count) - V3{ lap_line->x, lap_line->y, lap_line->z });
+            if (d < best) best = d, banner = &in;
+        }
+    }
     int billboards = 0, knocks = 0;
     // A mesh in glTF space (default material) for collision or a trigger box.
     struct ColMesh {
@@ -1685,10 +1718,45 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
             still.insert(in.o->name + (is_sky ? " (sky: it stays still)" : " (a flipbook with no event: its first frame)"));
         }
         if (collision && !is_sky) object_collision(lod, in.M, in.pos, object_road, object_wall);
+        if (&in == banner && !is_sky) {
+            Lod chk = lod, rest = lod;
+            chk.tris.clear();
+            rest.tris.clear();
+            for (const auto& tr : lod.tris) (tr[3] == chk_texture ? chk : rest).tris.push_back(tr);
+            tri_count += add_tris(scenery, rest, V, max_edge);
+            tri_count += add_tris(banner_prims, chk, V, max_edge);
+            continue;
+        }
         size_t n = add_tris(is_sky ? sky : scenery, lod, V, is_sky ? 0.0 : max_edge);
         tri_count += is_sky ? 0 : n;
     }
     g.textured_mesh("TRACK", scenery.list());
+    if (!banner_prims.empty()) {
+        // CHKPNT: CHKPOINT's image in a material of its own (the other checkpoint banners keep theirs); FINISH at the
+        // same size (Market's is 128 x 32 against CHKPOINT's 256 x 64), so the swap keeps the faces' coordinates.
+        const Texture& ct = t.textures[size_t(chk_texture)];
+        const Texture& ft = t.textures[size_t(finish_texture)];
+        int w = std::max(ct.w, 1), h = std::max(ct.h, 1);
+        std::vector<uint8_t> chk_rgba, fin_rgba, fin_src;
+        if (!ct.rgba(texels, chk_rgba)) chk_rgba.assign(size_t(w) * h * 4, 255);
+        int fw = std::max(ft.w, 1), fh = std::max(ft.h, 1);
+        if (!ft.rgba(texels, fin_src)) fin_src.assign(size_t(fw) * fh * 4, 255);
+        fin_rgba.resize(size_t(w) * h * 4);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                size_t s = (size_t(y * fh / h) * fw + size_t(x * fw / w)) * 4;
+                std::memcpy(&fin_rgba[(size_t(y) * w + x) * 4], &fin_src[s], 4);
+            }
+        }
+        std::array<int, 2> wrap{ ct.clamp_s() ? 33071 : 10497, ct.clamp_t() ? 33071 : 10497 };
+        std::string mode = g.js["materials"][material(chk_texture)].value("alphaMode", std::string("OPAQUE"));
+        int chk_material = g.material("CHKPNT", g.image("CHKPNT", png(chk_rgba, w, h)), mode, true, wrap);
+        g.material("FINISH", g.image("FINISH", png(fin_rgba, w, h)), mode, true, wrap);
+        std::vector<Glb::Prim> list = banner_prims.list();
+        for (Glb::Prim& p : list) p.material = chk_material;
+        g.textured_mesh("FINISH_BANNER", list);
+        report.push_back("finish banner: " + banner->o->name + "'s CHKPOINT faces as FINISH_BANNER, turning to FINISH on the last lap");
+    }
     size_t moving_collision = 0;
     std::string mover_toml;
     for (const Mover& mv : movers) {

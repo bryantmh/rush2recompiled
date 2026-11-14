@@ -16,7 +16,8 @@
 //   RUSH2_ONLINE_VIEW_CAR does online, to watch a drone drive the course. RUSH2_TEST_RACE_VIEW_LANE=<0-3> keeps that
 //   drone to one AI lane (left to right as you drive). RUSH2_TEST_RACE_VIEW_MODE=<0-3> puts the watched car's camera in
 //   that mode (0 bumper, 1 hood, 2 and 3 chase; docs/camera.md).
-// - RUSH2_TEST_RACE_FINISH_BANNER=1: the finish banner turns to FINISH as the race starts (the last lap's swap).
+// - RUSH2_TEST_RACE_FINISH_BANNER=1: the finish banner turns to FINISH as the race starts (the last lap's swap), and
+//   a custom track's last_checkpoint movers (the Rush 2049 arcade FINISHSIGN flipbooks) start.
 // - RUSH2_TEST_RACE_WAIT=<seconds>: the race starts that long after the title screen is first up (a mod rebuilt at
 //   launch finished first, as when a player starts a race after it).
 //

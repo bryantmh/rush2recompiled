@@ -796,6 +796,10 @@ extern "C" void rush2_track49_movers_tick(uint8_t* rdram, recomp_context* ctx) {
             int next = MEM_H(0, (int32_t)(player + car_next_checkpoint));
             bool last = laps > 0 && (int)MEM_B(0, (int32_t)(player + car_laps_done)) + 1 == laps &&
                         next == MEM_H(0, (int32_t)finish_checkpoint);
+            // Test aid: RUSH2_TEST_RACE_FINISH_BANNER (src/test_race.cpp) shows the finish from the grid: a custom
+            // track's finish signs (Rush 2049 arcade FINISHSIGN flipbooks) start as if this were the last stretch.
+            static const bool test_finish = std::getenv("RUSH2_TEST_RACE_FINISH_BANNER") != nullptr;
+            last = last || (test_finish && racing);
             float before = world.leader_progress();
             world.set_cars(positions, live, last);
             if (movers_log && (int)(world.leader_progress() / 1000.0f) != (int)(before / 1000.0f)) {
