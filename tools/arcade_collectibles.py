@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 for sub in ('rush2049', 'arcade2049', 'rush1'):
     sys.path.insert(0, os.path.join(HERE, sub))
+sys.path.insert(0, HERE)    # glb_view (the PS1 tables); -I leaves the script's folder off the path
 os.environ.setdefault('RUSH2049_ROM', os.path.join(ROOT, 'build', 'rush2049.z64'))
 os.environ.setdefault('RUSH1_ROM', os.path.join(ROOT, 'build', 'rush1.z64'))
 
@@ -36,6 +37,7 @@ OUT_N64 = os.path.join(ROOT, 'src', 'rush1', 'ps1_keys.inc')
 GROUND_TOLERANCE = 3.0
 RING_RADIUS, RING_POINTS, RING_NEEDED = 30.0, 8, 6
 WALL_REACH = 4.0
+MARKER_REACH = 3.0      # ft: a key is the arcade's own when its key marker is placed this close
 PROJECTR = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'ProjectR', 'Data')
 
 # (mod id, mod track folder, arcade TRACKS folder, N64 track index). Courses are collectibles.cpp's: SF Rush 0-6, then
@@ -434,12 +436,30 @@ def ps1_tables(rom1, ps1_dir, data_rk, verbose):
     return rows, n64_extra, arcade_rows
 
 
+def key_markers(t):
+    """Rush The Rock's own key markers: worlds.rom placements of objects drawn only in an ATARI texture (TRACK5-7, at the
+    N64 keys' spots; the converter leaves them out, docs/sfrush_arcade.md). Their positions."""
+    atari = {i for i, x in enumerate(t.textures) if x.name.upper().startswith('ATARI')}
+    out = []
+    for name, _, _, pos in t.worlds():
+        o = t.object_named(name)
+        if o and o.lods[0].tris and all(tr[3] in atari for tr in o.lods[0].tris):
+            out.append(pos)
+    return out
+
+
 def course_table(label, course, pickups, n64_polys, arcade_dir, verbose):
-    arc = split(arcade.Track(arcade_dir).collision())
+    t = arcade.Track(arcade_dir)
+    arc = split(t.collision())
     n64 = split(n64_polys)
+    markers = key_markers(t)
     kept = []
     for name, bit, m, pos in pickups:
         ok, why = judge(n64, arc, pos)
+        # A dropped key the arcade has its own marker at (The Heights KEY1-2, Sunset KEY6-8) is only noted: left out
+        # for now, see TODO.txt (renders of the five spots: tools/glb_view.py on the pre-2026-11-13 arcade glbs).
+        if not ok and any(math.dist(pos, p) <= MARKER_REACH for p in markers):
+            why += "; the arcade's own key marker is here"
         if ok:
             kept.append((name, bit, m, pos))
         if verbose or not ok:

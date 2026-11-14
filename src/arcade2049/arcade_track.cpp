@@ -1202,17 +1202,28 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         bool card = false;      // a worlds.rom card the arcade turns to the camera (name FF_)
     };
     std::vector<Instance> instances;
-    size_t unnamed = 0;
+    size_t unnamed = 0, key_markers = 0;
     for (const WorldEntry& w : worlds) {
         // The Rock's TRACK5-7 have placements with no name (111, 100 and 65): nothing to place.
         if (w.name.empty()) { unnamed++; continue; }
         const Object* o = t.object_named(w.name);
         if (!o) { report.push_back("worlds.rom: " + w.name + " names no object, left out"); continue; }
+        // Rush The Rock's own key markers: little cubes drawn only in its ATARI5 logo (TRACK5-7: 7, 8 and 8 of them,
+        // at the spots the N64 keys are), left out as the 2049 arcade's coin pickups are; the SF Rush keys are placed
+        // there instead (arcade_collectibles.cpp). ATARI5 also shows on signs (TRACK1, 3), which have other textures.
+        if (rock && !o->lod0.tris.empty() &&
+            std::all_of(o->lod0.tris.begin(), o->lod0.tris.end(), [&](const std::array<uint16_t, 4>& tr) {
+                return tr[3] < t.textures.size() && starts_with(upper(t.textures[tr[3]].name), "ATARI");
+            })) {
+            key_markers++;
+            continue;
+        }
         // The arcade's worlds loader (ProjectR 0x1402D69EE) gives a placement named FF_ the flag dobs' `frontface`
         // sets (0x2000000): mostly trees, plus Presidio's bridge glows and Mission's glare sprites.
         instances.push_back({ o, w.m, w.pos, {}, starts_with(upper(w.name), "FF_") });
     }
     if (unnamed) report.push_back("worlds.rom: " + std::to_string(unnamed) + " placements with no name, left out");
+    if (key_markers) report.push_back("worlds.rom: " + std::to_string(key_markers) + " key markers (ATARI5 cubes), left out");
     for (const DobsEntry& d : dobs) {
         const Object* o = t.object_named(d.name);
         if (!o) { report.push_back("dobs.rom: " + d.name + " names no object, left out"); continue; }

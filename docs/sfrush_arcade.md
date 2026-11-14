@@ -130,6 +130,11 @@ tracks 1-3) and its extents to the foot (4963 x 8967 ft against 4962 x 8966 on G
   for the watched car and 0.5 ft for the others (table 0x140623970), left out when its wheels' heights differ by
   over 8 ft, its alpha from their average height; the quads go to its Vulkan renderer through 0x14017D0F0 /
   0x14017D5E0, and it never calls vkCmdSetDepthBias. How its renderer keeps the road from cutting it is not found.
+- **Key markers:** TRACK5-7 (Downtown, The Heights, Sunset) place small cubes drawn only in the ATARI5 logo (10
+  triangles, 7, 8 and 8 of them) through worlds.rom, each at an N64 key's spot (all 23 match one, within a foot; the
+  5 at keys the arcade_collectibles.py floor test drops too). They are the arcade's own pickups and are left out, as
+  the 2049 arcade's coins are; the SF Rush keys go there instead (arcade2049.md#coins-and-keys-on-the-arcade-versions).
+  ATARI5 also shows on signs on TRACK1 and TRACK3, which have other textures and stay.
 - The exe's table of 84 TEMPL names at 0x1406F4798 (per track: 64, 19, 1 names with value 0x20, placed through
   0x1402C4930 with that flag at the object record's +4) is not the road: only 7 of Golden Gate's 51 road objects
   are in it.

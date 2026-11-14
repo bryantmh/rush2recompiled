@@ -20,3 +20,5 @@ California Speed:
     consolidate them into one race-time page there (post-race screen and the menu's RECORDS screen), keeping or
     migrating times already saved.
 2) Optionally convert California speed custom RGB paint system
+
+SF Rush arcade: maybe add the 5 N64 keys the arcade marks with its own Atari cube but our floor test drops (Heights KEY1-2, Sunset KEY6-8; tools/arcade_collectibles.py notes them)

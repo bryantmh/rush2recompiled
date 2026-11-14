@@ -2,7 +2,9 @@
 // converted Rush 2049 cars outside the game: prints each texture's name, size, format, RT64 hash and content key, and
 // writes its PNG and the container's .glb.
 //
-//   asset_catalog_test OUT_DIR [ASSET_HEX ...] [--car49 N ...]   (no assets: every Rush 2 model container)
+//   asset_catalog_test OUT_DIR [ASSET_HEX ...] [--car49 N ...] [--file CONTAINER [PLACEMENT]]
+//   (no assets: every Rush 2 model container). --file reads a container file, e.g. a custom track's geometry.bin as
+//   tools/track_mod_test.bat writes it (with its placement.bin), for the RT64 hashes of a mod track's textures.
 //
 // Reads RUSH2_ROM (default rush2.us.recomp.z64 in the project root) and, for --car49, RUSH2049_ROM. Build from Git Bash:
 //   cmd //c "tools\asset_catalog_test.bat"   (writes tmp\catalog_test\asset_catalog_test.exe)
@@ -58,7 +60,7 @@ static void report(const std::string& label, const std::vector<uint8_t>& data, c
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        printf("usage: asset_catalog_test OUT_DIR [ASSET_HEX ...] [--car49 N ...]\n");
+        printf("usage: asset_catalog_test OUT_DIR [ASSET_HEX ...] [--car49 N ...] [--file CONTAINER [PLACEMENT]]\n");
         return 1;
     }
     std::filesystem::path out = argv[1];
@@ -76,15 +78,23 @@ int main(int argc, char** argv) {
                   : rush2::assets::inflate_raw(rom.data() + o, rom.size() - o, data);
     };
     std::vector<int> assets, cars;
+    bool files = false;
     for (int a = 2; a < argc; a++) {
-        if (strcmp(argv[a], "--car49") == 0 && a + 1 < argc) {
+        if (strcmp(argv[a], "--file") == 0 && a + 1 < argc) {
+            std::filesystem::path path = argv[++a];
+            std::vector<uint8_t> placement;
+            if (a + 1 < argc && argv[a + 1][0] != '-') placement = read_all(argv[++a]);
+            report(path.stem().string(), read_all(path.string()), out, placement);
+            files = true;
+        }
+        else if (strcmp(argv[a], "--car49") == 0 && a + 1 < argc) {
             cars.push_back(atoi(argv[++a]));
         }
         else {
             assets.push_back((int)strtol(argv[a], nullptr, 16));
         }
     }
-    if (assets.empty() && cars.empty()) {
+    if (assets.empty() && cars.empty() && !files) {
         for (int i = 0; i < 0x71; i++) assets.push_back(i);
     }
     for (int i : assets) {

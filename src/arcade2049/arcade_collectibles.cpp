@@ -164,6 +164,9 @@ bool rush2::arcade2049::collectible_extras(const std::string& mod_id, const std:
         r.name = s.record;
         std::memcpy(r.m.data(), s.m, sizeof(s.m));
         std::memcpy(r.pos.data(), move && r.name == moved ? at : s.pos, sizeof(s.pos));
+        if (move && r.name == moved) {
+            printf("[arcade] test: %s on %s moved to (%.1f, %.1f, %.1f)\n", moved, folder.c_str(), at[0], at[1], at[2]);
+        }
         out.records.push_back(std::move(r));
     }
     return true;
