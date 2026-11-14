@@ -12,9 +12,9 @@
 namespace rush2::battle_render {
     // 0-159 src/rush2049/battle.cpp, 160-175 coin glows (src/collectibles.cpp), 176-185 arcade checkpoint banners
     // (src/arcade2049/arcade_checkpoints.cpp), 186-193 the cars' lamps (src/car_lights.cpp), 194-197 falling snow (src/snowfall.cpp), 198-201 free, 202-223 Time
-    // Sprint's clocks (src/time_sprint.cpp), 224-323 the wings' contrail puffs (src/rush2049/wings_contrails.cpp). Models
+    // Sprint's clocks (src/time_sprint.cpp), 224-323 the wings' contrail puffs (src/rush2049/wings_contrails.cpp), 324-331 SF Rush Sunset's buses' headlamps (src/car_lights.cpp). Models
     // of the port's own (add_model) draw without the Rush 2049 ROM too. Slots fit 9 bits (item_id).
-    constexpr int max_slots = 324;
+    constexpr int max_slots = 332;
 
     // Loads the model files from the Rush 2049 ROM if they aren't (game thread). False without a ROM.
     bool ready(uint8_t* rdram);

@@ -344,6 +344,13 @@ extern "C" void rush2_track1_buses_drive(uint8_t* rdram, recomp_context* ctx) {
 }
 
 // Online play's checks and resyncs (include/online_sync.h): the buses (they block the cars, rush2_track1_buses_collision).
+bool rush2::track1::bus_pose(int bus, float pos[3], float m[9]) {
+    if (!active || bus < 0 || bus >= bus_count) return false;
+    for (int k = 0; k < 3; k++) pos[k] = buses[size_t(bus)].pos[k];
+    for (int k = 0; k < 9; k++) m[k] = buses[size_t(bus)].matrix[k];
+    return true;
+}
+
 void rush2::track1::buses_online_sync(rush2::online::sync::Walker& w) {
     namespace s = rush2::online::sync;
     s::field(w, active);

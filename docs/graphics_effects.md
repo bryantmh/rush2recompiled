@@ -296,6 +296,10 @@ the road and whatever else is round them from where the lamps really are on the 
   near black (luminance under 0.1). Rush 2049's fog table (main 0x80114658, 3 bytes per track) is gray-blue for the
   day tracks (0.55-0.61) and black for race tracks 4 and 6 (Presidio) and the stunt and battle arenas; the SF Rush
   PlayStation night versions set #080808. Covered sections of day tracks (car state +0x344) are left out.
+- **Buses:** SF Rush Sunset's eight traffic buses (src/rush1/track1_buses.cpp, `track1::bus_pose`) get headlamps
+  too on its NIGHT version, with the same option: BUSO1's two lamps under its orange band (x +-5.3, y 2.9, z 20 ft
+  in the model's axes, read off its front), always on, markers only (no lens glow), drawn from battle_render slots
+  324-331 placed with each bus's pose (trampolines 0x80E1F380, 32 bytes a bus). 2026-11-14, user request.
 - **When:** headlamps always (at night); tail lamps dim to drive by (a fifth of full) and full while Rush 2 lights the
   car's brake lights itself (braking, the car's flags 0x1000 set and 0x10 clear: func_800599A0, read in its hook
   `rush2_calspeed_brake_lights`). A lamp goes out once its corner's panel is damaged at all (panels 0 front right,

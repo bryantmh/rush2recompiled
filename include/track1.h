@@ -97,6 +97,9 @@ namespace rush2::track1 {
     // with none set (no PS1 mod) it lights them by guess as before. Any thread; part of the night tracks' cache key
     // (night_art_hash).
     void set_night_art(std::shared_ptr<const std::vector<uint8_t>> art);
+    // Sunset's traffic bus `bus` (0-7, src/rush1/track1_buses.cpp) while the buses run: its position (world units)
+    // and axes (rows: right, up, forward; the battle_render::place form). False when the buses aren't running.
+    bool bus_pose(int bus, float pos[3], float m[9]);
     std::shared_ptr<const std::vector<uint8_t>> night_art();
     uint64_t night_art_hash();
 
