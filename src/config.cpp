@@ -14,6 +14,7 @@
 #include "util/file.h"
 #include "common/rt64_enhancement_configuration.h"
 
+#include "checkpoint_time.h"
 #include "circuit.h"
 #include "npc_cars.h"
 #include "rush2.h"
@@ -938,6 +939,39 @@ static void add_catch_up_option(recomp::config::Config& config) {
         });
 }
 
+namespace checkpoint_time_option {
+    const std::string id = "checkpoint_difficulty";
+}
+
+// Checkpoint Time Difficulty: the race clock's time from its own DIFFICULTY, apart from the computer cars' pace
+// (src/checkpoint_time.cpp).
+static void add_checkpoint_time_option(recomp::config::Config& config) {
+    using rush2::checkpoint_time::Setting;
+    config.add_enum_option(
+        checkpoint_time_option::id,
+        "Checkpoint Time Difficulty",
+        "Sets how much time the race clock gives you at the start and at each checkpoint, apart from how fast the "
+        "computer cars drive. <recomp-color primary>Same as Race</recomp-color> uses the race's DIFFICULTY for both, "
+        "as in Rush 2. A number picks a DIFFICULTY for the clock alone, from 0 (slider all the way left, most time) "
+        "to 5 (least); the time is the track's base time times the number shown. Takes effect at the next checkpoint.",
+        {
+            { Setting::Linked, "Linked", "Same as Race" },
+            { Setting::Difficulty0, "0", "0 (x1.375 time)" },
+            { Setting::Difficulty1, "1", "1 (x1.300 time)" },
+            { Setting::Difficulty2, "2", "2 (x1.225 time)" },
+            { Setting::Difficulty3, "3", "3 (x1.150 time)" },
+            { Setting::Difficulty4, "4", "4 (x1.075 time)" },
+            { Setting::Difficulty5, "5", "5 (x1.000 time)" },
+        },
+        Setting::Linked
+    );
+
+    config.add_option_change_callback(checkpoint_time_option::id,
+        [](recomp::config::ConfigValueVariant cur_value, recomp::config::ConfigValueVariant, recomp::config::OptionChangeContext) {
+            rush2::checkpoint_time::set(static_cast<rush2::checkpoint_time::Setting>(std::get<uint32_t>(cur_value)));
+        });
+}
+
 namespace unlocked_opponents_option {
     const std::string id = "unlocked_car_opponents";
 }
@@ -1154,7 +1188,7 @@ void rush2::init_config() {
         // so showing one moves nothing in the others.
         create_ordered_tab(general::tab_name, "rush2_general", general::id, 3, {
             { "Gameplay", { car_stats_option::id, torque_option::id, stunt_gear_option::id, hide_respawn_option::id,
-                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, unlocked_opponents_option::id,
+                            hood_wheels_option::id, attract_camera_option::id, look_back_option::id, catch_up_option::id, checkpoint_time_option::id, unlocked_opponents_option::id,
                             pause_extras_option::id } },
             { "System", { general::options::background_input_mode, menu_background_option::id, data_location_option::id } },
             { "Circuits", { circuit_review_option::id, more_circuit_option::id, circuit_fixed_difficulty_option::id }, true },
@@ -1212,6 +1246,7 @@ void rush2::init_config() {
     add_attract_camera_option(general_config);
     add_look_back_option(general_config);
     add_catch_up_option(general_config);
+    add_checkpoint_time_option(general_config);
     add_unlocked_opponents_option(general_config);
     add_pause_extras_option(general_config);
     rush2::game_filter::add_option(general_config);
@@ -1310,6 +1345,8 @@ void rush2::init_config() {
         recompui::config::get_general_config().get_option_value(look_back_option::id)));
     rush2::npc_cars::set_catch_up(std::get<bool>(
         recompui::config::get_general_config().get_option_value(catch_up_option::id)));
+    rush2::checkpoint_time::set(static_cast<rush2::checkpoint_time::Setting>(std::get<uint32_t>(
+        recompui::config::get_general_config().get_option_value(checkpoint_time_option::id))));
     rush2::npc_cars::set_unlocked_opponents(std::get<bool>(
         recompui::config::get_general_config().get_option_value(unlocked_opponents_option::id)));
     rush2::game_filter::apply(std::get<bool>(

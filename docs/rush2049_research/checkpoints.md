@@ -191,8 +191,28 @@ collision at `fill` time would tighten it.
 - Laps, backward, mirror and the track don't change the values.
   - Laps only change how many checkpoints the race has.
   - Backward only changes which path file is loaded (same 90/45).
-- The recompiled code (`RecompiledFuncs/funcs_16.c`, `func_80093300`) has the same 0x5A / 0x2D constants. Nothing
-  in `us.toml` or `src/` hooks the timer.
+- The recompiled code (`RecompiledFuncs/funcs_16.c`, `func_80093300`) has the same 0x5A / 0x2D constants.
+
+### 2.1 Checkpoint Time Difficulty setting (2026-11-14)
+
+The General tab's Gameplay option **Checkpoint Time Difficulty** (`checkpoint_difficulty`, src/checkpoint_time.cpp)
+picks the DIFFICULTY f uses, apart from the one the computer cars' pace uses (rubber_band_800A1A98,
+docs/npc_cars.md#drone-catch-up). Values: Same as Race (key `Linked`, the default, Rush 2's behavior) or `0`-`5`,
+labeled with their f (x1.375 ... x1.000). Hooks right after the three loads of `0x8010C211` that compute f put the
+setting's difficulty in the loaded register:
+
+| load | function | register | hook (before) |
+|---|---|---|---|
+| 0x800AEAC8 | race_start_timer_800AE670 (start time, checkpoints on) | $t6 | 0x800AEACC |
+| 0x8008F640 | checkpoint_passed_8008F220 (checkpoint extension) | $t7 | 0x8008F644 |
+| 0x800AB1B8 | race_compute_total_time_no_checkpoints_800AB1B4 (checkpoints off) | $t6 | 0x800AB1BC |
+
+C++ that scales time by the same f reads `rush2::checkpoint_time::difficulty()` too: Rush 1's checkpoint times
+(`rush2::track1::race_time`, both its own difficulty terms and the division by f) and the PS1 Time Sprint clocks
+(src/time_sprint.cpp). The other readers of `0x8010C211` (the rubber band, the battle AI's skill, 0x80099EC0, the
+slider) keep the race's value. It is one of the online race settings every machine must share (src/online_tab.cpp).
+Checked with test_race on Las Vegas (header start 32, checkpoint 1 extension 17), race difficulty 2: Same as Race
+39.2 s at the start, 60.025 after checkpoint 1; `0` 44.0 and 67.375; `5` 32.0 at the start.
 
 ## 3. Rush 2049 [V]
 

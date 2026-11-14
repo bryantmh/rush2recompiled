@@ -15182,6 +15182,21 @@ text = "    rush2_pause_menu_input(rdram, ctx);"
 
 # Drone Catch-Up off: the drones' base rubber band values (src/npc_cars.cpp).
 [[patches.hook]]
+func = "checkpoint_passed_8008F220"
+before_vram = 0x8008F644
+text = "    rush2_checkpoint_time_difficulty(rdram, ctx, 15);"
+
+[[patches.hook]]
+func = "race_compute_total_time_no_checkpoints_800AB1B4"
+before_vram = 0x800AB1BC
+text = "    rush2_checkpoint_time_difficulty(rdram, ctx, 14);"
+
+[[patches.hook]]
+func = "race_start_timer_800AE670"
+before_vram = 0x800AEACC
+text = "    rush2_checkpoint_time_difficulty(rdram, ctx, 14);"
+
+[[patches.hook]]
 func = "rubber_band_800A1A98"
 before_vram = 0x800A2F14
 text = "    rush2_drone_catch_up(rdram, ctx);"

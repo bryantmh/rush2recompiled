@@ -10732,7 +10732,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x8010C211
 name = "race_difficulty"
 type = "u8"
-desc = "DIFFICULTY for the race (0-5, from the track select struct 0x800D5760 + 0xA by func_80094698). Drives rubber_band_800A1A98: f20 = (1 - difficulty / 5) x the per-track factor 0x800C1A3C, and no place spread at 5. Also read by checkpoint, total time, start timer and ranking. In a circuit, from the circuit block +1 bits 3-5 instead (2 unless More Circuit Settings changed it)."
+desc = "DIFFICULTY for the race (0-5, from the track select struct 0x800D5760 + 0xA by func_80094698). Drives rubber_band_800A1A98: f20 = (1 - difficulty / 5) x the per-track factor 0x800C1A3C, and no place spread at 5. Also read by checkpoint, total time, start timer and ranking. In a circuit, from the circuit block +1 bits 3-5 instead (2 unless More Circuit Settings changed it). The race clock's three reads (0x800AEAC8, 0x8008F640, 0x800AB1B8) take the Checkpoint Time Difficulty setting's value instead when it isn't Same as Race (src/checkpoint_time.cpp, docs/rush2049_research/checkpoints.md section 2.1)."
 area = "race"
 status = "verified"
 ref = "docs/npc_cars.md#drone-catch-up"

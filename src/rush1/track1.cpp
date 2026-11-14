@@ -39,6 +39,7 @@
 #include "recomp.h"
 #include "librecomp/addresses.hpp"
 #include "assets.h"
+#include "checkpoint_time.h"
 #include "rush2_hooks.h"
 #include "track1.h"
 #include "track2049.h"
@@ -499,7 +500,6 @@ extern "C" void rush2_track1_fall_floor(uint8_t* rdram, recomp_context* ctx) {
 // it (func_80090570).
 bool rush2::track1::race_time(uint8_t* rdram) {
     constexpr uint32_t header = 0x8010BCE8;     // Copy of the path header, checkpoints at +0xC, 0x50 bytes each.
-    constexpr uint32_t difficulty = 0x8010C211; // 0-5.
     constexpr uint32_t laps = 0x8010C0E2;
     std::lock_guard lock{ track_mutex };
     if (!applied || raced_track == 0 || MEM_BU(0, (int32_t)track_id) != host_slot) {
@@ -510,7 +510,8 @@ bool rush2::track1::race_time(uint8_t* rdram) {
     if (count != (int)timing.checkpoints.size()) {
         return true;
     }
-    int d = std::clamp((int)(int8_t)MEM_B(0, (int32_t)difficulty), 0, 5);
+    // The clock's difficulty (Checkpoint Time Difficulty, src/checkpoint_time.cpp): Rush 2 multiplies by its factor.
+    int d = std::clamp(rush2::checkpoint_time::difficulty(rdram), 0, 5);
     int lap_count = std::max((int)(int16_t)MEM_H(0, (int32_t)laps), 1);
     double rush1_factor = 1.0 + (5 - d) * 0.05;
     double rush2_factor = 1.0 + (5 - d) * 0.075;

@@ -41,6 +41,7 @@
 #include "librecomp/mods.hpp"
 
 #include "battle_render.h"
+#include "checkpoint_time.h"
 #include "car_engines.h"
 #include "online_sync.h"
 #include "rush2_hooks.h"
@@ -274,11 +275,10 @@ namespace {
     }
 
     // Rush 2's checkpoint time factor (checkpoint_passed_8008F220 at 0x8008F640-0x8008F680): 1 + (5 - difficulty) x
-    // the step at 0x800CFBEC.
+    // the step at 0x800CFBEC, with the Checkpoint Time Difficulty setting's difficulty (src/checkpoint_time.cpp).
     float difficulty_factor(uint8_t* rdram) {
-        constexpr uint32_t difficulty = 0x8010C211;   // s8: 0-5
         constexpr uint32_t step = 0x800CFBEC;         // f32
-        return 1.0f + float(5 - (int8_t)MEM_B(0, (int32_t)difficulty)) * read_f(rdram, step);
+        return 1.0f + float(5 - rush2::checkpoint_time::difficulty(rdram)) * read_f(rdram, step);
     }
 
     void hide_all() {

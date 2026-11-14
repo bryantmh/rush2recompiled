@@ -12,8 +12,7 @@ General:
       on that port; no profile pick or Create Player for them, and the post-race records and name entry (game state 6,
       func_800A952C, 2 player arrays: docs/players4.md) are players 1 and 2's.
 3) Higher drone difficulty levels
-4) Separate drone difficulty from checkpoint difficulty as an option
-5) The ability to save/load vehicle tuning setups by name
+4) The ability to save/load vehicle tuning setups by name
 
 California Speed:
 1) Post-race records on point-to-point tracks: average lap and best lap are the same one-lap time (the whole run);

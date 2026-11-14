@@ -68,7 +68,7 @@ namespace {
     };
     const GameplayConfig gameplay_configs[] = {
         { "general", []() -> recomp::config::Config& { return recompui::config::get_config("general"); },
-          { "accurate_car_stats", "torque_rebalance", "stunt_first_gear", "drone_catch_up" } },
+          { "accurate_car_stats", "torque_rebalance", "stunt_first_gear", "drone_catch_up", "checkpoint_difficulty" } },
         { "games", []() -> recomp::config::Config& { return rush2::wings::games_config(); }, {} },
         { "cheats", []() -> recomp::config::Config& { return recompui::config::get_config("cheats"); }, {} },
         { "npc_cars", []() -> recomp::config::Config& { return rush2::npc_cars::config(); }, {} },
