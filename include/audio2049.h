@@ -99,12 +99,19 @@ namespace rush2::audio2049 {
     // Registers song id `song` (stream_songs and up), replacing what it was; nullptr removes it. A song playing keeps
     // playing what it read.
     void set_stream_song(int song, std::shared_ptr<const StreamSong> stream);
-    // The arcade's 5.1 songs folded to stereo play 9.7 dB louder than Rush 2's (-6.4 against -16.1 LUFS, the race
-    // songs' mean), the PlayStation disc's CD audio 7.7 dB (-8.4): each is turned down by that, as the disc's songs are.
-    constexpr float arcade2049_music_compensation = 0.328f;   // -9.67 dB
-    constexpr float ps1_music_compensation = 0.413f;          // -7.68 dB
+    // Songs measured as files. Every source reaches the output at half scale (src/main.cpp queue_samples: x 0.5 / 32768,
+    // Rush 2's own audio too), and Rush 2's -16.1 LUFS (the race songs' mean) was measured in the game, after it; so a
+    // song that measures -16.1 LUFS as a file needs a gain of 2 to play as loud as Rush 2's (without it the arcade's
+    // Metro song measured -23.3 LUFS in a race, 6 dB under the file's level at its old gain).
+    constexpr float file_song_makeup = 2.0f;                  // +6.02 dB
+    // The arcade's 5.1 songs folded to stereo play 9.7 dB louder than Rush 2's (-6.4 against -16.1 LUFS), the
+    // PlayStation disc's CD audio 7.7 dB (-8.4): each is turned down by that, as the disc's songs are.
+    constexpr float arcade2049_music_compensation = 0.328f * file_song_makeup; // -3.65 dB
+    constexpr float ps1_music_compensation = 0.413f * file_song_makeup;        // -1.66 dB
     // Rush The Rock's synthesized race songs (src/arcade2049/rock_music.cpp) at the synth's level: -4.95 LUFS.
-    constexpr float rock_music_compensation = 0.277f;         // -11.15 dB
+    constexpr float rock_music_compensation = 0.277f * file_song_makeup;       // -5.13 dB
+    // A mod's songs, leveled like the games' (about -16 LUFS integrated, docs/custom_tracks.md).
+    constexpr float mod_music_compensation = file_song_makeup;
 
     // The song Rush 2049 plays on 2049 track id t (0-5 races, 6-13 battle arenas, 14-17 stunt arenas, 18 the obstacle
     // course) with its default "per track" music option: the N64's (0x8010FFD4), or from a Dreamcast disc

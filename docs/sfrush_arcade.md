@@ -217,7 +217,8 @@ up by R[13] a block; release fades by R[16] a block, or without one the sample j
 (0x14024AA20) pans by the lobe: left = g(a + 0xC0) + 0.707 g(a + 0x140), right = g(a + 0x40) + 0.707 g(a + 0x1C0), a the pan
 angle (512 a turn). Its output level also goes through ProjectR's own volume table (0x1406EA51C, by its game_volume
 setting), so the port levels the songs by loudness instead: -4.95 LUFS as synthesized, turned down 11.15 dB to Rush 2's
--16.1 (`rock_music_compensation`).
+-16.1 and doubled for the output's halving (`file_song_makeup`, include/audio2049.h): a gain of 0.554
+(`rock_music_compensation`).
 
 ## Checks
 

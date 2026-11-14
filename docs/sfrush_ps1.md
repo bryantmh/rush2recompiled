@@ -1302,7 +1302,8 @@ SF Rush songs (src/music_streams.cpp: `ps1::audio_tracks` finds them through the
 `ps1::read_audio` reads them; nothing is converted or copied into the mod). Like SF Rush's N64 songs they belong to no
 track: an SF Rush N64 track's Original is a random one of the N64 and PlayStation songs, Chinatown's too. They are
 listed in the Sound tab under SF Rush > PlayStation, with a switch for the source while SF Rush has more than one
-installed. Measured -8.4 LUFS against Rush 2's -16.1, they are turned down 7.7 dB (`ps1_music_compensation`). The
+installed. Measured -8.4 LUFS as files against Rush 2's -16.1, they are turned down 7.7 dB and doubled for the
+output's halving (`file_song_makeup`, include/audio2049.h): a gain of 0.826 (`ps1_music_compensation`). The
 songs are taken to be the PlayStation version's own (not checked against the N64 songs, which only play as sequences
 in the game). **[I]**
 

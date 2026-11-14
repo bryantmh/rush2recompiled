@@ -112,7 +112,8 @@ docs/rush2049_research/audio.md). So the arcade's soundtrack is its own [I]; con
 The game plays them (src/music_streams.cpp) straight from the arcade data folder, nothing converted: the first whole
 frame after the header is frame 43 (byte 516); the six channels carry different parts (the centre and rears hold
 their own instruments, uncorrelated with the fronts), so they are folded to stereo (FL + 0.707 C + 0.707 BL, likewise
-right; src/stream_decode.cpp), and turned down 9.7 dB (folded, they measure -6.4 LUFS against Rush 2's -16.1). Each
+right; src/stream_decode.cpp), and leveled to Rush 2's songs: folded, they measure -6.4 LUFS as files against Rush 2's -16.1 in the game, which
+halves every source at the output (`file_song_makeup`, include/audio2049.h), so they play at 0.656 (-3.65 dB). Each
 TRACKn's song is the Original of its arcade version (`track4` Alcatraz's); `therock` (TRACK8's) is no raced track's
 own song, so it plays only in shuffles; `select` is a main menu song (Sound tab: Rush 2049 >
 Arcade > Main Menu). They are listed under Rush 2049's Arcade heading in the Sound tab.

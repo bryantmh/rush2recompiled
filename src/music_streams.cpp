@@ -130,6 +130,7 @@ namespace {
             out = rush2::upscale::read_file(mod_path / std::filesystem::u8path(inner));
             return !out.empty();
         };
+        s->gain = audio::mod_music_compensation;
         audio::set_stream_song(id, s);
         return id;
     }
