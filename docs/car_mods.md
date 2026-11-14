@@ -72,8 +72,10 @@ set of enabled mods changes) read the glbs and build a Rush 2 car container per 
   classes 0x800C5670), sized by its aspect: 64x32, 32x64 or 32x32. Texels the mask paints go on MAIN's ramp
   (entries 1-31) or ACCENT's (33-63) by brightness, and the rest go to the nearest fixed entry, so Rush 2's own paint
   (func_8008582C) colors them. Texels 0 and 1 are always entries 1 and 33, so the drawn paint can be read back from
-  them. A scuffed copy (the ramp shifted in blotches) is what a damaged panel draws. Flat single-color images have no
-  separate scuffed key.
+  them. A scuffed copy (the ramp shifted in blotches) is what a damaged panel draws. An image with no paint mask
+  (drawn as authored, like the arcade cars' schemes) has no ramp, so its colors are scaled lighter and darker in the
+  same blotches and each texel takes the nearest fixed entry; before this, such cars dented but never scuffed. Flat
+  single-color images have no separate scuffed key.
 - **Texture names:** `<PREFIX>Mnn`. They must differ per car: every mod container has the same layout, and
   `bank_instance` tells the bodies apart by the first texture record's name. With shared names, a car is matched to
   another car's body, and the dent hook writes that car's vertices into it (the mesh comes out scrambled).

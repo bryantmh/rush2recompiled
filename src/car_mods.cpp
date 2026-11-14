@@ -79,7 +79,7 @@ namespace {
         "D0_D2FR2", "D2_D2FR2", "D0_D2FL2", "D2_D2FL2", "D0_D2RR2", "D2_D2RR2", "D0_D2RL2", "D2_D2RL2", "D0_D2TOP2",
         "H0_L", "H2_L", "H0_R", "H2_R", "H0D_L", "H2D_L", "H0D_R", "H2D_R",
     };
-    constexpr uint32_t cache_version = 5;
+    constexpr uint32_t cache_version = 6;
 
     // Rush 2's car palette classes (0x800C5670, docs/game_fixes.md Rocket windshield): 1-31 MAIN, 33-63 ACCENT,
     // 64-95 / 112-143 / 208-255 stripe stamped, the rest fixed.
@@ -422,9 +422,27 @@ namespace {
             h ^= h >> 15;
             return float(h & 0xFFFF) / 65535.0f;
         };
+        // An image without a paint mask (drawn as authored, like the arcade cars' schemes) has no ramp to shift: its
+        // colors go lighter and darker in the same blotches, each the nearest fixed entry, as rush2::derive scuffs the
+        // full-size image (paint_mod) and scuff_true_color a livery's.
+        const bool unmasked = small_mask.empty();
         for (size_t i = 2; i < n; i++) {
             int v = s.texels[i];
             int first = v >= main_first && v <= main_last ? main_first : v >= accent_first && v <= accent_last ? accent_first : -1;
+            if (first < 0 && unmasked && !fixed.empty()) {
+                const uint8_t* p = &small.rgba[i * 4];
+                float k = 1.0f + (hash(int(i % s.width) / 3, int(i / s.width) / 3) - 0.5f) * 0.45f;
+                float r = std::min(255.0f, p[0] * k), g = std::min(255.0f, p[1] * k), b = std::min(255.0f, p[2] * k);
+                int best = fixed[0];
+                float bd = 1e9f;
+                for (int f : fixed) {
+                    const Rgba& c = car_palette[f];
+                    float d = 0.3f * (c.r - r) * (c.r - r) + 0.59f * (c.g - g) * (c.g - g) + 0.11f * (c.b - b) * (c.b - b);
+                    if (d < bd) { bd = d; best = f; }
+                }
+                s.scuffed[i] = uint8_t(best);
+                continue;
+            }
             if (first < 0) continue;
             int x = int(i % s.width) / 3, y = int(i / s.width) / 3;
             int shift = int(std::lround((hash(x, y) - 0.5f) * 8.0f));
