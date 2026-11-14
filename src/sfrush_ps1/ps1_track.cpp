@@ -1768,6 +1768,81 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                  ramps, grounds.size(), walls.size(), base_walls.size());
         report.push_back(line);
     }
+    // Curbs across the road: a ground polygon standing straight up (normal y under 0.2) between a floor at its top and
+    // a floor at its foot, rising 0.2-1.5 ft. Embarcadero's street under the overpass meets a slab 0.79 ft higher (PS1
+    // road chunk 53, track.glb z -1489.9 m, x 1236-1272) along such a face, right across all four AI lanes. Rush 2
+    // lifts a wheel onto it in one step at 220 mph: in a headless race 2 of 21 crossings threw the car 22-26 ft up
+    // with 75 mph lost and flipped it, the race's only wrecks (user report 2026-11-14; docs/sfrush_ps1.md#collision).
+    // Its foot is moved out over the lower floor so it becomes a ramp of 1 in 40 (31 ft for that curb), as long as that
+    // floor runs under all of it; the drawn curb is left as it is. On the PS1 disc only Embarcadero's faces (the slab
+    // and a 0.79 ft box beside the street at x 636-649) qualify.
+    size_t curb_ramps = 0;
+    {
+        constexpr double min_rise = 0.2, max_rise = 1.5, ramp_slope = 1.0 / 40.0;
+        // Whether a ground polygon other than `skip` has its surface within tol of y at (x, z).
+        auto floor_near = [&](size_t skip, double x, double z, double y, double tol) {
+            for (size_t i = 0; i < grounds.size(); i++) {
+                if (i == skip) continue;
+                const Ground& gr = grounds[i];
+                for (int k = 0; k < gr.tri_count; k++) {
+                    const V3& p0 = gr.p[gr.tris[k][0]];
+                    const V3& p1 = gr.p[gr.tris[k][1]];
+                    const V3& p2 = gr.p[gr.tris[k][2]];
+                    V3 on = a49::cross(p1 - p0, p2 - p0);
+                    if (std::fabs(on[1]) < 1e-9) continue;
+                    auto side = [&](const V3& a, const V3& b) { return (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0]); };
+                    double s0 = side(p0, p1), s1 = side(p1, p2), s2 = side(p2, p0);
+                    if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+                    if (std::fabs(p0[1] - (on[0] * (x - p0[0]) + on[2] * (z - p0[2])) / on[1] - y) < tol) return true;
+                }
+            }
+            return false;
+        };
+        for (size_t i = 0; i < grounds.size(); i++) {
+            Ground& gr = grounds[i];
+            V3 n = a49::cross(gr.p[1] - gr.p[0], gr.p[2] - gr.p[0]);
+            if (a49::norm(n) < 1e-9) continue;
+            n = a49::unit(n);
+            if (std::fabs(n[1]) >= 0.2) continue;
+            double lo = 1e9, hi = -1e9;
+            for (int c = 0; c < gr.n; c++) {
+                lo = std::min(lo, gr.p[c][1]);
+                hi = std::max(hi, gr.p[c][1]);
+            }
+            double rise = hi - lo;
+            if (rise < min_rise || rise > max_rise) continue;
+            // Every corner on the top or the foot; the face's horizontal normal and its top edge's middle.
+            V3 top{ 0, 0, 0 }, foot{ 0, 0, 0 };
+            int nt = 0, nf = 0;
+            for (int c = 0; c < gr.n; c++) {
+                if (gr.p[c][1] > hi - 0.05) { top = top + gr.p[c]; nt++; }
+                else if (gr.p[c][1] < lo + 0.05) { foot = foot + gr.p[c]; nf++; }
+            }
+            if (nt == 0 || nf == 0 || nt + nf != gr.n) continue;
+            top = top * (1.0 / nt);
+            foot = foot * (1.0 / nf);
+            double hl = std::hypot(n[0], n[2]);
+            double hx = n[0] / hl, hz = n[2] / hl;
+            // The upper floor lies on one side of the top edge, 1 ft out; the ramp goes the other way.
+            bool plus_up = floor_near(i, top[0] + hx, top[2] + hz, hi, 0.2);
+            bool minus_up = floor_near(i, top[0] - hx, top[2] - hz, hi, 0.2);
+            if (plus_up == minus_up) continue;
+            double s = plus_up ? -1.0 : 1.0, len = rise / ramp_slope;
+            bool under = true;
+            for (double f : { 0.25, 0.5, 0.75, 1.0 }) {
+                if (!floor_near(i, foot[0] + s * hx * len * f, foot[2] + s * hz * len * f, lo, 0.3)) under = false;
+            }
+            if (!under) continue;
+            for (int c = 0; c < gr.n; c++) {
+                if (gr.p[c][1] < lo + 0.05) {
+                    gr.p[c][0] += s * hx * len;
+                    gr.p[c][2] += s * hz * len;
+                }
+            }
+            curb_ramps++;
+        }
+    }
+    if (curb_ramps) report.push_back(std::to_string(curb_ramps) + " curb faces across a floor made ramps of 1 in 40");
     if (b_records) report.push_back(std::to_string(b_records) + " raised walls (B records), each over its own height band");
     // Ground by surface (FLAGS & 0x18: road, dirt, grass, water). The grass class (the park's grass and sand shoulders)
     // is the custom surface VERGE (track.toml below): COL_GRASS stores wheel material 2, which is Rush 2's water and

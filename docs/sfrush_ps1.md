@@ -256,6 +256,16 @@ vertices are (x, -height, y) of the track frame. **[V]**
   high edges: one face along the low edge facing downhill, 3 ft under it to 3 ft over the top, the polygon kept as
   ground so a car coming down from above (behind the one-sided wall) still rolls down. Only that polygon qualifies
   on the PS1 disc; Golden Gate's 54-degree banked-curve bands (next to other bands or nothing) stay drivable.
+- **Curbs across the road:** a ground polygon standing straight up (normal y under 0.2), 0.2-1.5 ft tall, with a
+  floor at its top on one side and at its foot on the other, is a curb face. Embarcadero's street under the overpass
+  (PS1 roads 25/28/29) meets a slab 0.79 ft higher (road 53) along one, track.glb z -1489.9 m, x 1236-1272, across
+  all four AI lanes at 47% of the lap. Rush 2 lifted a wheel onto it in one step at 220 mph: in a headless race
+  (`tools/drone_pace.py --race embarcadero_night`) 2 of 21 crossings threw the car 22-26 ft up with 75 mph lost and
+  flipped it (the race's only 2 wrecks), 3 more lost 30-70 mph, every one hopped 2-3 ft (user report 2026-11-14). The
+  converter (`ps1_track.cpp`, `curb_ramps`) moves such a face's foot out over the lower floor into a ramp of 1 in 40
+  (31 ft for this one), only where that floor runs under all of it; the drawn curb stays. Afterwards: 0 wrecks, every
+  crossing rising 0.3-0.5 ft at full speed (night and snow). On the disc only Embarcadero's faces qualify (the slab's
+  two and one side of the 0.79 ft box at x 636-649). **[V]**
 - **Creases:** the PS1 ground is flat planes (above), so its curves are facets, and on tracks 1-3 most floor quads
   are bent quads (two planes: Golden Gate 583 of 859, folded a median 2 degrees; Embarcadero 73 of 501; Market 613
   of 1,426; Chinatown 37 of 922). Every bent quad's split matches both of its record's planes (offline, every quad on
