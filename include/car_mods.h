@@ -49,6 +49,11 @@ namespace rush2::car_mods {
     int livery_body(uint8_t* rdram, int id, uint32_t& base);
     // The file name (no folder or extension) of the livery car `id`'s copy shows, "" for none (Car Lights' key).
     std::string livery_name(uint8_t* rdram, int id);
+    // The color race car `id` (0-7) reads as from afar, 0xRRGGBB, when its look is drawn as authored rather than in
+    // Rush 2's MAIN COLOR: a livery, a new car's color scheme (or its one look without a paint mask), or a Dreamcast
+    // disc's Rush 2049 paint job. False when MAIN COLOR paints it. The track map's dots (rush2_map_dot_colors). Game
+    // thread.
+    bool look_color(uint8_t* rdram, int id, uint32_t& rgb);
 }
 
 // Files in the enabled mods (car models, HUD placements).

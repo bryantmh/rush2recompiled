@@ -43,6 +43,7 @@
 #include "librecomp/addresses.hpp"
 
 #include "car2049.h"
+#include "car_mods.h"
 #include "data_files.h"
 #include "paint_colors.h"
 #include "rush2_hooks.h"
@@ -258,6 +259,22 @@ extern "C" void rush2_paint_rgba_table(uint8_t* rdram, recomp_context* ctx, uint
 extern "C" void rush2_paint_5551_table(uint8_t* rdram, recomp_context* ctx, uint64_t* reg) {
     if (rgba5551_table != 0) {
         *reg = (uint64_t)(int64_t)(int32_t)rgba5551_table;
+    }
+}
+
+// The track map's car dots. hud_race_setup_widgets fills each dot model's palette (model +0x14: RGBA5551 halfwords,
+// car i at +2 + i * 2) from the RGBA5551 table by each car's MAIN COLOR (physics car +0x7EB), in two loops (the dots at
+// 0x800A0848, the other model's at 0x800A090C, $v0 the model both times). A car drawn in its own textures (a livery,
+// a mod car's color scheme, a Dreamcast 2049 paint job) isn't in its MAIN COLOR, so after each loop its dot gets the
+// color its look reads as (rush2::car_mods::look_color).
+extern "C" void rush2_map_dot_colors(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t palette = (uint32_t)MEM_W(0x14, (int32_t)ctx->r2);
+    if (palette == 0) return;
+    for (int i = 0; i < 8; i++) {
+        uint32_t rgb = 0;
+        if (rush2::car_mods::look_color(rdram, i, rgb)) {
+            MEM_H(2 + i * 2, (int32_t)palette) = (uint16_t)to_5551(rgb << 8);
+        }
     }
 }
 

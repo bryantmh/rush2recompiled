@@ -9518,6 +9518,17 @@ func = "hud_race_setup_widgets_800A06F8"
 before_vram = 0x800A0884
 text = "    rush2_paint_5551_table(rdram, ctx, &ctx->r8);"
 
+# Track map dots: a car drawn in its own textures (livery, mod car scheme, DC paint job) gets its look's color.
+[[patches.hook]]
+func = "hud_race_setup_widgets_800A06F8"
+before_vram = 0x800A0848
+text = "    rush2_map_dot_colors(rdram, ctx);"
+
+[[patches.hook]]
+func = "hud_race_setup_widgets_800A06F8"
+before_vram = 0x800A090C
+text = "    rush2_map_dot_colors(rdram, ctx);"
+
 
 # Paint colors: the player record's getters and setters keep the 2049 shades beside the record.
 [[patches.hook]]

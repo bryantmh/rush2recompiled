@@ -72,6 +72,9 @@ namespace rush2::car2049 {
     // The number of paint jobs (car select STYLEs) of a car type: a 2049 car from a Dreamcast disc has its own, any
     // other car 0.
     int paint_jobs(int type);
+    // A Dreamcast disc's car's paint job color (0xRRGGBB, the disc job's paint) for MAIN COLOR `main` (its STYLE, main %
+    // jobs); false for a car without paint jobs.
+    bool paint_job_color(int type, int main, uint32_t& rgb);
     // A Rush 2 car type drawn as one body, as a 2049 car is (a car mod's mesh, src/car_mods.cpp): its asset (0x1D +
     // type) becomes `car`, a car container whose <prefix>FRAME1 is the body and whose other parts are empty, dented
     // by the car's panel damage like a 2049 car's body. scuffed: the body's textures' damaged copies (file offset of

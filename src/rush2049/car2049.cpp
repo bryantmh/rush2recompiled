@@ -2271,6 +2271,13 @@ int rush2::car2049::paint_jobs(int type) {
     return k >= 0 && k < car_count ? (int)paints[k].job_rgb.size() : 0;
 }
 
+bool rush2::car2049::paint_job_color(int type, int main, uint32_t& rgb) {
+    int k = type - first_type;
+    if (rush2::car_types::is_mod(type) || k < 0 || k >= car_count || paints[k].job_rgb.empty() || main < 0) return false;
+    rgb = paints[k].job_rgb[size_t(main) % paints[k].job_rgb.size()];
+    return true;
+}
+
 std::map<uint32_t, uint32_t> rush2::car2049::scuffed_texels(int k) {
     std::map<uint32_t, uint32_t> out;
     if (k < 0 || k >= car_count) return out;

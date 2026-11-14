@@ -405,6 +405,19 @@ Test aid: `RUSH2_TEST_LIVERY=<style>` shows that STYLE on every car with liverie
 in): `tools/test_race.py 0 --cars 28 --env RUSH2_TEST_LIVERY=1 --script "14:A:5,19.2:B:3" --shots 18.8,19.6` brakes
 the Bruiser in the arcade's first Cuda livery.
 
+## Track map dots
+
+The race HUD's track map colors each car's dot by its MAIN COLOR: hud_race_setup_widgets (0x800A06F8) fills each dot
+model's palette (model +0x14, RGBA5551 halfwords, car i at +2 + i x 2) from the paint table by physics car +0x7EB, in
+two loops (ending at 0x800A0848 and 0x800A090C, `$v0` the model). A car drawn in its own textures isn't in its MAIN
+COLOR (a new car's color scheme, a livery, a Dreamcast disc's 2049 paint job), so a hook after each loop
+(`rush2_map_dot_colors`, src/paint_colors.cpp) gives its dot the color its look reads as
+(`rush2::car_mods::look_color`): the color covering most of the body (`scheme_color` in src/car_mods.cpp: the textures
+sampled over the triangles by area, binned at 3 bits a channel as the disc's paint job colors are, dark texels left
+out), cached on disk per glb (`lookcolor_<hash>`); a Dreamcast paint job's own color (`car2049::paint_job_color`). A
+new car with one look and a paint mask keeps the MAIN COLOR dot. Checked: the Deuce at MAIN COLOR 1 (its purple
+scheme) shows a purple dot (`test_race.py 1 --env RUSH2_TEST_RACE_CARS=58 --env RUSH2_TEST_RACE_COLOR=1`).
+
 ## Car lights
 
 On night tracks, with Graphics > Car Lights on (the Enhanced preset's default), every car's headlamps light the road

@@ -588,6 +588,7 @@ void rush2_npc_cars_rim_init(uint8_t* rdram, recomp_context* ctx);
 // Paint colors with the Rush 2049 shades (src/paint_colors.cpp).
 void rush2_paint_rgba_table(uint8_t* rdram, recomp_context* ctx, uint64_t* reg);
 void rush2_paint_5551_table(uint8_t* rdram, recomp_context* ctx, uint64_t* reg);
+void rush2_map_dot_colors(uint8_t* rdram, recomp_context* ctx);
 void rush2_paint_convert(uint8_t* rdram, recomp_context* ctx);
 void rush2_paint_get(uint8_t* rdram, recomp_context* ctx, uint32_t at, int field, uint64_t* value);
 void rush2_paint_set(uint8_t* rdram, recomp_context* ctx, int field);
