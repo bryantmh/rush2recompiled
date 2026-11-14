@@ -144,7 +144,7 @@ def from_recording(path):
         if head['kinds'][c] != 1:
             continue
         base = 2 + c * len(fields)
-        s = {'dist': 0.0, 'time': 0.0, 'wrecks': 0, 'brake_fast': 0.0, 'top': 0.0, 'finished': False,
+        s = {'dist': 0.0, 'time': 0.0, 'wrecks': 0, 'resets': 0, 'brake_fast': 0.0, 'top': 0.0, 'finished': False,
              'wreck_at': [], 'trace': [], 'hits': []}
         was_wreck = False
         # The drones are stepped round robin (their `step`: the physics clock of the car's last step), so a car moves
@@ -156,10 +156,16 @@ def from_recording(path):
             if vals[row + fi['finished']]:
                 s['finished'] = True
                 break
-            wreck = vals[row + fi['wreck']] != 0
-            s['wrecks'] += wreck and not was_wreck
-            if wreck and not was_wreck:
+            # Wreck state (car state +0x342): 1 a crash; 2 straight from driving is the drone driver putting a drone
+            # back on its lane (more than 100 ft from its lane point, or stuck: docs/calspeed_research.md#5-paths),
+            # which mostly doesn't move the car and isn't a crash; 2 after 1 is a crash ending.
+            state = vals[row + fi['wreck']]
+            wreck = state != 0
+            if state == 1 and not was_wreck:
+                s['wrecks'] += 1
                 s['wreck_at'].append((r / 60.0, c, vals[row + fi['x']], vals[row + fi['y']], vals[row + fi['z']]))
+            elif state == 2 and not was_wreck:
+                s['resets'] += 1
             was_wreck = wreck
             step, x, z = vals[row + fi['step']], vals[row + fi['x']], vals[row + fi['z']]
             if last is not None and step == last[0]:
@@ -316,6 +322,7 @@ def summary(cars, seconds, laps):
         'finished': sum(s['finished'] for s in cars),
         'mph': sum(s['dist'] for s in cars) / t / 1.4667,
         'wrecks': sum(s['wrecks'] for s in cars),
+        'resets': sum(s.get('resets', 0) for s in cars),
         'brake_fast': sum(s['brake_fast'] for s in cars) / t,
         'top': max((s['top'] for s in cars), default=0.0),
     }
@@ -325,9 +332,9 @@ def show(name, s):
     if s is None:
         print('%s: no race in it' % name)
         return
-    print('%s: %.0f s%s, %d drones (%d finished), %.0f mph average, %d wrecks, braking above 100 mph %.1f%% of the '
+    print('%s: %.0f s%s, %d drones (%d finished), %.0f mph average, %d wrecks (%d lane resets), braking above 100 mph %.1f%% of the '
           'time, top %.0f mph' % (name, s['seconds'], ', %s laps' % s['laps'] if s['laps'] else '', s['drones'],
-                                  s['finished'], s['mph'], s['wrecks'], 100 * s['brake_fast'], s['top']))
+                                  s['finished'], s['mph'], s['wrecks'], s['resets'], 100 * s['brake_fast'], s['top']))
 
 
 def main():

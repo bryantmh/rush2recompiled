@@ -39,6 +39,7 @@
 #include "track1_lanes.h"
 #include "track2049.h"
 #include "texture_upscale.h"
+#include "path_lane_fix.h"
 
 namespace {
     using Bytes = std::vector<uint8_t>;
@@ -1516,6 +1517,32 @@ bool rush2::track1::convert_track(const std::vector<uint8_t>& rom, int t, const 
         out.collision[1] = convert_collision(asset(rom, collision_back_asset + t));
         for (int b = 0; b < 2; b++) {
             out.path[b] = convert_path(rom, main, t, b != 0, out.demo_starts[b], out.lap_seconds[b], out.timing[b]);
+        }
+        {
+            // Corners where the N64 lanes' speeds roll a Rush 2 car over (docs/rush1_research.md#lane-speed-caps): the
+            // speed the cars tipped at in headless races (tools/drone_pace.py --race), capped about 10 mph under it.
+            struct TrackCap { int track; bool backward; rush2::path_lane_fix::SpeedCap cap; };
+            static const TrackCap caps[] = {
+                // Downtown: the long left at (-650..-400, 210-270), rolled over at 96-107 mph (17 a race).
+                { 3, false, { -540, 230, 140, 88 } },
+                // Market: the steep banked turn down at (-8160..-8000, 1800-1860), rolled at 75-81 mph (6 a race).
+                { 2, false, { -8100, 1815, 110, 70 } },
+                // Sunset: the turn at (200, 540), rolled at 107 mph.
+                { 5, false, { 200, 540, 100, 95 } },
+            };
+            for (const TrackCap& c : caps) {
+                if (c.track == t) rush2::path_lane_fix::cap_speeds(out.path[c.backward ? 1 : 0], &c.cap, 1);
+            }
+            // Sunset backward: the lanes climb the curve at (1200..1450, 2350-2380) along its inside top edge, on the
+            // steep bank above the road, and cars leaned onto it and rolled (10 a race at 93-100 mph; capping the speed
+            // there to 82 only made them roll at 76-84, 28 a race): onto the road, 25 ft out.
+            struct TrackFix { int track; bool backward; rush2::path_lane_fix::Fix fix; };
+            static const TrackFix fixes[] = {
+                { 5, true, { 0xF, 1340, 325, 2420, 25.0, 4, 6 } },
+            };
+            for (const TrackFix& f : fixes) {
+                if (f.track == t) rush2::path_lane_fix::apply(out.path[f.backward ? 1 : 0], &f.fix, 1);
+            }
         }
         out.pvs_count = main.b(pvs_counts + t);
         out.pvs.clear();

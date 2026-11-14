@@ -52,6 +52,7 @@
 #include "car2049.h"
 #include "rush2049_rom.h"
 #include "track2049_convert.h"
+#include "path_lane_fix.h"
 
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -2857,6 +2858,34 @@ bool rush2::track2049::convert_track(const rush2::rom2049::Source& rom, int k, c
         validate_path(files[6]);
         out.path = race ? files[5] : spine_lanes(files[5], collision, k != obstacle);
         out.path_backward = race ? files[6] : out.path;
+        if (race && !rom.is_dreamcast()) {
+            // The N64 lanes where Rush 2 drones hit something every lap (docs/rush2049_research/race.md#lane-fixes),
+            // each moved toward a point on the road beside it (found with tools/drone_pace.py --wrecks over a headless
+            // race and tools/lane_surfaces.py --walls / --plot).
+            struct TrackFix { int track; bool backward; rush2::path_lane_fix::Fix fix; };
+            static const TrackFix lane_fixes[] = {
+                // Metro: lane 1 threads the 8 ft between a road post (x 7638-7642) and a wall at x 7650 (28 wrecks a
+                // race): round the post's other side. Lanes 2-3 run over the tip of a V of walls at (5994, -3598).
+                // Lane 3 dog-legs into a wall's corner at (7553, -1494) (8 g every lap).
+                { 4, false, { 0x2, 7630, 0, -1990, 11.0, 2, 6 } },
+                { 4, false, { 0xC, 5994, 0, -3615, 9.0, 2, 8 } },
+                { 4, false, { 0x8, 7565, 0, -1485, 6.0, 2, 8 } },
+                // Presidio: all four lanes pass 10-12 ft inside the corner of a wall block at the top and the drones
+                // cut it (every car, 18 a race).
+                { 6, false, { 0xF, 2865, 412, -1070, 10.0, 2, 10 } },
+                // Haight backward: all four lanes 6-10 ft from a wall's corner and the diagonal after it. Each lane
+                // jumps 60-100 ft sideways in one step from an upper stretch onto the lower road between points 374
+                // and 385; lane 2 jumps first, through the corner of a wall block (cars 3 and 7, 6 a race): it takes
+                // lane 1's points (which jump at 383, clear of the block) from 372 to 384.
+                { 2, true, { 0xF, 1255, 89, -7045, 7.0, 2, 8 } },
+                { 2, true, { 0x4, 996, 89, -7115, 0.0, 6, 2, 1 } },
+            };
+            for (const TrackFix& f : lane_fixes) {
+                if (f.track == k) rush2::path_lane_fix::apply(f.backward ? out.path_backward : out.path, &f.fix, 1);
+            }
+            rush2::path_lane_fix::level_start_ramps(out.path);
+            rush2::path_lane_fix::level_start_ramps(out.path_backward);
+        }
 
         // Of the battle arenas only DM5 has visibility regions (14); the others draw every section.
         out.pvs_count = u8(main, pvs_counts_vram - main_vram + k - 1);

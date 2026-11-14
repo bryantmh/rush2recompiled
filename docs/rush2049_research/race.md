@@ -384,3 +384,25 @@ enables a wind-driven texture scroll (`0x800D5710`) for every t ≠ 0, 10, 11. T
 
 **Track id copies** to keep consistent: `0x8010C440`, `0x800E7C18`, `0x800D3938`, `0x800C400C`, `0x80125AA8`,
 `0x803D05AC`, `0x800D9C10[car*9]`.
+
+## Lane fixes
+
+The N64 lanes race Rush 2's drones into things the original game's cars get past (a race audit, 2026-11-13:
+`tools/drone_pace.py --race 12-17 [--backward] --wrecks`, crashes only; base Rush 2's courses have 0-9 a race). The
+converter (`convert_track` in src/rush2049/track2049_convert.cpp, N64 source only) applies hand fixes through
+`include/path_lane_fix.h`:
+
+- **Lane moves** (`apply`): Metro's lane 1 threaded the 8 ft between a road post (x 7638-7642, z -1989) and a wall
+  at x 7650 (28 crashes a race); lanes 2-3 ran over the tip of a V of walls at (5994, -3598); lane 3 dog-legged into
+  a wall corner at (7553, -1494). Presidio's lanes cut the corner of a wall block at (2850, -1054) on the top level
+  (18 a race). Haight backward: lane 2 jumped 100 ft sideways through a wall block at point 374 (the lanes each jump
+  from an upper stretch onto the lower road between points 374 and 385); it takes lane 1's points from 372 to 384.
+- **Standing-start ramps** (`level_start_ramps`): Metro's lanes 0, 2 and 3 forward and Presidio's lanes 1-3 backward
+  carry the race start's acceleration (147, 100, 28, 40, 48...) on a fast straight at the line; drones braked to
+  28 mph there every lap and were rear-ended. Each ramp eases from the speed before it to the speed it climbs to.
+- Results (crashes a race, before -> after): Metro 41 -> 8, Presidio 8 -> 7, Haight backward 0 -> 0 (and its 7 lane
+  resets -> 0). Left: Metro (6086, -3576), a car shoved 13 ft by something outside the static collision (a mover?);
+  Metro and Presidio backward, 15 and 11.
+
+Wreck state +0x342 = 2 straight from driving is the drone driver's lane reset (docs/calspeed_research.md#5-paths),
+which mostly doesn't move the car: count crashes (state 1) only; drone_pace.py reports the two apart.

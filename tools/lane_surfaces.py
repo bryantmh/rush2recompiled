@@ -8,6 +8,7 @@ the N64's (docs/sfrush_ps1.md#collision).
     [--plot X Z RADIUS PNG [--trail motion.jsonl]]          a top-down map of the ground, walls and lanes round a spot
     [--walls 6]  instead: where each lane passes within 6 ft of a wall at its height (or crosses one)
     [--min 40]  shortest run printed, ft
+    [--backward]  the backward race's lanes (path_backward.bin, N64 assets 65-71)
 
 Surface types: Rush 2's polygon type (flags & 0xF: 0 road, 1 dirt, 2 grass, 3 water, 5/6 wall, 7 kill); the N64's
 polygons carry the same field. A lane point with no ground polygon under it is '-'.
@@ -55,7 +56,7 @@ class Grid:
         return best[1] if best else None
 
 
-def n64(track):
+def n64(track, backward=False):
     """(polygons, lanes) of N64 SF Rush track 0-6, in collision space (render z, render x, -render y): x, z across the
     ground, y height (tools/rush1/collision1.py, docs/rush1_research.md#5-collision-v)."""
     from r1 import Rush1
@@ -78,19 +79,19 @@ def n64(track):
         # Collision space (cz, cx, -cy) -> x across, y height, z across.
         polys.append((fl & 0xF, [(q[1], -q[2], q[0]) for q in pts]))
     lanes = []
-    for _, pts in paths1.lanes(rom.asset(58 + track)):
+    for _, pts in paths1.lanes(rom.asset((65 if backward else 58) + track)):
         # Lane points are render (x, y up, z): collision (z, x, -y) -> (x, y, z) in the frame above.
         lanes.append([(q[0][0], q[0][1], q[0][2]) for q in pts])
     return polys, lanes
 
 
-def rush2(folder):
+def rush2(folder, backward=False):
     import collision, paths
     sys.path.insert(0, HERE)
     from stock_track_glb import polygons
     c = collision.Collision.parse(open(os.path.join(folder, 'collision.bin'), 'rb').read(), 'rush2')
     polys = [(t, pts) for t, pts, _ in polygons(c)]
-    p = paths.parse(open(os.path.join(folder, 'path.bin'), 'rb').read())
+    p = paths.parse(open(os.path.join(folder, 'path_backward.bin' if backward else 'path.bin'), 'rb').read())
     lanes = [[(q[0], q[1], q[2], q[3]) for q in lane['points']] for lane in p['lanes'] if lane['count']]
     return polys, lanes
 
@@ -227,8 +228,9 @@ def main():
     ap.add_argument('--trail', help='with --plot: a motion.jsonl (tools/test_race.py --motion) drawn over it')
     ap.add_argument('--steep', type=float, default=12.0, help='with --plot: slopes over this many degrees are yellow')
     ap.add_argument('--walls', type=float, help='report where lanes pass within this many ft of a wall')
+    ap.add_argument('--backward', action='store_true', help='the backward lanes (path_backward.bin; N64 assets 65-71)')
     a = ap.parse_args()
-    polys, lanes = n64(a.n64) if a.n64 is not None else rush2(a.rush2)
+    polys, lanes = n64(a.n64, a.backward) if a.n64 is not None else rush2(a.rush2, a.backward)
     if a.plot:
         plot(polys, lanes, float(a.plot[0]), float(a.plot[1]), float(a.plot[2]), a.plot[3], a.trail, steep=a.steep)
         return

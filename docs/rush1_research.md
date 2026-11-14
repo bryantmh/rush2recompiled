@@ -572,3 +572,21 @@ z) and blends those values from the zone's at its center to the normal ones at i
 
 Rush 2's own list (0x800CA1F8, a pointer per slot) has zones only for Lower Manhattan. While a Rush 1 track is
 applied, src/rush1/track1.cpp copies its zones into recomp memory and points the host slot's entry at the copy.
+
+## Lane speed caps
+
+Rush 2 cars roll over where the N64 SF Rush lanes take a corner fast (race audit 2026-11-13, `tools/drone_pace.py
+--race 18-24 [--backward] --wrecks`). `convert_track` in src/rush1/track1_convert.cpp caps the lane speeds there
+(`include/path_lane_fix.h` `cap_speeds`: every lane point within a radius held to a speed, the 4 points before
+easing down to it), about 10 mph under the speed the cars tipped at:
+
+| Course | Spot | Cars tipped at | Cap | Crashes a race |
+|---|---|---|---|---|
+| Downtown | the long left at (-650..-400, 210-270) | 96-107 mph | 88 | 24 -> 1 (all finish, was 5 of 7) |
+| Market | the steep banked turn down at (-8160..-8000, 1800-1860) | 75-81 | 70 | 7 -> 2 |
+| Sunset | the turn at (200, 540) | 107 | 95 | 10 -> 9 (all finish, was 5 of 7) |
+
+Sunset backward's rolls at (1200..1450, 2350-2380) were the lanes climbing the curve along its inside top edge, on
+the steep bank above the road: capping the speed only made the cars roll slower (24 -> 49). The lanes move 25 ft out
+onto the road instead (`apply`): 24 -> 15, all finish (was 6 of 7); what is left there is the jump at (1980-1995,
+1660-1880).
