@@ -82,7 +82,7 @@ namespace {
             { Cfg::Graphics, "sky_fog", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2, "The sky isn't fogged",
               "The fog fades into the sky toward the horizon" },
             { Cfg::Graphics, "scenery_fill", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2,
-              "Holes show where a track's scenery ends", "Ground and walls fill the holes past the scenery" },
+              "Holes show where a track's scenery ends", "Ground fills the holes past the scenery" },
             { Cfg::Graphics, "car_lights", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2,
               "Cars have no lamps on night tracks", "Headlights and tail lights shine on night tracks" },
             { Cfg::Graphics, "falling_snow", static_cast<uint32_t>(0), static_cast<uint32_t>(1), 2,

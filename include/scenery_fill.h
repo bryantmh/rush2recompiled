@@ -3,13 +3,11 @@
 
 // Fill Scenery Gaps (Settings > Graphics > Effects, docs/graphics_effects.md#fill-scenery-gaps): the tracks were built
 // for a 4:3 view from the road, so a wide screen, a high camera or the wings see past where the scenery ends: sky
-// under the edges of the ground and through open-backed buildings. Two parts:
-// - Extended ground: a ground underlay made from the raced track's own models (src/scenery_fill_build.cpp, nothing of
-//   the game, so tools/car_probes_test.cpp --fill builds it offline): a height grid over the track and out past it,
-//   filled from the ground's edges, drawn a little under the real ground where the scenery ends and out to the
-//   distance, with the ground textures and colors nearest each spot.
-// - Two-sided walls: the track's near-vertical faces also show from behind, with their front's texture (RT64's
-//   gEXSetTwoSidedWalls, around each track model's draw).
+// under the edges of the ground. It extends the ground: a ground underlay made from the raced track's own models
+// (src/scenery_fill_build.cpp, nothing of the game, so tools/car_probes_test.cpp --fill builds it offline): a height
+// grid over the track and out past it, filled from the ground's edges, drawn a little under the real ground where the
+// scenery ends and out to the distance, with the ground textures and colors nearest each spot. (Its two-sided walls
+// were removed 2026-11-13: docs/graphics_effects.md#fill-scenery-gaps.)
 // The game side (src/scenery_fill.cpp) builds the raced track's underlay on a worker thread (cached on disk) and draws
 // it before the track in each view.
 
@@ -59,9 +57,6 @@ namespace rush2::scenery_fill {
     struct Mesh {
         std::vector<Texture> textures;
         std::vector<Chunk> chunks;
-        // Two-sided walls leave out the track's one-way road blocks (one_sided_hashes): the file offsets of their
-        // texels in the track's geometry (every mipmap level), which the game loads them from in RDRAM.
-        std::vector<uint32_t> one_sided;
         std::vector<uint8_t> serialize() const;
         bool deserialize(const std::vector<uint8_t>& data);
     };
@@ -114,12 +109,7 @@ namespace rush2::scenery_fill {
                const std::vector<rush2::catalog::Placement>& placements, const Guide* guide = nullptr,
                BuildStats* stats = nullptr);
     // Bumped when the build changes, so cached underlays are built again.
-    constexpr uint32_t build_version = 6;
-    // Textures (RT64 replacement hashes, as Dump Textures lists them) of road blocks the tracks draw one-sided on
-    // purpose, so they hide from behind: no two-sided walls copies of them (issue 62).
-    // - NYONEBPARK1.11, the N.Y.P.D. barricade: New York Downtown's one-way gate after the Brooklyn Bridge, seen from
-    //   behind on the bridge's offramp (and the road blocks on the side streets).
-    constexpr uint64_t one_sided_hashes[] = { 0x2E93790202DA2D0Aull };
+    constexpr uint32_t build_version = 7;
     // A texture's image as RT64 decodes it once the underlay loads it.
     rush2::upscale::Image image_of(const Texture& t);
 
@@ -129,13 +119,9 @@ namespace rush2::scenery_fill {
     // At the start of each view (func_8007C624, from rush2_interp_view_begin): starts the raced track's underlay when
     // the track changes, and lets the view draw it again.
     void view_begin(uint8_t* rdram, uint32_t view);
-    // From rush2_model_draw (model_draw_8007AA48 about to call a node's model: $s7 node, $fp list): around a track
-    // model, the two-sided walls, and before the view's first one, the underlay.
+    // From rush2_model_draw (model_draw_8007AA48 about to call a node's model: $s7 node, $fp list): before the view's
+    // first track model, the underlay.
     void model_draw(uint8_t* rdram, recomp_context* ctx);
-    // The two-sided walls mode (gEXSetTwoSidedWalls) model_draw draws a scene node's model with: 0 none (off, or not in
-    // a race), 1 a track model, 2 any other model. For drawing part of a model later in the view
-    // (src/rush2049dc/dc_translucent.cpp).
-    int walls_mode(uint8_t* rdram, uint32_t node);
 }
 
 #endif

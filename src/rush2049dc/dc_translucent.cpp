@@ -19,7 +19,6 @@
 
 #include "dc_translucent.h"
 #include "scene_nodes.h"
-#include "scenery_fill.h"
 
 extern "C" {
     uint32_t rush2_interp_side_dl(uint8_t* rdram, const GfxCommand* cmds, uint32_t count);
@@ -44,7 +43,6 @@ namespace {
         float distance;
         uint32_t list;      // the tail's first command
         uint32_t id;        // matrix group
-        int walls;          // scenery_fill::walls_mode
         bool lit;
     };
     std::vector<Tail> queue;
@@ -129,7 +127,6 @@ void rush2::dc_translucent::model_draw(uint8_t* rdram, recomp_context* ctx) {
     uint32_t bits = (uint32_t)MEM_W(0, (int32_t)node_distance);
     memcpy(&t.distance, &bits, 4);
     t.list = tail;
-    t.walls = rush2::scenery_fill::walls_mode(rdram, node);
     t.lit = MEM_BU(0, (int32_t)lighting_cache) != 0;
     queue.push_back(t);
 }
@@ -170,15 +167,7 @@ bool rush2::dc_translucent::emit(uint8_t* rdram, uint32_t cursor_ptr) {
         gEXMatrixFloat(c, mtx, 2);
         cmds.push_back(c[0]);
         cmds.push_back(c[1]);
-        if (t.walls) {
-            gEXSetTwoSidedWalls(c, t.walls);
-            cmds.push_back(c[0]);
-        }
         add(cmds, 0xDE000000, t.list);
-        if (t.walls) {
-            gEXSetTwoSidedWalls(c, 0);
-            cmds.push_back(c[0]);
-        }
         add(cmds, 0xD8380002, 0x40); // G_POPMTX
         gEXPopMatrixGroup(c, 0);
         cmds.push_back(c[0]);

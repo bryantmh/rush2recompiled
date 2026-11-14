@@ -14,7 +14,7 @@ runs. It is a change to RT64, kept in `lib/patches/rt64.patch` (edit under `lib/
 | Car Lighting (`car_lighting`) | Original, Light Probes | Original | none: game side only (`rush2::probes::set_mode`, [Car light probes](#car-light-probes)) |
 | Sky Fog (`sky_fog`) | Off, On | Off | none: the game marks each race view with `gEXSetSkyFog` ([Sky fog](#sky-fog)) |
 | Car Lights (`car_lights`) | Off, On | On | none: the game places each car's lamps with `gEXSetCarLight` ([Car lights](#car-lights)) |
-| Fill Scenery Gaps (`scenery_fill`) | Off, On | Off (Enhanced setup: On) | none: `gEXSetTwoSidedWalls` around the track's models, and the game draws the ground underlay ([Fill scenery gaps](#fill-scenery-gaps)) |
+| Fill Scenery Gaps (`scenery_fill`) | Off, On | Off (Enhanced setup: On) | none: the game draws the ground underlay ([Fill scenery gaps](#fill-scenery-gaps)) |
 
 The option lives in `src/config.cpp` (`add_ambient_occlusion_option`). The global is
 declared in `lib/rt64/src/common/rt64_enhancement_configuration.h` and read every frame by
@@ -533,8 +533,8 @@ follows the camera's height, not the world's (the world's fog doesn't either).
 
 Settings > Graphics > Fill Scenery Gaps = **On** (Off is the original game; the Enhanced setup turns it on,
 `rules()` in src/setup.cpp): the tracks were built for a 4:3 view from the road, so a wide screen, a high camera or
-the wings see past where the scenery ends, sky under the edges of the ground and through open-backed buildings. Two
-parts, both decided per frame (hot-swappable). Code: `src/scenery_fill.cpp` (game), `src/scenery_fill_build.cpp`
+the wings see past where the scenery ends, sky under the edges of the ground. It extends the ground, decided per
+frame (hot-swappable). Code: `src/scenery_fill.cpp` (game), `src/scenery_fill_build.cpp`
 (the underlay, nothing of the game), `include/scenery_fill.h`.
 
 **Which draws are the track.** `race_load_track_800A5110` calls `placement_walk_80081790` at 0x800A5704, which makes a
@@ -544,44 +544,14 @@ signs. The sky model (`sky_setup_800A45A8`) and the cars are made elsewhere. `ru
 `rush2_model_draw`, model_draw_8007AA48 at 0x8007AF84, $s7 = node) acts on those nodes only, in a race (game states
 3, 6, 9, 10).
 
-**Two-sided walls** (RT64, `lib/patches/rt64.patch`): each track node's model list is called between
-`gEXSetTwoSidedWalls(1)` and `(0)` (`G_EX_SETTWOSIDEDWALLS_V1` 0x38). In `RSP::drawIndexedTri`, a triangle drawn with
-culling on whose face is within about 17 degrees of vertical (|n.y| < 0.3 |n|, from its vertices through the world
-transform: the game keeps the view's rotation in the projection matrix, so the modelview's axes are the world's, y up)
-gets its indices pushed again in reverse order: whichever side faces the camera survives the culling, with the front's
-texture and vertex colors. Exact per triangle, no shader change (the render flag word is full). **A face that already
-has a back side is left alone.** Every other model in a race is called between `gEXSetTwoSidedWalls(2)` and `(0)`:
-its triangles are seen but get no copies. The frame's near-vertical triangles in marked draws are kept by plane
-(facing yaw in 128 steps, plane distance in steps of 8 units) with their corners, and a triangle gets no copy, and
-copies already made there are made degenerate (so the triangle count stays the same every frame, which frame
-interpolation matches draws by), when its plane has over it (overlap in the plane, by separating axes):
-- a modeled back: a triangle facing the other way within 16 units (1 ft), culled or not;
-- a two-sided surface: a triangle drawn without culling, either facing, within 16 units;
-- a layered face: a culled triangle facing the same way within 2 units, overlapping by more than half a unit (an arrow
-  over a sign board): their copies would fight each other from behind.
-History (2026-11-08): copies fought or beat real backs three times. Hawaii's start banner (its back isn't split into
-the same triangles as its front, so matching exact corners missed it), and Civic Dreamcast's blinking arrow signs
-(z-fighting with the plane match limited to culled backs 1/8 ft away); the user's rule: zero unintended z-fighting.
-
-**One-way road blocks** (issue 62, 2026-11-10): some barricades are one-sided on purpose, so they hide from behind.
-New York Downtown's N.Y.P.D. barricade (texture `NYONEBPARK1.11`, drawn in ~45 of its section models) closes the road
-back onto the Brooklyn Bridge (the `NYONECHALL7` one, game (-1571, 104, -352)) and side streets; from the bridge's
-offramp the original shows the road through it, and a two-sided copy put a mirrored barricade across the road. Such
-textures never get copies:
-- `one_sided_hashes` (include/scenery_fill.h) lists their RT64 replacement hashes (as Dump Textures' hashes.txt has
-  them: NYONEBPARK1.11 = `2E93790202DA2D0A`). The underlay build (`rush2::scenery_fill::build`) finds them in the
-  track's container and keeps their texels' file offsets, mipmap levels included (`Mesh::one_sided`, cached with the
-  underlay).
-- `model_draw`, before each view's first track model, sends the RDRAM address of each (the geometry's slot record
-  data pointer + offset) with `gEXSetTwoSidedSkip(address)` (`G_EX_SETTWOSIDEDSKIP_V1` 0x3A; RT64 empties the list at
-  each display list's start), once the first 8 bytes there are the file's (the worker can run before the game has
-  loaded the track).
-- RT64 keeps the texture image address of the last `G_LOADBLOCK` / `G_LOADTILE` (`RDP::extended.lastTexelLoad`;
-  palette loads don't count) and makes no copy of a triangle drawn while it is a listed address.
-Test: `python tools/test_race.py 1 --cars 0 --drones 1 --user-settings --seconds 60 --shots 45,55 --script "1:B:59"
---env RUSH2_CS_PLACE=-1470,112,-255,-0.71,-0.70,0,0.5` stops the car on the offramp facing the gate (the log says
-`[Fill] Two-sided walls leave out 1 of 1 one-sided textures`); add `--exe .release/build/Rush2Recompiled.exe` for a
-build without it. `tools/rdram_find.py PID --file ASSET --offset OFS` finds where the game put an asset's bytes.
+**Two-sided walls, removed 2026-11-13.** The setting also drew the track's near-vertical faces from behind (RT64's
+`gEXSetTwoSidedWalls`, `G_EX_SETTWOSIDEDWALLS_V1` 0x38, around each track model's draw; `gEXSetTwoSidedSkip` 0x3A for
+listed textures), to fill gaps seen through open-backed buildings. The tracks draw some faces one-sided on purpose, so
+they hide from behind, and every such face needed an exception: New York Downtown's N.Y.P.D. barricade (issue 62, a
+texture hash list) and the SF Rush arcade CRASH WALL barricades, whose exception never worked in game; copies also
+fought real backs (Hawaii's start banner, Civic Dreamcast's arrow signs). The game side is gone (src/scenery_fill.cpp,
+src/rush2049dc/dc_translucent.cpp, the underlay cache's road block list); RT64 still has the two commands in
+`lib/patches/rt64.patch`, sent by nothing.
 
 **Extended ground.** A ground underlay built from the raced track's own models (the same inputs as the
 [car light probes](#car-light-probes): the slot's geometry and placement assets as loaded, `rush2::probes::raced_track`,

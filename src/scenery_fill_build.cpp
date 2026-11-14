@@ -1242,21 +1242,6 @@ Mesh build(const std::vector<const Container*>& containers, const std::vector<Pl
         mesh.textures = std::move(kept);
     }
 
-    // The track's one-way road blocks: their texels and their mipmap levels' (named after them, ".mip2"...).
-    if (!containers.empty() && containers[0]) {
-        const auto& textures = containers[0]->textures;
-        for (size_t i = 0; i < textures.size(); i++) {
-            if (std::find(std::begin(one_sided_hashes), std::end(one_sided_hashes), textures[i].hash) == std::end(one_sided_hashes)) continue;
-            const std::string mip = textures[i].name + ".mip";
-            for (size_t j = 0; j < textures.size(); j++) {
-                if ((j == i || textures[j].name.rfind(mip, 0) == 0) && textures[j].texels != UINT32_MAX &&
-                    std::find(mesh.one_sided.begin(), mesh.one_sided.end(), textures[j].texels) == mesh.one_sided.end()) {
-                    mesh.one_sided.push_back(textures[j].texels);
-                }
-            }
-        }
-    }
-
     st.seconds =std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (stats) *stats = st;
     return mesh;
@@ -1292,8 +1277,6 @@ std::vector<uint8_t> Mesh::serialize() const {
             }
         }
     }
-    put_value(out, (uint32_t)one_sided.size());
-    for (uint32_t o : one_sided) put_value(out, o);
     return out;
 }
 
@@ -1334,9 +1317,6 @@ bool Mesh::deserialize(const std::vector<uint8_t>& in) {
             }
         }
     }
-    if (!get_value(in, at, count) || count > 256) return false;
-    one_sided.resize(count);
-    for (uint32_t& o : one_sided) if (!get_value(in, at, o)) return false;
     return at == in.size();
 }
 

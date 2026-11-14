@@ -522,8 +522,8 @@ namespace scenery_fill_option {
     }
 }
 
-// Fill Scenery Gaps: ground carries on past the edges of a track's scenery and walls show from behind, filling the
-// holes a wide screen or a high camera sees (src/scenery_fill.cpp, docs/graphics_effects.md#fill-scenery-gaps).
+// Fill Scenery Gaps: ground carries on past the edges of a track's scenery, filling the holes a wide screen or a
+// high camera sees (src/scenery_fill.cpp, docs/graphics_effects.md#fill-scenery-gaps).
 static void add_scenery_fill_option(recomp::config::Config& config) {
     using scenery_fill_option::SceneryFill;
 
@@ -531,7 +531,7 @@ static void add_scenery_fill_option(recomp::config::Config& config) {
         scenery_fill_option::id,
         "Fill Scenery Gaps",
         "Fills the holes where a track's scenery ends, which wide screens and high cameras show: the ground carries on "
-        "past its edges out to the horizon, and walls built to be seen from one side show from behind too. "
+        "past its edges out to the horizon. "
         "<recomp-color primary>Off</recomp-color> matches the original game.",
         {
             { SceneryFill::Off, "Off", "Off" },
