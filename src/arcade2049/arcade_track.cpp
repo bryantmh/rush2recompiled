@@ -2180,6 +2180,65 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
     const bool run_in = norm(lap.front() - lap.back()) > 300.0;
     if (run_in) report.push_back("dpath table 0: a run-in lap (its ends are " + std::to_string(int(norm(lap.front() - lap.back()))) +
                                  " ft apart): a run-in circuit");
+    // Table 0 where every racing line leaves it: The Heights' (TRACK6) lap runs up to 149 ft off all seven lines at
+    // records 97-136, and Sunset's (TRACK7) has a 63 ft kink at record 840 that every line skips. Table 0 becomes
+    // AIPATH_main: the drones' target speeds, the gates, the road's width there, and the cross lines the painted lanes
+    // are matched along, which met the lanes out of order where it ran at an angle to them (the wrecks there were those
+    // lanes stepping back, fixed in the custom track converter's paint_lane). Where the nearest point of every racing line on
+    // the course (heading the same way) is more than `agree` ft off across the ground, the lap point moves across the
+    // ground to their mean, fully from `full` ft on (its height stays: over a jump it is the cars' arc, the lines are on
+    // the road); nowhere else does table 0 change. docs/sfrush_arcade.md#checks
+    {
+        constexpr double agree = 45.0, full = 60.0;   // wide roads have every line 30-46 ft to one side (Civic, Haight)
+        std::vector<std::vector<V3>> others;
+        for (size_t k = 1; k < tables.size(); k++) {
+            size_t m = std::min<size_t>(tables[k].lap_count, tables[k].records.size());
+            if (m < 10) continue;
+            std::vector<V3> pts;
+            std::vector<double> d;
+            for (size_t i = 0; i < m; i++) {
+                pts.push_back(tables[k].records[i].pos);
+                double b = 1e300;
+                for (const V3& q : lap) b = std::min(b, norm(q - pts.back()));
+                d.push_back(b);
+            }
+            std::nth_element(d.begin(), d.begin() + d.size() / 2, d.end());
+            if (d[d.size() / 2] <= 60.0) others.push_back(std::move(pts));   // a racing line on this course (as below)
+        }
+        auto heading = [](const std::vector<V3>& p, size_t i) {
+            V3 d = p[std::min(i + 1, p.size() - 1)] - p[i > 0 ? i - 1 : 0];
+            return unit(V3{ d[0], 0.0, d[2] });
+        };
+        std::vector<V3> fixed = lap;
+        int moved = 0;
+        double worst = 0;
+        for (size_t i = 0; others.size() >= 3 && i < n; i++) {
+            V3 h = heading(lap, i), sum{};
+            double dmin = 1e300;
+            for (const auto& line : others) {
+                size_t best = 0;
+                double bd = 1e300;
+                for (size_t j = 0; j < line.size(); j++) {
+                    double d = std::hypot(line[j][0] - lap[i][0], line[j][2] - lap[i][2]);
+                    if (d < bd && dot(heading(line, j), h) > 0.5) bd = d, best = j;
+                }
+                sum = sum + line[best];
+                dmin = std::min(dmin, bd);
+            }
+            if (dmin <= agree || dmin > 1e299) continue;
+            double w = std::min(1.0, (dmin - agree) / (full - agree));
+            V3 to = sum * (1.0 / others.size());
+            fixed[i][0] += (to[0] - lap[i][0]) * w;   // across the ground only: over a jump table 0 is the cars' arc
+            fixed[i][2] += (to[2] - lap[i][2]) * w;
+            moved++;
+            worst = std::max(worst, dmin);
+        }
+        if (moved) {
+            lap = fixed;
+            report.push_back("dpath table 0: " + std::to_string(moved) + " lap points more than " + std::to_string(int(agree)) +
+                             " ft from every racing line (up to " + std::to_string(int(worst)) + " ft) moved onto them");
+        }
+    }
     auto tangent = [&](size_t i) {
         V3 d = run_in ? lap[std::min(i + 1, n - 1)] - lap[i > 0 ? i - 1 : 0] : lap[(i + 1) % n] - lap[(i + n - 1) % n];
         double l = std::hypot(d[0], d[2]);
@@ -2424,6 +2483,52 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
     if (t0.records.size() > n) {
         report.push_back("dpath table 0: " + std::to_string(t0.records.size() - n) +
                          " records past the lap (routes off the course, not raced), left out");
+    }
+    // Shortcut lines: a racing line that leaves table 0's route (more than `off_route` ft off it for `min_stretch` points
+    // in a row) where fewer than half of the lines go with it (within `together` ft) is left out. Rush The Rock's Golden
+    // Gate and Embarcadero table 7 and The Rock's tables 2 and 5 are shortcuts no N64 lane drives (up to 664, 396 and
+    // 194 ft off table 0), along dirt and strips outside the road's walls and back through them (solid walls in the
+    // arcade's own collision too); Rush 2049's Metro has tables 1-3 of 7 on a route of their own for 28 records. Rush 2
+    // drones on them drove into the walls every lap: every wreck of that lane's cars (37 of 37 on Embarcadero, 29 of 30
+    // on Golden Gate). A route most lines take (The Heights, Sunset: all seven, where table 0 was repaired above) stays.
+    // docs/sfrush_arcade.md#checks
+    {
+        constexpr double off_route = 60.0, together = 30.0;
+        constexpr size_t min_stretch = 5;
+        std::vector<Line> kept_lines{ lines[0] };
+        for (size_t a = 1; a < lines.size(); a++) {
+            const auto& P = lines[a].pts;
+            size_t run = 0, start = 0;
+            bool shortcut = false;
+            for (size_t i = 0; i < P.size() && !shortcut; i++) {
+                bool alone = false;
+                if (norm(lap[nearest(P[i])] - P[i]) > off_route) {
+                    size_t on = 1;   // lines on this route, this one included (table 0 isn't)
+                    for (size_t b = 1; b < lines.size(); b++) {
+                        if (b == a) continue;
+                        double bd = 1e300;
+                        for (const V3& q : lines[b].pts) bd = std::min(bd, norm(q - P[i]));
+                        on += bd <= together;
+                    }
+                    alone = 2 * on < lines.size();
+                }
+                if (!alone) {
+                    run = 0;
+                    continue;
+                }
+                if (run++ == 0) start = i;
+                shortcut = run >= min_stretch;
+            }
+            if (shortcut) {
+                char line[200];
+                snprintf(line, sizeof(line), "dpath table %zu: a route of its own from (%.0f, %.0f, %.0f) (a shortcut most racing "
+                         "lines don't take), left out", lines[a].table, P[start][0], P[start][1], P[start][2]);
+                report.push_back(line);
+                continue;
+            }
+            kept_lines.push_back(lines[a]);
+        }
+        lines = std::move(kept_lines);
     }
     // Left to right in the race direction: the mean offset along the lap's left-hand lateral.
     auto side = [&](const std::vector<V3>& pts) {

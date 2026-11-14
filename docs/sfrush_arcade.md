@@ -302,4 +302,17 @@ setting), so the port levels the songs by loudness instead: -4.95 LUFS as synthe
 All seven pass `tools/track_mod_test.bat` and `tools/track_mod_check.py` (every lane point has ground in its index
 cell, every placement its model). Left as warnings: lanes that take an alternate route for a stretch (Golden Gate's
 fourth, Embarcadero's fourth, The Rock's first) are offset from the main path there, and Sunset's lap sits up to 11 ft
-off its road at 6 points (dropped onto it). The Rush 2049 arcade mods build byte for byte as before these rules.
+off its road at 6 points (dropped onto it).
+
+**Race audit (2026-11-13, `tools/drone_pace.py --race ... --wrecks --lost-laps`, 3 laps, 7 drones):** those alternate
+routes are the arcade's own data, not a misread: dpath table 7 on Golden Gate (TRACK1) and Embarcadero (TRACK2) and
+tables 2 and 5 on The Rock (TRACK4) leave table 0 by up to 664, 396 and 194 ft. No N64 lane goes there (the N64's four
+run 130-230 ft away on average), so they are shortcut lines Rush The Rock added. In the converted track they run along
+strips outside the road's walls and cut back through a wall (Embarcadero, (1101, 975) to (1103, 2097): lane 4 crosses
+the wall back onto the road; (1200, 2900-3120): it zigzags across the wall line 96-124 ft up with no ground under it). Every wreck of
+the drones on that lane (cars 1 and 5) is on those stretches: 37 of 37 on Embarcadero and 29 of 30 on Golden Gate.
+Separately, on The Heights (TRACK6) all seven racing lines leave table 0 by up to 149 ft at its records 97-136 (the
+spot with 41 wrecks a race), and on Sunset (TRACK7) table 0 has a 63 ft kink at record 840 that every line skips (21
+wrecks forward, 48 backward): there table 0, which becomes `AIPATH_main` and sets the target speeds, is the odd one out.
+
+**Fixed (2026-11-13):** the converter leaves out shortcut lines most racing lines don't take and moves table 0 onto the lines where every line is more than 45 ft off it (docs/arcade2049.md#dpathrom-the-drones-paths), and the custom track converter keeps painted lanes in order along the lane (docs/custom_tracks.md#the-ai-path): The Heights' and Sunset's real wreck spots were lanes stepping back and forward again (turns of 150-180 degrees) where AIPATH_main's cross lines met them out of order. Forward wrecks a race after the fixes (before): Embarcadero 1 (37), Golden Gate 4 (30), The Rock 4 (17), Sunset 5 (38), The Heights 22 (60, all now finish), Downtown 6 (6), Market 9 (12); Rush 2049 Haight 0 (12). Left: Rush 2049 Metro (114: drones reach a right-angle corner at (4650, 600) at the arcade lane's 142 mph and roll; a U-turn at (5500, 0) over a small wall block) and every backward race (the arcade had mirror tracks, not backward ones). The Rush 2049 arcade mods build byte for byte as before these rules.

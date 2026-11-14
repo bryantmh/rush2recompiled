@@ -395,6 +395,14 @@ ft/s x 60 / 88 / 1.2 (Rush 2049's lane speeds over Rush 2's, docs/rush2049_resea
   not help: with the 4 g crest cap the drones left other crests slow and flipped, corners only lost 3 and 4 of 5, and
   either way they were 25% slower from CP1 to CP2. Not changed; what keeps Rush 2049's own drones upright off these
   crests is not worked out (no drone air control found in the registry; wings are the player's).
+- **Shortcut lines and table 0 off the lines (2026-11-13, both arcade games).** A racing line that leaves table 0
+  by more than 60 ft for 5 points in a row where fewer than half of the lines go with it is left out (`build_one`,
+  "Shortcut lines"): Rush The Rock's Golden Gate and Embarcadero table 7, The Rock's tables 2 and 5 and The Heights'
+  table 3, and Rush 2049 Metro's tables 1-3 (a route of their own for 28 records). Rush 2 drones on them drove into
+  the walls every lap. Where every racing line is more than 45 ft from table 0 across the ground, the lap point moves
+  across the ground to their mean, fully from 60 ft (The Heights, up to 121 ft; Sunset, 65 ft): table 0 is
+  AIPATH_main, the race's progress line and the drones' speeds. Wide roads put every line 30-46 ft to one side of it
+  (Civic Center, Haight), hence 45. Race audit: docs/sfrush_arcade.md#checks.
 - **Civic Center's tables 3-7 open with a standing start** (1, 25, 39, 48, 56 mph) on a closed lap: drones in those
   lanes braked to a crawl at the line every lap. On a closed lap the converter gives that rising ramp the speed the
   lap arrives at the line with.

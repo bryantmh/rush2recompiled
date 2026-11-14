@@ -3093,6 +3093,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
         constexpr float gate_height = 30.0f;
         size_t n = spine.size(), missed = 0;
         Vec3 first_missed{};
+        std::vector<double> picked_at(n, std::nan(""));   // where along the lane each spine point's pick is (segment + fraction)
         for (size_t i = 0; i < n; i++) {
             const PathPoint& q = spine[i];
             Vec3 fwd = sub(spine[(i + 1) % n].p, spine[(i + n - 1) % n].p);
@@ -3134,6 +3135,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                     float s0 = ribbon.speed[j], s1 = ribbon.speed[jb];
                     pick_speed = std::isnan(s0) || std::isnan(s1) ? (f < 0.5f ? s0 : s1) : s0 + (s1 - s0) * f;
                     pick_mode = f < 0.5f ? ribbon.mode[j] : ribbon.mode[jb];
+                    picked_at[i] = double(j) + f;
                 }
             }
             if (best == 1e30f) {
@@ -3143,6 +3145,72 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             lane[i] = on_road(pick, q.air || pick_lifted);
             lane_speed[i] = pick_speed;
             lane_mode[i] = pick_mode;
+        }
+        // Picks out of order along the lane: where AIPATH_main bends sharply or runs at an angle to the lane (the SF Rush
+        // arcade's Sunset and The Heights), the lines across the road through neighboring spine points cross the lane in
+        // the wrong order and the lane stepped back and forward again (turns of 150-180 degrees), which the drones took
+        // as a hairpin and wrecked at, every lap. The longest run of picks that only moves forward along the lane is kept;
+        // each pick out of it moves to the lane's place between the kept picks either side (by spine point), as does a
+        // point with no pick in a short gap (below). Picks already in order don't change. docs/custom_tracks.md#the-ai-path
+        {
+            const bool loop = segments == line.size();
+            std::vector<size_t> at;     // spine points with a pick, in order
+            std::vector<double> along;  // their picks along the lane, unwrapped round a loop
+            for (size_t i = 0; i < n; i++) {
+                if (std::isnan(picked_at[i])) continue;
+                double v = picked_at[i];
+                if (loop && !along.empty()) {
+                    while (v < along.back() - segments / 2.0) v += double(segments);
+                    while (v > along.back() + segments / 2.0) v -= double(segments);
+                }
+                at.push_back(i);
+                along.push_back(v);
+            }
+            // Longest non-decreasing subsequence of `along` (patience sorting with back links).
+            std::vector<size_t> tails, prev(along.size(), SIZE_MAX);
+            for (size_t k = 0; k < along.size(); k++) {
+                size_t lo = 0, hi = tails.size();
+                while (lo < hi) {
+                    size_t mid = (lo + hi) / 2;
+                    if (along[tails[mid]] <= along[k]) lo = mid + 1;
+                    else hi = mid;
+                }
+                if (lo > 0) prev[k] = tails[lo - 1];
+                if (lo == tails.size()) tails.push_back(k);
+                else tails[lo] = k;
+            }
+            std::vector<bool> keep(along.size(), false);
+            for (size_t k = tails.empty() ? SIZE_MAX : tails.back(); k != SIZE_MAX; k = prev[k]) keep[k] = true;
+            // Between two kept picks: the picks out of order, and spine points with no pick at all (the offset lane's
+            // place, beside AIPATH_main: off the lane where AIPATH_main kinks, as The Heights' does) when the kept picks
+            // are at most short_gap spine points apart.
+            constexpr size_t short_gap = 10;
+            std::vector<size_t> kept;
+            for (size_t k = 0; k < along.size(); k++) if (keep[k]) kept.push_back(k);
+            size_t moved = 0;
+            Vec3 first_moved{};
+            for (size_t m = 0; m + 1 < kept.size(); m++) {
+                size_t a = kept[m], b = kept[m + 1];
+                for (size_t i = at[a] + 1; i < at[b]; i++) {
+                    if (std::isnan(picked_at[i]) && at[b] - at[a] > short_gap) continue;
+                    double t = double(i - at[a]) / double(at[b] - at[a]);
+                    double v = along[a] + (along[b] - along[a]) * t;
+                    v = std::fmod(v, double(segments));
+                    if (v < 0) v += double(segments);
+                    size_t j = std::min(size_t(v), segments - 1);
+                    size_t jb = (j + 1) % line.size();
+                    float f = float(v - double(j));
+                    lane[i] = on_road(add(line[j], mul(sub(line[jb], line[j]), f)), spine[i].air);
+                    float s0 = ribbon.speed[j], s1 = ribbon.speed[jb];
+                    lane_speed[i] = std::isnan(s0) || std::isnan(s1) ? (f < 0.5f ? s0 : s1) : s0 + (s1 - s0) * f;
+                    lane_mode[i] = f < 0.5f ? ribbon.mode[j] : ribbon.mode[jb];
+                    if (!moved++) first_moved = lane[i];
+                }
+            }
+            if (moved) {
+                report.info(name + ": " + std::to_string(moved) + " points out of order or missed between others (first "
+                            "near " + fmt_pos(first_moved) + "); moved onto the lane in order.");
+            }
         }
         if (missed == n) {
             report.warning(name + " doesn't run beside AIPATH_main anywhere (within " + fmt_ft(gate_height) + " of its "

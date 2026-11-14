@@ -271,8 +271,12 @@ wide`) and says which it is when it is standing up or too narrow.
   is spread across `AIPATH_main`'s ribbon as above. `AIPATH_main` is still needed: it is the race's progress line and
   sets the speeds, and the lanes are matched to it point for point, so keep each lane beside it, within about
   2.5 times its ribbon's half width (at least 18 m) and 9 m (30 ft) of its height. Where a lane wanders further (or
-  leaves a gap), that stretch uses the spread lane instead and the report says where. Backward races drive the same
-  lanes the other way. Arenas ignore these curves (their lanes are their route).
+  leaves a gap), that stretch uses the spread lane instead and the report says where. Where `AIPATH_main` bends
+  sharply or runs at an angle to a lane, the lines across the road through neighboring points can meet the lane out of
+  order, which would make the lane step back and forward again (a hairpin the computer cars wreck at): the converter
+  keeps the matches that move forward along the lane and puts the others, and any point with no match within 10 points
+  of good ones, on the lane between them (the report lists how many). Backward races drive the same lanes the other
+  way. Arenas ignore these curves (their lanes are their route).
 - **Direction:** the race runs the way the markers' green arrows point. The curve can be drawn either way round; if most
   arrows disagree with it, the game reverses it, and a single marker pointing against the rest is reported and used
   turned round.

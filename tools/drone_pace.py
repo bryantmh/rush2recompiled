@@ -7,6 +7,8 @@ against its PS1 night and snow versions, docs/sfrush_ps1.md#ai-lanes).
     [--wrecks]        (recordings) every computer car's wrecks: race time and place
     [--hits]          (recordings) where the computer cars hit walls: sudden sideways or backward jolts (over 8 g in
                       the ground plane between two of a car's steps, not braking or wrecked; one a second a car), grouped within 40 ft
+    [--backward]      (--race) race the tracks backward (the track select's BACKWARD)
+    [--lost-laps]     (recordings) cars that had to go round again for a checkpoint (a wreck put them back past it)
     [--sections FT]   (recordings) the cars' mean time over each FT of their own distance driven, and where that stretch
                       starts (the median car's place): two versions of a course side by side show where one loses time
 
@@ -95,7 +97,7 @@ def prepare(catch_up, mod_dir=None):
         json.dump({'cheat_no_game_timer': True}, f, indent=4)
 
 
-def race(track, catch_up, laps, mod_dir=None):
+def race(track, catch_up, laps, mod_dir=None, backward=False):
     """Races `track` headless; returns the recording's path or raises RuntimeError."""
     import hidden_desktop, time
     # Another session's build relinks the exe: wait for it to be back (and finished being written) rather than fail.
@@ -105,13 +107,13 @@ def race(track, catch_up, laps, mod_dir=None):
             break
         time.sleep(2)
     prepare(catch_up, mod_dir)
-    rec = os.path.join(WORK, '%s.r2rc' % track)
+    rec = os.path.join(WORK, '%s%s.r2rc' % (track, '_backward' if backward else ''))
     for old in (rec, rec + '.done'):
         if os.path.exists(old):
             os.remove(old)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_RACE=str(track), RUSH2_RACE_RECORD=rec,
-               RUSH2_TEST_CAR='0', RUSH2_TEST_RACE_LAPS=str(laps))
+               RUSH2_TEST_CAR='0', RUSH2_TEST_RACE_LAPS=str(laps), RUSH2_TEST_RACE_BACKWARD='1' if backward else '0')
     with open(rec[:-5] + '.log', 'w') as log:
         proc = hidden_desktop.popen([EXE], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -238,6 +240,44 @@ def show_sections(s, ft):
                                                              sum(times) / len(times)))
 
 
+def show_lost_laps(path):
+    """Lost laps: a computer car's wait for its next checkpoint that lasts over 1.8 times (and 20 s more than) the
+    median of that leg over all the cars, as when a wreck puts the car back past a gate without counting it and it
+    has to go round again; with the first wreck in that wait."""
+    import statistics
+    d = open(path, 'rb').read()
+    hl = struct.unpack_from('<I', d, 8)[0]
+    head = json.loads(d[12:12 + hl])
+    fi = {f: i for i, f in enumerate(head['fields'])}
+    width = 2 + head['cars'] * len(fi)
+    body = d[12 + hl:]
+    rows = len(body) // (4 * width)
+    vals = struct.unpack_from('<%df' % (rows * width), body)
+    legs, waits = {}, []
+    for c in range(head['cars']):
+        if head['kinds'][c] != 1:
+            continue
+        base = 2 + c * len(fi)
+        prev, t0, wreck = None, 0, None
+        for r in range(rows):
+            row = r * width + base
+            if vals[row + fi['finished']]:
+                break
+            if vals[row + fi['wreck']] and (wreck is None or wreck[0] < t0):
+                wreck = (r, vals[row + fi['x']], vals[row + fi['z']])
+            key = (int(vals[row + fi['next_cp']]), int(vals[row + fi['laps']]))
+            if key != prev:
+                if prev is not None:
+                    legs.setdefault(prev[0], []).append((r - t0) / 60.0)
+                    waits.append((c, prev[0], (r - t0) / 60.0, t0 / 60.0, wreck if wreck and wreck[0] >= t0 else None))
+                prev, t0 = key, r
+    for c, cp, dt, start, w in waits:
+        med = statistics.median(legs[cp])
+        if dt > 1.8 * med and dt - med > 20:
+            print('  car %d took %.0f s to checkpoint %d (median %.0f s) from %.0f s%s' %
+                  (c, dt, cp, med, start, ', wrecked at (%.0f, %.0f)' % (w[1], w[2]) if w else ''))
+
+
 def from_samples(d):
     """A test_race.py / race_watch.py folder (DIR/samples.jsonl, sampled at the game's clock)."""
     rows = [json.loads(l) for l in open(os.path.join(d, 'samples.jsonl'))]
@@ -295,17 +335,20 @@ def main():
     ap.add_argument('runs', nargs='+', help='with --race: tracks; else recordings or race_watch folders')
     ap.add_argument('--race', action='store_true', help='race each track headless first')
     ap.add_argument('--laps', type=int, default=3)
+    ap.add_argument('--backward', action='store_true', help='race the tracks backward (track select BACKWARD)')
     ap.add_argument('--catch-up', action='store_true', help='keep Drone Cheating on')
     ap.add_argument('--mod-dir', help='a mod folder raced in place of the installed mod of its id')
     ap.add_argument('--wrecks', action='store_true', help='list every wreck (recordings)')
     ap.add_argument('--hits', action='store_true', help='where the cars hit walls (recordings)')
+    ap.add_argument('--lost-laps', action='store_true', help='cars that went round again for a checkpoint (recordings)')
     ap.add_argument('--sections', type=float, help='mean time over each this many ft driven (recordings)')
     a = ap.parse_args()
     for r in a.runs:
         s = None
         if a.race:
             try:
-                s = from_recording(race(r, a.catch_up, a.laps, a.mod_dir))
+                race_path = race(r, a.catch_up, a.laps, a.mod_dir, a.backward)
+                s = from_recording(race_path)
             except RuntimeError as e:
                 print(e)
                 continue
@@ -314,11 +357,13 @@ def main():
         else:
             show(r, from_samples(r))
             continue
-        show(r, s)
+        show(r + (' backward' if a.race and a.backward else ''), s)
         if s and a.wrecks:
             show_wrecks(s)
         if s and a.hits:
             show_hits(s)
+        if s and a.lost_laps:
+            show_lost_laps(race_path if a.race else r)
         if s and a.sections:
             show_sections(s, a.sections)
         sys.stdout.flush()
