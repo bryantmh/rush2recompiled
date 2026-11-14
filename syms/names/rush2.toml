@@ -11414,13 +11414,13 @@ ref = "us.toml"
 [[func]]
 vram = 0x800A19B0
 name = "rubber_band_helper"
-sig = "void rubber_band_helper(s32 a0, s32 a1, f32 a2, f32 a3, s32 stack)"
-desc = "Helper used by rubber_band; scales with a float constant and 0.5 factor. (low confidence)"
-consts = "0.5 = blend"
-status = "inferred"
+sig = "f32 rubber_band_helper(f32 x0, f32 x1, f32 y0, f32 y1, f32 x)"
+desc = "Clamped linear map for rubber_band: returns y0 at x0, y1 at x1, interpolated between and held past either end; (y0 + y1) / 2 when |x0 - x1| < 0.001."
+consts = "0.001 = degenerate range, 0.5 = midpoint"
+status = "verified"
 rush1 = [0x800A113C]
 area = "race"
-ref = "docs/functions/rush2_race.md#rush-2-race-functions"
+ref = "docs/npc_cars.md#drone-catch-up"
 
 [[func]]
 vram = 0x800A1A98

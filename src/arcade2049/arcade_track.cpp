@@ -2530,6 +2530,28 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         }
         lines = std::move(kept_lines);
     }
+    // Hand fixes where a racing line runs a Rush 2 car into something (race audits with tools/drone_pace.py, both
+    // directions; the lines are raced backward too, the other way round): the lines within `radius` ft of (x, z) move
+    // by (dx, dz) ft, fully at the point and fading out to the radius. docs/sfrush_arcade.md#checks
+    struct LineFix { const char* folder; double x, z, radius, dx, dz; };
+    static const LineFix line_fixes[] = {
+        // Embarcadero: tables 1-2 pass 3-4 ft from the tip of a wedge of wall at (-3967, -320) just before the finish
+        // line; backward, every lap's car on them hit it (20 crashes a race, laps lost at checkpoint 0). 8 ft onto the
+        // open road.
+        { "TRACK2", -3967, -322, 120, -0.62 * 8, -0.785 * 8 },
+    };
+    for (const LineFix& lf : line_fixes) {
+        if (!rock || std::strcmp(lf.folder, folder) != 0) continue;
+        for (size_t a = 1; a < lines.size(); a++) {
+            for (V3& p : lines[a].pts) {
+                double d = std::hypot(p[0] - lf.x, p[2] - lf.z);
+                if (d >= lf.radius) continue;
+                double t = 1.0 - d / lf.radius, w = t * t * (3 - 2 * t);
+                p[0] += lf.dx * w;
+                p[2] += lf.dz * w;
+            }
+        }
+    }
     // Left to right in the race direction: the mean offset along the lap's left-hand lateral.
     auto side = [&](const std::vector<V3>& pts) {
         double sum = 0;

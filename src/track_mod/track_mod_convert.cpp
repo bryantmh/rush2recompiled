@@ -2855,7 +2855,8 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
     // allows round the corner ahead, braked for at its grip. Empty without traction. Authored spine speeds take it in
     // target_speeds, painted lanes' in write_path.
     std::vector<float> traction_cap;
-    auto target_speeds = [&](const std::vector<PathPoint>& sp, bool forward) {
+    // ceiling (mph per point of sp, NaN = none): the backward race's limit from the forward race's authored speeds.
+    auto target_speeds = [&](const std::vector<PathPoint>& sp, bool forward, const std::vector<float>* ceiling = nullptr) {
         size_t n = sp.size();
         // Point i + k along the race: a circuit wraps to its start, a run-in circuit to its loop start, a
         // point-to-point path stops at its end.
@@ -2955,6 +2956,7 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
                 }
             }
             v[i] = with_traction(s, r, straights) * 1.4667f * settings.ai_speed_scale;
+            if (ceiling && i < ceiling->size() && !std::isnan((*ceiling)[i])) v[i] = std::min(v[i], (*ceiling)[i] * 1.4667f);
         }
         // Authored speeds (AIPATH_main's _SPEED, forward races only) replace the computed ones and keep their own
         // braking; AISPEED caps still apply, and so does traction: an authored speed is held to what the grip allows
@@ -3576,7 +3578,25 @@ bool rush2::track_mod::convert(const std::vector<uint8_t>& glb, const std::strin
             g.dir = mul(g.dir, -1.0f);
             if (g.at > 0) g.at = int((n - size_t(g.at) + 1) % n);
         }
-        write_path(back, back_lanes, target_speeds(back, false), back_gates, out.track.path_backward);
+        // The forward race's authored speeds (AIPATH_main's _SPEED and painted lanes'), the slowest of them at each
+        // point, cap the backward race there: a corner, crest or drop is taken no faster either way, and the braking
+        // pass below brakes for them from the other side (the forward race's braking zone ends up after the corner,
+        // which only costs a little time). Without it the backward race took the radius table's speeds alone: on the
+        // arcade courses 20-45 mph over the arcade's own speeds for the same road, up to 158 mph over crests, and the
+        // drones slid wide and rolled (Market 43 crashes a race backward, Sunset 34, Metro 34; docs/sfrush_arcade.md#checks).
+        std::vector<float> ceiling(n, std::nanf(""));
+        for (size_t i = 0; i < n; i++) {
+            size_t f = (n - i) % n;
+            float c = spine[f].speed;
+            for (size_t k = 0; k < 4; k++) {
+                if (f < lane_ai.speed[k].size() && !std::isnan(lane_ai.speed[k][f])) {
+                    c = std::isnan(c) ? lane_ai.speed[k][f] : std::min(c, lane_ai.speed[k][f]);
+                }
+            }
+            ceiling[i] = c;
+        }
+        write_path(back, back_lanes, target_speeds(back, false, &ceiling),
+                   back_gates, out.track.path_backward);
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[0].push_back(int16_t(k * n / 4));
         for (size_t k = 0; k < 4; k++) out.track.demo_starts[1].push_back(int16_t(k * n / 4));
         out.checkpoints = int(gates.size()) - 1;

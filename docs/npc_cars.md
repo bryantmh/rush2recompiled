@@ -109,6 +109,19 @@ set it resets both, but only when a comparison against car state +0xE9 passes (n
 hook at 0x800A2F14 (`rush2_drone_catch_up`) puts both base values back every frame, after those paths join, so a
 drone's pace follows DIFFICULTY and its place but not the gaps.
 
+What the two multipliers do: +0x808 scales the driver's target speed (lane mph x 1.05 x +0x808). +0x814 scales the
+car's physics clock: `physics_car_tick_80075880` (0x80075A74) sets +0x818 = (1 + +0x614 x c) x +0x3F0 x +0x814 and the
+car's step +0x718 = +0x818 x frame time, so 1.1 runs the drone's whole simulation 10% fast. `func_800A19B0(x0, x1,
+y0, y1, x)` is a clamped linear map (y0 at x0, y1 at x1, held outside). The bends (constants 0x800CFE0C-0x800CFF34,
+the per-track factors 0x800C1A3C are all 1.0): behind, +0x814 rises to 1.1 - 0.1 f20 - f26 (0.1 f20 + 0.05) at the
+far end of the gap range (300 ft behind for a drone chasing a human, 300 ft for the last car, 200 ft for a middle
+car); ahead, +0x808 drops to 0.9 - f26 (0.5 f20 + 0.1) (200 ft ahead of a human, 500 ft for a leader); a leader closer
+than 200 ft to second gets the +0x814 boost too. At DIFFICULTY 5 (f20 = f26 = 0) the base values are 1.0 and the
+largest catch-up is 1.1x clock with the target speed unchanged. Only one drone chases each human: a human picks the
+drone one place ahead or behind (the nearer, type +0x7E8 == 1, not taken) and writes its own index into that drone's
++0x806; every other drone is bent by the gap to its neighbors by place, so the pack keeps together but does not chase
+the player, and nothing grows past 300 ft.
+
 ### Circuit skill
 
 In a circuit (race type 0x8010C3E8 == 1) `rubber_band_800A1A98` also scales each drone's pace factor $f20 by its skill

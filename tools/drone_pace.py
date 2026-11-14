@@ -8,6 +8,8 @@ against its PS1 night and snow versions, docs/sfrush_ps1.md#ai-lanes).
     [--hits]          (recordings) where the computer cars hit walls: sudden sideways or backward jolts (over 8 g in
                       the ground plane between two of a car's steps, not braking or wrecked; one a second a car), grouped within 40 ft
     [--backward]      (--race) race the tracks backward (the track select's BACKWARD)
+    [--env K=V]       (--race) an environment variable for the game (the runs drop every other RUSH2_ one)
+    [--out DIR]       (--race) write the recordings to DIR, refusing to overwrite one (keep every run's data)
     [--lost-laps]     (recordings) cars that had to go round again for a checkpoint (a wreck put them back past it)
     [--sections FT]   (recordings) the cars' mean time over each FT of their own distance driven, and where that stretch
                       starts (the median car's place): two versions of a course side by side show where one loses time
@@ -97,7 +99,7 @@ def prepare(catch_up, mod_dir=None):
         json.dump({'cheat_no_game_timer': True}, f, indent=4)
 
 
-def race(track, catch_up, laps, mod_dir=None, backward=False):
+def race(track, catch_up, laps, mod_dir=None, backward=False, out=None, extra_env=()):
     """Races `track` headless; returns the recording's path or raises RuntimeError."""
     import hidden_desktop, time
     # Another session's build relinks the exe: wait for it to be back (and finished being written) rather than fail.
@@ -107,13 +109,19 @@ def race(track, catch_up, laps, mod_dir=None, backward=False):
             break
         time.sleep(2)
     prepare(catch_up, mod_dir)
-    rec = os.path.join(WORK, '%s%s.r2rc' % (track, '_backward' if backward else ''))
+    # Absolute: the game runs in build/, where a relative path doesn't lead here (it then can't write the recording).
+    rec = os.path.abspath(os.path.join(out or WORK, '%s%s.r2rc' % (track, '_backward' if backward else '')))
+    if out:
+        os.makedirs(out, exist_ok=True)
+        if os.path.exists(rec):
+            raise RuntimeError('%s exists: --out never overwrites a recording' % rec)
     for old in (rec, rec + '.done'):
         if os.path.exists(old):
             os.remove(old)
     env = {k: v for k, v in os.environ.items() if not k.startswith('RUSH2_')}
     env.update(RUSH2_SIM='1', RUSH2_DATA_DIR=DATA, RUSH2_TEST_RACE=str(track), RUSH2_RACE_RECORD=rec,
                RUSH2_TEST_CAR='0', RUSH2_TEST_RACE_LAPS=str(laps), RUSH2_TEST_RACE_BACKWARD='1' if backward else '0')
+    env.update(kv.split('=', 1) for kv in extra_env)
     with open(rec[:-5] + '.log', 'w') as log:
         proc = hidden_desktop.popen([EXE], cwd=BUILD, env=env, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -343,6 +351,8 @@ def main():
     ap.add_argument('--race', action='store_true', help='race each track headless first')
     ap.add_argument('--laps', type=int, default=3)
     ap.add_argument('--backward', action='store_true', help='race the tracks backward (track select BACKWARD)')
+    ap.add_argument('--env', action='append', default=[], help='K=V passed to the game (repeatable)')
+    ap.add_argument('--out', help='write the recordings to this folder (never overwriting one) instead of tmp/drone_pace')
     ap.add_argument('--catch-up', action='store_true', help='keep Drone Cheating on')
     ap.add_argument('--mod-dir', help='a mod folder raced in place of the installed mod of its id')
     ap.add_argument('--wrecks', action='store_true', help='list every wreck (recordings)')
@@ -354,7 +364,7 @@ def main():
         s = None
         if a.race:
             try:
-                race_path = race(r, a.catch_up, a.laps, a.mod_dir, a.backward)
+                race_path = race(r, a.catch_up, a.laps, a.mod_dir, a.backward, a.out, a.env)
                 s = from_recording(race_path)
             except RuntimeError as e:
                 print(e)

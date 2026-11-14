@@ -304,7 +304,9 @@ wide`) and says which it is when it is standing up or too narrow.
   `(all from _SPEED)` or `(some from _SPEED)`. A second attribute, `_AI_MODE`, sets how the cars steer along that
   stretch, as the stock lanes do: 2 (the default) holds the line closely, 5 steers more loosely. Painted
   `AIPATH_lane` curves can carry their own `_SPEED` and `_AI_MODE`; lanes without them use `AIPATH_main`'s. Backward
-  races work out their own speeds.
+  races work out their own speeds from the bends, held at each point to the slowest `_SPEED` you gave that point
+  (on `AIPATH_main` or a lane), and brake for those from the other side: a corner or crest is taken no faster
+  backward than forward.
 - **Paths drawn at road height everywhere:** the game keeps the path at the curve's height over a gap only where the
   road below drops away sharply at the gap's ends. If your curve follows the road everywhere except over long jumps,
   where it follows the cars' arc, give `AIPATH_main` a custom property `keep_height` set to True (Object Properties >
