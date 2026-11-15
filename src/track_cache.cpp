@@ -25,11 +25,8 @@
 #include "librecomp/game.hpp"
 #include "util/file.h"
 
+#include "rush2.h"
 #include "track_cache.h"
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 namespace {
     constexpr char magic[4] = { 'R', '2', 'T', 'C' };
@@ -53,16 +50,8 @@ namespace {
 
     uint64_t build_stamp() {
         static uint64_t stamp = [] {
-            std::filesystem::path exe;
-#ifdef _WIN32
-            wchar_t buf[MAX_PATH * 4];
-            DWORD n = GetModuleFileNameW(nullptr, buf, (DWORD)std::size(buf));
-            if (n > 0 && n < std::size(buf)) exe = std::filesystem::path(std::wstring(buf, n));
-#endif
+            std::filesystem::path exe = rush2::executable_path();
             std::error_code ec;
-#ifndef _WIN32
-            exe = std::filesystem::read_symlink("/proc/self/exe", ec);
-#endif
             uint64_t size = exe.empty() ? 0 : (uint64_t)std::filesystem::file_size(exe, ec);
             uint64_t time = exe.empty() ? 0 : (uint64_t)std::filesystem::last_write_time(exe, ec).time_since_epoch().count();
             return rush2::track_cache::hash((const uint8_t*)&time, sizeof(time),

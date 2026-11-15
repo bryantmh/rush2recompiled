@@ -883,6 +883,19 @@ int main(int argc, char** argv) {
             std::filesystem::current_path(exe.parent_path(), ec);
         }
     }
+#elif defined(__APPLE__)
+    // Run from the folder holding the UI assets: the app bundle's Contents/Resources (tools/build_macos.sh puts them
+    // there, beside Contents/MacOS), or the executable's own folder for a build run straight from the build tree.
+    {
+        std::error_code ec;
+        std::filesystem::path exe = rush2::executable_path();
+        std::filesystem::path resources = exe.parent_path().parent_path() / "Resources";
+        if (std::filesystem::is_directory(resources / "assets", ec)) {
+            std::filesystem::current_path(resources, ec);
+        } else if (!exe.empty()) {
+            std::filesystem::current_path(exe.parent_path(), ec);
+        }
+    }
 #endif
 
 #ifdef __linux__

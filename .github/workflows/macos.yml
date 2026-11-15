@@ -1,0 +1,51 @@
+# macOS build (docs/macos.md). Builds the app on GitHub's Apple Silicon runner and keeps the .dmg as a workflow
+# artifact (repo collaborators only), so a build can be tried on a Mac before it goes into a release.
+name: macOS build
+
+on:
+  push:
+    branches: [mac-port]
+  workflow_dispatch:
+
+permissions:
+  contents: write # The ROM-derived sources sit on a draft release, which only a token with write access can see.
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # git describe --tags gives the version shown in the launcher.
+
+      - name: Install tools
+        run: |
+          brew install ninja sdl2 freetype dylibbundler ccache
+          # Xcode 26 ships its Metal compiler separately; RT64's shaders are compiled with it.
+          xcrun -sdk macosx metal --version || xcodebuild -downloadComponent MetalToolchain
+
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-macos-${{ github.sha }}
+          restore-keys: ccache-macos-
+
+      - name: Recompiled sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/mac_ci_sources.py download
+
+      - name: Build
+        run: |
+          ccache --max-size=2G
+          bash tools/build_macos.sh --out dist --name Rush2Recompiled-macOS-${GITHUB_SHA::7}.dmg
+          ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rush2Recompiled-macOS-${{ github.sha }}
+          path: dist/*.dmg
+          compression-level: 0

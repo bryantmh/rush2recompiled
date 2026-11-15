@@ -349,7 +349,7 @@ namespace {
     std::string stamp(const rush2::track_mod::Entry& e) {
         auto one = [](const std::filesystem::path& p) {
             std::error_code ec;
-            auto time = std::filesystem::last_write_time(p, ec).time_since_epoch().count();
+            long long time = (long long)std::filesystem::last_write_time(p, ec).time_since_epoch().count();
             auto size = ec ? 0 : std::filesystem::file_size(p, ec);
             return std::to_string(ec ? 0 : time) + ":" + std::to_string(ec ? 0 : size) + ";";
         };

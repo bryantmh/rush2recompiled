@@ -43,6 +43,7 @@
 #include "car1_decals.h"
 #include "car1_stripes.h"
 #include "car_types.h"
+#include "rush2.h"
 #include "rush2_hooks.h"
 #include "track1.h"
 #include "track_cache.h"
@@ -95,17 +96,7 @@ namespace {
 
     uint64_t build_stamp() {
         static uint64_t stamp = [] {
-            std::filesystem::path exe;
-#ifdef _WIN32
-            wchar_t buf[MAX_PATH * 4];
-            DWORD n = GetModuleFileNameW(nullptr, buf, (DWORD)std::size(buf));
-            if (n > 0 && n < std::size(buf)) {
-                exe = std::filesystem::path(std::wstring(buf, n));
-            }
-#else
-            std::error_code ec0;
-            exe = std::filesystem::read_symlink("/proc/self/exe", ec0);
-#endif
+            std::filesystem::path exe = rush2::executable_path();
             std::error_code ec;
             uint64_t v[2] = { exe.empty() ? 0 : (uint64_t)std::filesystem::file_size(exe, ec),
                               exe.empty() ? 0 : (uint64_t)std::filesystem::last_write_time(exe, ec).time_since_epoch().count() };
