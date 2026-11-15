@@ -405,14 +405,23 @@ if (WIN32)
     target_sources(Rush2Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
 else()
     find_package(SDL2 REQUIRED)
-    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
-    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+    if (NOT APPLE)
+        # macOS draws through RT64's Metal backend into an SDL Metal view (create_window in src/main.cpp).
+        add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
+        add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+    endif()
     target_include_directories(Rush2Recompiled PRIVATE ${SDL2_INCLUDE_DIRS})
     find_package(Freetype REQUIRED)
     target_link_libraries(Rush2Recompiled PRIVATE ${FREETYPE_LIBRARIES} SDL2::SDL2)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads REQUIRED)
-    target_link_libraries(Rush2Recompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
+    if (APPLE)
+        # macOS packaging (the .app bundle, its libraries and signature) is tools/build_macos.sh. Notes: docs/macos.md.
+        target_link_libraries(Rush2Recompiled PRIVATE ${CMAKE_DL_LIBS} Threads::Threads
+            "-framework Cocoa" "-framework Metal" "-framework QuartzCore" "-framework IOKit")
+    else()
+        target_link_libraries(Rush2Recompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
+    endif()
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # DualSense haptics play on the controller's sound card through PulseAudio (or PipeWire's pulse server), or
         # ALSA when the card is split by alsa-ucm-conf (src/dualsense_haptics.cpp). GTK (nfd's file pickers) to keep
@@ -441,6 +450,15 @@ set (DXC_RT_OPTS "${DXC_COMMON_OPTS}" "-D" "RT_SHADER" "-T" "lib_6_3" "-fspv-tar
 
 if (WIN32)
     set (DXC "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc.exe")
+elseif (APPLE)
+    # As lib/rt64/CMakeLists.txt: RecompFrontend's shaders go HLSL -> SPIR-V -> Metal with RT64's dxc-macos.
+    if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+        find_library(ZLIB_LIBRARY NAMES z)
+        get_filename_component(ZLIB_PATH ${ZLIB_LIBRARY} DIRECTORY)
+        set (DXC "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64:${ZLIB_PATH}" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc-macos")
+    else()
+        set (DXC "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-macos")
+    endif()
 elseif (CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
     set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc-linux")
 else()

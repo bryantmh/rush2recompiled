@@ -34,6 +34,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <pthread.h>
+#include <sys/qos.h>
 #else
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -67,6 +70,10 @@ namespace {
 #ifdef _WIN32
         SetThreadDescription(GetCurrentThread(), name);
         if (low) SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#elif defined(__APPLE__)
+        // setpriority would lower the whole process on macOS; a thread's own QoS class is the per-thread equivalent.
+        (void)name;
+        if (low) pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
 #else
         (void)name;
         if (low) setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);

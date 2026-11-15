@@ -8,6 +8,34 @@
 
 #include "rush2.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
+std::filesystem::path rush2::executable_path() {
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH * 4];
+    DWORD n = GetModuleFileNameW(nullptr, buf, (DWORD)std::size(buf));
+    return n > 0 && n < std::size(buf) ? std::filesystem::path(std::wstring(buf, n)) : std::filesystem::path();
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buf(size, '\0');
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) {
+        return {};
+    }
+    std::error_code ec;
+    std::filesystem::path path = std::filesystem::weakly_canonical(buf.c_str(), ec);
+    return ec ? std::filesystem::path(buf.c_str()) : path;
+#else
+    std::error_code ec;
+    std::filesystem::path path = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::filesystem::path() : path;
+#endif
+}
+
 // Portable mode: recompui::file::get_app_folder_path() uses the working directory (the executable's folder, see main)
 // instead of %LOCALAPPDATA% when portable.txt exists there. It checks the marker on every call, so main resolves it
 // once at startup into recomp::register_config_path() and everything else reads recomp::get_config_path(); switching

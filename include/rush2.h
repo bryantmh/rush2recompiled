@@ -2,6 +2,7 @@
 #define __RUSH2_H__
 
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -103,6 +104,10 @@ namespace rush2 {
         // Performs a copy scheduled by set_portable. Call at startup, before the config path is registered.
         void apply_pending_move();
     }
+
+    // The running executable's full path (src/data_location.cpp), empty if the OS won't say. On macOS it's inside the
+    // app bundle (Contents/MacOS).
+    std::filesystem::path executable_path();
 
     // Split screen layout of 2 player races (src/splitscreen.cpp).
     namespace splitscreen {
