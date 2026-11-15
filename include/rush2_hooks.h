@@ -538,6 +538,7 @@ void rush2_wings_car_rows(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_step(uint8_t* rdram, recomp_context* ctx);
 void rush2_shoulder_car_buttons(uint8_t* rdram, recomp_context* ctx);
 void rush2_shoulder_car_row(uint8_t* rdram, recomp_context* ctx);
+void rush2_shoulder_car_unlock(uint8_t* rdram, recomp_context* ctx);
 void rush2_shoulder_track_buttons(uint8_t* rdram, recomp_context* ctx);
 void rush2_shoulder_track_restore(uint8_t* rdram, recomp_context* ctx);
 void rush2_wings_car_label_t7(uint8_t* rdram, recomp_context* ctx);

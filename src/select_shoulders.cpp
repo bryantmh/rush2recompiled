@@ -50,6 +50,16 @@ extern "C" void rush2_shoulder_car_buttons(uint8_t* rdram, recomp_context* ctx) 
     if (step != 0) ctx->r2 |= step < 0 ? dpad_left : dpad_right;
 }
 
+// menu_screen_car_select_frame_803B9478 at 0x803B984C ($t9 = carselect_title_flag_803CB3AC[slot], whether the cursor
+// row can be changed for this car; 0 skips the step): a shoulder press steps CAR, which always can be, so the cursor
+// row's lock doesn't apply (issue #75: with the cursor on STRIPE, a car whose STRIPE is locked, the Formula, stopped
+// L / R there).
+extern "C" void rush2_shoulder_car_unlock(uint8_t* rdram, recomp_context* ctx) {
+    int slot = (int32_t)ctx->r23;
+    if (slot < 0 || slot > 1 || !car_pending[slot]) return;
+    ctx->r25 = 1;
+}
+
 // menu_screen_car_select_frame_803B9478 at 0x803B98A4 ($t7 = the cursor row's id, about to pick the case; before
 // rush2_wings_car_step, which reads it too): a shoulder press steps CAR.
 extern "C" void rush2_shoulder_car_row(uint8_t* rdram, recomp_context* ctx) {

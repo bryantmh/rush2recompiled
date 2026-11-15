@@ -94,6 +94,11 @@ L and R (LB / RB and the right trigger on a controller, Q / E on the keyboard) s
 CAR on the car select from any row, as left and right do on that row (issue #48, src/select_shoulders.cpp: the
 press becomes a D-pad left or right and the row's id TRACK's or CAR's for that step; the track select's cursor is
 moved to TRACK's row for the step and put back at 0x803AC410 / 0x803AC554). In an input script they are `L` and `R`.
+The car select only steps a row its car allows (`carselect_title_flag_803CB3AC[slot]`, checked at 0x803B984C), and
+that flag is the cursor row's: a shoulder press forces it on there, since CAR can always change (issue #75: with the
+cursor on STRIPE, the Formula's locked STRIPE stopped L / R). Test: `--config cheats.unlock_all_cars=true --env
+RUSH2_TEST_CAR=18 --script "T1:START,T4:A,T6.5:A,T10:A,T11.5:DD,T12.5:DD,T13.5:DD,T14.5:DD,T16:R,T18:L,T20:L"`
+(Formula, cursor on STRIPE, then Prototype, Formula, Hotrod).
 
 ### Game filter
 

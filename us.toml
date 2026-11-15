@@ -9412,6 +9412,12 @@ func = "menu_screen_car_select_frame_803B9478"
 before_vram = 0x803B9738
 text = "    rush2_shoulder_car_buttons(rdram, ctx);"
 
+# L / R step CAR even when the cursor row is locked for the car (src/select_shoulders.cpp, issue #75).
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B984C
+text = "    rush2_shoulder_car_unlock(rdram, ctx);"
+
 # L / R step TRACK from any row (src/select_shoulders.cpp, issue #48).
 [[patches.hook]]
 func = "trackselect_frame_803ABE0C"
