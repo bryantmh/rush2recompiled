@@ -12,6 +12,8 @@ If your change will alter base Rush 2 behavior, it needs to go behind a toggle i
 
 This is now a live app. Any behavior that would invalidate a config or save needs to be migrated at startup to the new system
 
+Build only with `python tools/build.py` (`--target T` for one target, `--regen` to force N64Recomp; output in tmp/build.log), never a raw `cmake --build build` or `ninja` (a hook blocks those). Sessions share build/: the script holds one build lock, so a build already running is waited for and then only what it left stale is rebuilt ("no work to do" when it covered your edits, so never rebuild by hand to "make sure"); it reruns N64Recomp by itself when us.toml or the syms file changed; and when a game holds the exe it renames it to `.old` and links at once. Never wait for a game to exit before building
+
 Scratch scripts, logs and test output go in `tmp/` in the project root (gitignored) or the session scratchpad. Never in `build/`, the project root or anywhere else in the tree
 
 Prefer reusable tools over one-off scripts. If a script would be useful again, put it in `tools/` with arguments and a comment on what it does, and extend an existing tool before writing a new one
