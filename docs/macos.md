@@ -25,7 +25,8 @@ with right-click > Open, or `xattr -dr com.apple.quarantine "/Applications/Rush 
   downloaded separately (`xcodebuild -downloadComponent MetalToolchain`).
 - The bundle: `Contents/MacOS/Rush2Recompiled`, the UI `assets` and `recompcontrollerdb.txt` in `Contents/Resources`
   (the game makes that its working folder at startup, as the AppImage uses its `usr/bin`), and Homebrew's SDL2 and
-  FreeType copied into `Contents/Frameworks` by dylibbundler.
+  FreeType copied into `Contents/Frameworks` by dylibbundler, plus SDL3 as `libSDL3.dylib` (sdl2-compat loads it at
+  run time from beside itself, which dylibbundler can't see).
 - Settings, saves and caches go to `~/Library/Application Support/Rush2Recompiled` (recompui's
   `get_app_folder_path`).
 - `rush2::executable_path()` (`src/data_location.cpp`) finds the executable on every system; on macOS with
@@ -39,3 +40,4 @@ with right-click > Open, or `xattr -dr com.apple.quarantine "/Applications/Rush 
 
 - Portable mode (`portable.txt`) writes into the read-only, signed bundle; on macOS it would have to go beside the app.
 - No Developer ID signing or notarization, and no x86_64 (Intel Mac) build.
+- Homebrew's libraries are built for the runner's macOS (15), so the app needs macOS 15 or newer for now.
