@@ -3751,12 +3751,33 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
 // no art for: its lit glass as runs [x, y, w, 1, window], each window pale or warm as the PS1's lit windows are
 // (their texels cluster at those two), the rest left to the texture's own night colors. "clip": [x, y, w, h], the
 // part of the texture the PS1's art is kept to (a map whose art runs into something else there; its variants too).
+// The SNOW versions' art (docs/sfrush_ps1.md#n64-snow-versions): the night's maps and n64_snow_map.json's (roads,
+// grass, roofs: the textures the night's doesn't hold) through the snow set, in n64_night_art.bin's form (no hand-lit
+// windows or palette variants, which are the night's).
+std::vector<uint8_t> ps1::n64_snow_art(const Disc& disc, const std::filesystem::path& assets_dir, std::string& log) {
+    return n64_art(disc, assets_dir, "S", log);
+}
+
 std::vector<uint8_t> ps1::n64_night_art(const Disc& disc, const std::filesystem::path& assets_dir, std::string& log) {
+    return n64_art(disc, assets_dir, "N", log);
+}
+
+// The art of every map from the set `set` ("N" night, "S" snow); hand-lit windows and palette variants only at night.
+std::vector<uint8_t> ps1::n64_art(const Disc& disc, const std::filesystem::path& assets_dir, const char* set, std::string& log) {
+    const bool night_set = std::string(set) == "N";
     std::vector<uint8_t> text = rush2::upscale::read_file(assets_dir / "n64_night_map.json");
     nlohmann::json map = nlohmann::json::parse(text.begin(), text.end(), nullptr, false);
     if (!map.is_object()) {
         log += "n64_night_map.json couldn't be read: the N64 night versions light windows by guess\n";
         return {};
+    }
+    // The snow's: also n64_snow_map.json, the maps of the textures the night's doesn't hold (roads, grass, roofs).
+    if (!night_set) {
+        std::vector<uint8_t> more = rush2::upscale::read_file(assets_dir / "n64_snow_map.json");
+        nlohmann::json snow = nlohmann::json::parse(more.begin(), more.end(), nullptr, false);
+        if (snow.is_object()) {
+            for (const auto& [k, v] : snow.items()) if (!map.contains(k)) map[k] = v;
+        }
     }
     Exe exe;
     if (!exe.open(disc)) return {};
@@ -3782,6 +3803,7 @@ std::vector<uint8_t> ps1::n64_night_art(const Disc& disc, const std::filesystem:
     };
     for (const auto& [key, entry] : map.items()) {
         if (!entry.is_object()) continue;
+        if (!night_set && (entry.contains("windows") || entry.contains("variant_of"))) continue;
         if (entry.contains("windows") && entry.contains("size")) {
             const int w = entry["size"][0].get<int>(), h = entry["size"][1].get<int>();
             if (w <= 0 || h <= 0 || w > 1024 || h > 1024) continue;
@@ -3807,7 +3829,7 @@ std::vector<uint8_t> ps1::n64_night_art(const Disc& disc, const std::filesystem:
         const int t = e.value("track", 0);
         auto tr = std::find_if(std::begin(tracks), std::end(tracks), [&](const TrackInfo& x) { return x.n == t; });
         if (tr == std::end(tracks)) continue;
-        if (!night.count(t) && !load_vram(disc, exe, *tr, "N", night[t], log)) {
+        if (!night.count(t) && !load_vram(disc, exe, *tr, set, night[t], log)) {
             night.erase(t);
             continue;
         }
@@ -3835,7 +3857,8 @@ std::vector<uint8_t> ps1::n64_night_art(const Disc& disc, const std::filesystem:
         crops(entry, w, h, texels);
     }
     for (int k = 0; k < 4; k++) out[size_t(8 + k)] = uint8_t(count >> (8 * k));
-    log += "n64_night_art.bin: " + std::to_string(count) + " N64 building textures (and their top rows) in the PS1's night art\n";
+    log += std::string(night_set ? "n64_night_art.bin: " : "n64_snow_art.bin: ") + std::to_string(count) +
+           " N64 textures (and their top rows) in the PS1's " + (night_set ? "night" : "snow") + " art\n";
     return out;
 }
 
@@ -3873,9 +3896,29 @@ bool ps1::build_track(const Disc& disc, const std::filesystem::path& assets_dir,
                 "[menu]\nafter = \"sfrush\"\nvariant_of = \"sfrush:" + c.id + "\"\nvariant = \"NIGHT\"\n");
             log += "wrote tracks/" + folder + "/track.toml: N64 track " + std::to_string(c.n) + " at night, car light " + light + "\n";
         }
-        // Their buildings in the PS1's own night art (src/track_mod/track_mod.cpp prepare hands it to the conversion).
+        // SNOW versions of the same courses (docs/sfrush_ps1.md#n64-snow-versions): the course in the PS1's snow (its
+        // day fog and sky, snow painted into the textures: src/rush1/track1_convert.cpp snow_track), with falling snow.
+        // Off for now (user 2026-11-14): not written until the snow art and the AI's snow tuning are finished.
+        constexpr bool n64_snow_versions = false;
+        for (const auto& c : courses) {
+            if (!n64_snow_versions) break;
+            const std::string folder = std::string(c.id) + "_snow";
+            out["tracks/" + folder + "/track.toml"] = a49::text_bytes(
+                "[track]\nname = \"" + std::string(c.name) + " Snow\"\nbase = \"sfrush:" + c.id + "\"\n"
+                "author = \"San Francisco Rush, N64, in the PlayStation's snow\"\n"
+                "description = \"Track " + std::to_string(c.n) + " of the N64 San Francisco Rush in the snow\"\n\n"
+                "[look]\nrecolor = \"snow\"\nsnowfall = 1\n\n"
+                "[menu]\nafter = \"sfrush\"\nvariant_of = \"sfrush:" + c.id + "\"\nvariant = \"SNOW\"\n");
+            log += "wrote tracks/" + folder + "/track.toml: N64 track " + std::to_string(c.n) + " in the snow\n";
+        }
+        // Their buildings in the PS1's own night art, and the snow's (src/track_mod/track_mod.cpp prepare hands them
+        // to the conversion).
         std::vector<uint8_t> art = ps1::n64_night_art(disc, assets_dir, log);
         if (!art.empty()) out["n64_night_art.bin"] = std::move(art);
+        if (n64_snow_versions) {
+            std::vector<uint8_t> snow = ps1::n64_snow_art(disc, assets_dir, log);
+            if (!snow.empty()) out["n64_snow_art.bin"] = std::move(snow);
+        }
     }
     return true;
 }

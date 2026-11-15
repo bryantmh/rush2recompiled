@@ -290,13 +290,14 @@ namespace {
     // A conversion's source key: the ROM's, and for a NIGHT version the PS1's night art too (set_night_art), so new art
     // converts the night tracks again once.
     uint64_t look_source(const std::vector<uint8_t>& rom, rush2::diorama_look::Look look) {
-        const uint64_t art = look == rush2::diorama_look::Look::night ? rush2::track1::night_art_hash() : 0;
+        const uint64_t art = look == rush2::diorama_look::Look::night ? rush2::track1::night_art_hash() :
+                             look == rush2::diorama_look::Look::snow ? rush2::track1::snow_art_hash() : 0;
         return art ? rush2::track_cache::hash(reinterpret_cast<const uint8_t*>(&art), sizeof(art), rom_source(rom)) : rom_source(rom);
     }
 
     // The track cache's entry of track t (0-6) in a look: the day's t, a NIGHT version's 100 + t.
     int cache_index(int t, rush2::diorama_look::Look look) {
-        return look == rush2::diorama_look::Look::night ? 100 + t : t;
+        return look == rush2::diorama_look::Look::night ? 100 + t : look == rush2::diorama_look::Look::snow ? 200 + t : t;
     }
 
     // Converts track t (0-6) in `look` with its in-race logo (Rush 2's host slot logo, read from the ROM) and stores
@@ -402,6 +403,11 @@ rush2::diorama_look::Look rush2::track1::applied_look(uint8_t* rdram) {
 uint32_t rush2::track1::car_light(uint8_t* rdram) {
     std::lock_guard lock{ track_mutex };
     return applied && MEM_BU(0, (int32_t)track_id) == host_slot ? applied_race_look.car_light : 0u;
+}
+
+float rush2::track1::snowfall(uint8_t* rdram) {
+    std::lock_guard lock{ track_mutex };
+    return applied && MEM_BU(0, (int32_t)track_id) == host_slot ? applied_race_look.snowfall : 0.0f;
 }
 
 bool rush2::track1::sky_model(uint8_t* rdram) {

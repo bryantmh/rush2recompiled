@@ -102,6 +102,12 @@ namespace rush2::track1 {
     bool bus_pose(int bus, float pos[3], float m[9]);
     std::shared_ptr<const std::vector<uint8_t>> night_art();
     uint64_t night_art_hash();
+    // The same for the SNOW versions (docs/sfrush_ps1.md#n64-snow-versions): the PS1 mod's n64_snow_art.bin, the
+    // PS1's snow texels of the mapped textures in n64_night_art.bin's form. A snow conversion puts them in place; the
+    // other textures keep their day colors.
+    void set_snow_art(std::shared_ptr<const std::vector<uint8_t>> art);
+    std::shared_ptr<const std::vector<uint8_t>> snow_art();
+    uint64_t snow_art_hash();
 
     // Track select art: appends a diorama model R1TRACKn (Rush 1's own track select model) and a 128x32 name logo
     // Gives the renderer the track banners' exact colors in place of their CI8 copies' 255 (src/texture_upscale.cpp,
@@ -146,12 +152,15 @@ namespace rush2::track1 {
         rush2::diorama_look::Look look = rush2::diorama_look::Look::day;
         std::array<uint8_t, 3> fog = { 0x96, 0x96, 0xBE };
         uint32_t car_light = 0;
+        float snowfall = 0.0f;   // [look] snowfall (src/snowfall.cpp), 0 none
     };
     void set_race_look(const RaceLook& look);
     // The applied track's look (day when none is applied).
     rush2::diorama_look::Look applied_look(uint8_t* rdram);
     // The applied track's car light (0xRRGGBBFF), 0 for none or when no SF Rush track is applied.
     uint32_t car_light(uint8_t* rdram);
+    // The applied track's falling snow ([look] snowfall of the version raced on it), 0 for none.
+    float snowfall(uint8_t* rdram);
     // The applied track has its own sky model (a night version's SKYO1).
     bool sky_model(uint8_t* rdram);
     // Converts course k (1-7) in `look` into the disk cache unless it is there (a version's, ahead of its race). Any

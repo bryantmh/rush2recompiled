@@ -447,7 +447,8 @@ namespace {
     }
 
     rush2::diorama_look::Look look_of(const rush2::track_mod::Settings& s) {
-        return s.recolor == "night" ? rush2::diorama_look::Look::night : rush2::diorama_look::Look::day;
+        return s.recolor == "night" ? rush2::diorama_look::Look::night :
+               s.recolor == "snow" ? rush2::diorama_look::Look::snow : rush2::diorama_look::Look::day;
     }
 
     // A track raced on an N64 course ([track] base) has no conversion of its own: its track select entry shows the
@@ -855,6 +856,11 @@ void rush2::track_mod::prepare() {
             if (look_of(e.settings) == rush2::diorama_look::Look::night && read_mod_file(e, "n64_night_art.bin", art)) {
                 auto have = rush2::track1::night_art();
                 if (!have || *have != art) rush2::track1::set_night_art(std::make_shared<const std::vector<uint8_t>>(std::move(art)));
+            }
+            // A SNOW version's: the PS1's snow (n64_snow_art.bin, docs/sfrush_ps1.md#n64-snow-versions).
+            if (look_of(e.settings) == rush2::diorama_look::Look::snow && read_mod_file(e, "n64_snow_art.bin", art)) {
+                auto have = rush2::track1::snow_art();
+                if (!have || *have != art) rush2::track1::set_snow_art(std::make_shared<const std::vector<uint8_t>>(std::move(art)));
             }
             if (auto rom = rush2::track1::get_rom(); rom != nullptr && rush2::track1::available()) {
                 rush2::track1::prepare_look(*rom, base_course(e.settings), look_of(e.settings));

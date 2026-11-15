@@ -163,7 +163,7 @@ namespace rush2::track_mod {
         // track.glb, the course's own files (src/rush1/track1.cpp) in this track's look ([look] recolor, fog_color,
         // car_light), its own track select entry, records and ghosts. The PlayStation SF Rush mod's N64 NIGHT versions
         // (docs/sfrush_ps1.md#n64-night-versions). [look] recolor: "night", the course converted in the PlayStation SF
-        // Rush's night colors with a night sky (rush2::track1::convert_track).
+        // Rush's night colors with a night sky, or "snow", in its snow (rush2::track1::convert_track).
         std::string base, recolor;
         std::map<std::string, Surface> surfaces;              // by upper-case name
         std::map<std::string, MoverSettings> movers;          // by the name after MOVE_

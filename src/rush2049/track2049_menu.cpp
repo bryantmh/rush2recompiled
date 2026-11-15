@@ -1349,7 +1349,9 @@ namespace {
                     const rush2::track_mod::Settings& s = list[i].settings;
                     rush2::track1::set_race_track(k);
                     rush2::track1::RaceLook look;
-                    look.look = s.recolor == "night" ? rush2::diorama_look::Look::night : rush2::diorama_look::Look::day;
+                    look.look = s.recolor == "night" ? rush2::diorama_look::Look::night :
+                                s.recolor == "snow" ? rush2::diorama_look::Look::snow : rush2::diorama_look::Look::day;
+                    look.snowfall = s.snowfall;
                     look.fog = s.fog;
                     if (s.car_light) look.car_light = uint32_t((*s.car_light)[0]) << 24 | uint32_t((*s.car_light)[1]) << 16 |
                                                       uint32_t((*s.car_light)[2]) << 8 | 0xFF;

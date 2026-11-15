@@ -1455,8 +1455,8 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
         s.base.clear();
     }
     str("look", "recolor", s.recolor);
-    if (!s.recolor.empty() && s.recolor != "night") {
-        report.error("track.toml: [look] recolor must be \"night\"; \"" + s.recolor + "\" is ignored.");
+    if (!s.recolor.empty() && s.recolor != "night" && s.recolor != "snow") {
+        report.error("track.toml: [look] recolor must be \"night\" or \"snow\"; \"" + s.recolor + "\" is ignored.");
         s.recolor.clear();
     }
     if (s.gravity != "rush2" && s.gravity != "rush2049") {

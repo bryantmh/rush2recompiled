@@ -802,6 +802,7 @@ namespace {
         size_t tluts = 0, entries = 0, shades = 0, shared = 0;
         size_t window_textures = 0, windows = 0, lit_calls = 0, calls = 0;
         size_t art_textures = 0;     // textures redrawn in the PS1's night art
+        size_t banner_tluts = 0;     // the CHECKPOINT / FINISH banners' TLUTs, kept lit
     };
 
     // ---- lit windows ----------------------------------------------------------------------------------------------
@@ -1038,14 +1039,21 @@ namespace {
     // texture's own night colors.
 
     std::mutex night_art_mutex;
-    std::shared_ptr<const std::vector<uint8_t>> night_art_bytes;
-    uint64_t night_art_key = 0;
+    std::shared_ptr<const std::vector<uint8_t>> night_art_bytes, snow_art_bytes;
+    uint64_t night_art_key = 0, snow_art_key = 0;
+    uint64_t art_hash(const std::shared_ptr<const std::vector<uint8_t>>& art) {
+        if (!art || art->empty()) return 0;
+        uint64_t key = 0xcbf29ce484222325ull;
+        for (uint8_t v : *art) key = (key ^ v) * 0x100000001b3ull;
+        return key;
+    }
 
     // n64_night_art.bin: "N64NIGHT", u32 count, then per texture u64 key, u16 width, u16 height and width x height
     // u16 RGBA5551 texels (little endian; alpha 0: no PS1 texel there).
     struct ArtTexture { uint32_t w = 0, h = 0; const uint8_t* texels = nullptr; };
-    std::map<uint64_t, ArtTexture> read_night_art(const std::vector<uint8_t>& d) {
+    std::map<uint64_t, ArtTexture> read_night_art(const std::vector<uint8_t>& d, size_t* end = nullptr) {
         std::map<uint64_t, ArtTexture> out;
+        if (end) *end = d.size();
         if (d.size() < 12 || std::memcmp(d.data(), "N64NIGHT", 8) != 0) return out;
         uint32_t n = uint32_t(d[8]) | uint32_t(d[9]) << 8 | uint32_t(d[10]) << 16 | uint32_t(d[11]) << 24;
         size_t at = 12;
@@ -1057,6 +1065,7 @@ namespace {
             if (at > d.size()) break;
             out[key] = t;
         }
+        if (end) *end = std::min(at, d.size());
         return out;
     }
 
@@ -1104,7 +1113,8 @@ namespace {
         }
         std::vector<uint16_t> pal;
         for (const C& c : cs) {
-            uint16_t e = c.clear ? 0 : uint16_t(int(std::lround(c.r)) << 11 | int(std::lround(c.g)) << 6 | int(std::lround(c.b)) << 1 | 1);
+            // A see-through entry keeps its color (apply_night_art's see-through color: black at night).
+            uint16_t e = uint16_t(int(std::lround(c.r)) << 11 | int(std::lround(c.g)) << 6 | int(std::lround(c.b)) << 1 | (c.clear ? 0 : 1));
             for (uint16_t m : c.members) to[m] = uint16_t(pal.size());
             pal.push_back(e);
         }
@@ -1115,10 +1125,19 @@ namespace {
     // Returns the lists redrawn. Run before the TLUTs are recolored (the keys are the day colors).
     // view: level 0 as tall as the drawn size the art is of needs (it may run past the list's own tile).
     struct ArtJob { int list; LoadInfo li; std::vector<Level> lv; Level view; uint32_t w, h; ArtTexture art; };
-    std::vector<ArtJob> find_night_art(Builder& b, const std::map<uint64_t, ArtTexture>& art, const std::set<int>& banners) {
-        // The sizes each list's texture is drawn at: its own tile 0's, and the tile 0 size a model sets after calling
-        // it (a model often draws part of a list's block: 32 x 64 of a 64 x 64 load). The asset dump's images, and so
-        // the map's keys, are the texture at each of these.
+    // Each texture-load list (not the banners') as its texture is drawn: its loads and levels, and each size it is
+    // drawn at with that view's key. The sizes: its own tile 0's, the tile 0 size a model sets after calling it (a
+    // model often draws part of a list's block: 32 x 64 of a 64 x 64 load), and the block's whole height (a model may
+    // draw more rows than the list's tile has, 64 of a 48-row tile, reading on into what follows level 0). The asset
+    // dump's images, and so the map's keys, are the texture at each of these.
+    struct ListView {
+        int list = -1;
+        LoadInfo li;
+        std::vector<Level> lv;
+        struct View { uint32_t w, h; Level level; uint64_t key; };   // level: level 0 as tall as the view needs
+        std::vector<View> views;
+    };
+    std::vector<ListView> list_views(Builder& b, const std::set<int>& banners) {
         std::map<int, std::set<std::pair<uint32_t, uint32_t>>> sizes;
         for (const Builder::ModelOut& m : b.models) {
             for (const auto& lod : m.lods) {
@@ -1139,33 +1158,42 @@ namespace {
                 }
             }
         }
-        std::vector<ArtJob> jobs;
+        std::vector<ListView> out;
         for (size_t i = 0; i < b.load_lists.size(); i++) {
             if (banners.count(int(i))) continue;
-            LoadInfo li = read_load(b, b.load_lists[i]);
+            ListView v;
+            v.list = int(i);
+            v.li = read_load(b, b.load_lists[i]);
+            const LoadInfo& li = v.li;
             if (li.tlut == SIZE_MAX || li.texels == SIZE_MAX || li.tlut_fix == SIZE_MAX || li.texel_fix == SIZE_MAX ||
                 li.texels + li.bytes > b.out.size() || li.tlut + li.tlut_n * 2 > b.out.size()) continue;
-            std::vector<Level> lv = levels(li);
-            if (lv.empty()) continue;
-            std::set<std::pair<uint32_t, uint32_t>> drawn = sizes[int(i)];
+            v.lv = levels(li);
+            if (v.lv.empty()) continue;
+            const Level& l0 = v.lv[0];
             const LoadInfo::Tile& t0 = li.tiles[0];
-            drawn.insert({ t0.w && t0.w <= lv[0].w ? t0.w : lv[0].w, lv[0].h });
-            drawn.insert({ lv[0].w, lv[0].h });
-            // The largest drawn size the art has (it holds the smaller ones' texels too).
-            std::optional<ArtJob> pick;
-            const Level& l0 = lv[0];
-            // Rows the block holds from level 0 on: a model may draw more rows than the list's tile has (64 of a 48-row
-            // tile, reading on into what follows level 0), and the dump's image is of what it draws.
             const uint32_t rows = l0.w ? uint32_t((uint64_t(li.bytes - l0.at) * 8 / l0.bits) / l0.w) : 0;
-            // The whole block as one texture too (the dump's view of a block taller than its tile).
-            for (uint32_t w : { t0.w && t0.w <= l0.w ? t0.w : l0.w, l0.w }) drawn.insert({ w, rows });
+            std::set<std::pair<uint32_t, uint32_t>> drawn = sizes[int(i)];
+            for (uint32_t w : { t0.w && t0.w <= l0.w ? t0.w : l0.w, l0.w }) drawn.insert({ w, l0.h }), drawn.insert({ w, rows });
             for (const auto& [w, h] : drawn) {
                 if (w == 0 || h == 0 || w > l0.w || h > rows) continue;
                 Level view = l0;
                 view.h = std::max(l0.h, h);
-                auto it = art.find(night_key(b.out, li, view, w, h));
-                if (it == art.end() || it->second.w != w || it->second.h != h) continue;
-                if (!pick || w * h > pick->w * pick->h) pick = ArtJob{ int(i), li, lv, view, w, h, it->second };
+                v.views.push_back({ w, h, view, night_key(b.out, li, view, w, h) });
+            }
+            out.push_back(std::move(v));
+        }
+        return out;
+    }
+
+    // The lists whose texture the art has: the largest drawn size it has (it holds the smaller ones' texels too).
+    std::vector<ArtJob> find_night_art(Builder& b, const std::map<uint64_t, ArtTexture>& art, const std::set<int>& banners) {
+        std::vector<ArtJob> jobs;
+        for (const ListView& v : list_views(b, banners)) {
+            std::optional<ArtJob> pick;
+            for (const ListView::View& w : v.views) {
+                auto it = art.find(w.key);
+                if (it == art.end() || it->second.w != w.w || it->second.h != w.h) continue;
+                if (!pick || w.w * w.h > pick->w * pick->h) pick = ArtJob{ v.list, v.li, v.lv, w.level, w.w, w.h, it->second };
             }
             if (pick) jobs.push_back(*pick);
         }
@@ -1173,13 +1201,27 @@ namespace {
     }
 
     // Run after the TLUTs are recolored: a texel the PS1's art has no texel for keeps its own (night) color, as do
-    // the block's texels outside the drawn size the art is of.
-    void apply_night_art(Builder& b, const ArtJob& j) {
+    // the block's texels outside the drawn size the art is of. The texture's see-through texels stay so, all in one
+    // entry: black at night; with `mean_see_through` (snow) the mean of the art's colors, since most track textures
+    // are drawn without an alpha test and show those texels (black specks on The Rock's snowy banks).
+    void apply_night_art(Builder& b, const ArtJob& j, bool mean_see_through = false) {
         const Level& l0 = j.lv[0];
         const Level& v0 = j.view;   // level 0, or taller when the art's drawn size runs past it
         // Colors over the view: the PS1's texel, or (none there) the texture's own; its see-through texels stay so.
         std::vector<uint16_t> color(size_t(v0.w) * v0.h);
         std::map<uint16_t, size_t> counts;
+        uint16_t see_through = 0;
+        if (mean_see_through) {
+            double sum[3] = { 0, 0, 0 };
+            size_t n = 0;
+            for (size_t k = 0; k < size_t(j.w) * j.h; k++) {
+                uint16_t ps1 = uint16_t(j.art.texels[k * 2] | j.art.texels[k * 2 + 1] << 8);
+                if (!(ps1 & 1)) continue;
+                sum[0] += (ps1 >> 11) & 31; sum[1] += (ps1 >> 6) & 31; sum[2] += (ps1 >> 1) & 31;
+                n++;
+            }
+            if (n) see_through = uint16_t(std::lround(sum[0] / n) << 11 | std::lround(sum[1] / n) << 6 | std::lround(sum[2] / n) << 1);
+        }
         for (uint32_t y = 0; y < v0.h; y++) {
             for (uint32_t x = 0; x < v0.w; x++) {
                 uint8_t i = texel_index(b.out, j.li.texels, v0, x, y);
@@ -1190,7 +1232,7 @@ namespace {
                     uint16_t ps1 = uint16_t(a[0] | a[1] << 8);
                     if (ps1 & 1) c = ps1;
                 }
-                if ((own & 1) == 0) c = 0;
+                if ((own & 1) == 0) c = see_through;
                 color[size_t(y) * v0.w + x] = c;
                 counts[c]++;
             }
@@ -1226,14 +1268,10 @@ namespace {
         }
     }
 
-    void night_track(Builder& b, NightStats& stats) {
-        namespace dl = rush2::diorama_look;
+    // Per texture-load list, the triangles the models draw after a call to it: (all, walls, walls 12 ft high or more).
+    std::vector<std::array<size_t, 3>> list_faces(const Builder& b) {
         auto address = [&](const Ref& r) { return size_t(b.sources[size_t(r.index)].second) + r.offset; };
-
-        // Which texture-load lists are drawn mostly on walls (70% of their triangles), a third of those tall ones (a
-        // building's, not a barrier's or a sign's: wall triangles 12 ft high or more): per list, the triangles drawn after
-        // a call to it.
-        std::vector<std::array<size_t, 3>> faces(b.load_lists.size(), { 0, 0, 0 });   // (triangles, walls, tall walls)
+        std::vector<std::array<size_t, 3>> faces(b.load_lists.size(), { 0, 0, 0 });
         for (const Builder::ModelOut& m : b.models) {
             for (const auto& lod : m.lods) {
                 if (!lod) continue;
@@ -1279,6 +1317,16 @@ namespace {
                 }
             }
         }
+        return faces;
+    }
+
+    void night_track(Builder& b, NightStats& stats) {
+        namespace dl = rush2::diorama_look;
+        auto address = [&](const Ref& r) { return size_t(b.sources[size_t(r.index)].second) + r.offset; };
+
+        // Which texture-load lists are drawn mostly on walls (70% of their triangles), a third of those tall ones (a
+        // building's, not a barrier's or a sign's: wall triangles 12 ft high or more).
+        const std::vector<std::array<size_t, 3>> faces = list_faces(b);
         // The banners (CHKPNT, FINISH) keep their lists.
         std::set<int> banners;
         for (const Builder::TextureOut& t : b.textures) if (t.ref.load) banners.insert(t.ref.index);
@@ -1351,9 +1399,22 @@ namespace {
                 }
             }
         };
-        for (const Body& l : b.load_lists) walk(l, false);
+        // The banners' TLUTs keep their day colors: the CHECKPOINT and FINISH signs stay lit at night, as the PS1's
+        // night versions draw theirs (a TLUT a banner shares with anything else is recolored with it).
+        for (size_t i = 0; i < b.load_lists.size(); i++) {
+            if (!banners.count(int(i))) continue;
+            walk(b.load_lists[i], false);
+        }
+        std::map<size_t, uint32_t> banner_tluts;
+        banner_tluts.swap(tlut_count);
+        for (size_t i = 0; i < b.load_lists.size(); i++) {
+            if (!banners.count(int(i))) walk(b.load_lists[i], false);
+        }
         for (const Builder::ModelOut& m : b.models) {
             for (const auto& lod : m.lods) if (lod) walk(*lod, true);
+        }
+        for (const auto& [at, n] : banner_tluts) {
+            if (!tlut_count.count(at)) stats.banner_tluts++;
         }
         for (const auto& [at, n] : tlut_count) {
             if (at + size_t(n) * 2 > b.out.size()) continue;
@@ -1453,6 +1514,24 @@ namespace {
                 }
             }
         }
+    }
+
+    // ---- snow ---------------------------------------------------------------------------------------------------------
+    // (docs/sfrush_ps1.md#n64-snow-versions) An N64 course raced as a SNOW version, in the PlayStation SF Rush's snow:
+    // the PS1 keeps its day fog and sky and paints snow into its textures (grass, roofs, ledges and trees white, the
+    // road kept). The textures n64_night_map.json and n64_snow_map.json map onto the PS1's art wear its snow texels
+    // (the mod's n64_snow_art.bin, applied the night art's way); every other texture keeps its day colors (user
+    // 2026-11-14: no made-up snow in the first version, so what the PS1 art doesn't cover shows).
+    struct SnowStats { size_t art_textures = 0; };
+
+    void snow_track(Builder& b, SnowStats& stats) {
+        std::set<int> banners;
+        for (const Builder::TextureOut& t : b.textures) if (t.ref.load) banners.insert(t.ref.index);
+        const std::shared_ptr<const std::vector<uint8_t>> bytes = rush2::track1::snow_art();
+        if (!bytes || bytes->empty()) return;
+        std::vector<ArtJob> jobs = find_night_art(b, read_night_art(*bytes), banners);
+        for (const ArtJob& j : jobs) apply_night_art(b, j, true);
+        stats.art_textures = jobs.size();
     }
 
     // The night sky (as the PlayStation mod's NIGHT versions' SKY dome, src/sfrush_ps1/ps1_track.cpp): the PS1's screen
@@ -1613,6 +1692,11 @@ namespace {
             }
         }
         if (b.textures.size() != 2) fail("CHKPOINT/FINISH textures missing");
+        if (look == rush2::diorama_look::Look::snow) {
+            SnowStats stats;
+            snow_track(b, stats);
+            printf("[Rush1] track %d snow: %zu textures in the PS1's snow art\n", t + 1, stats.art_textures);
+        }
         if (look == rush2::diorama_look::Look::night) {
             NightStats stats;
             night_track(b, stats);
@@ -1624,9 +1708,9 @@ namespace {
             std::sort(ys.begin(), ys.end());
             add_night_sky(b, ys.empty() ? 0.0 : ys[ys.size() / 2]);
             printf("[Rush1] track %d night: %zu TLUTs (%zu entries), %zu untextured shades (%zu shared with textured faces kept), "
-                   "%zu building textures with %zu windows, %zu of %zu binds lit, %zu textures in the PS1's night art\n", t + 1,
+                   "%zu building textures with %zu windows, %zu of %zu binds lit, %zu textures in the PS1's night art, %zu banner TLUTs kept lit\n", t + 1,
                    stats.tluts, stats.entries, stats.shades, stats.shared, stats.window_textures, stats.windows, stats.lit_calls,
-                   stats.calls, stats.art_textures);
+                   stats.calls, stats.art_textures, stats.banner_tluts);
         }
         return b.build();
     }
@@ -2264,12 +2348,25 @@ namespace {
     }
 }
 
+void rush2::track1::set_snow_art(std::shared_ptr<const std::vector<uint8_t>> art) {
+    uint64_t key = art_hash(art);
+    std::lock_guard lock{ night_art_mutex };
+    snow_art_bytes = std::move(art);
+    snow_art_key = key;
+}
+
+std::shared_ptr<const std::vector<uint8_t>> rush2::track1::snow_art() {
+    std::lock_guard lock{ night_art_mutex };
+    return snow_art_bytes;
+}
+
+uint64_t rush2::track1::snow_art_hash() {
+    std::lock_guard lock{ night_art_mutex };
+    return snow_art_key;
+}
+
 void rush2::track1::set_night_art(std::shared_ptr<const std::vector<uint8_t>> art) {
-    uint64_t key = 0;
-    if (art && !art->empty()) {
-        key = 0xcbf29ce484222325ull;
-        for (uint8_t v : *art) key = (key ^ v) * 0x100000001b3ull;
-    }
+    uint64_t key = art_hash(art);
     std::lock_guard lock{ night_art_mutex };
     night_art_bytes = std::move(art);
     night_art_key = key;

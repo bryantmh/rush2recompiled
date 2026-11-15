@@ -25,3 +25,5 @@ strange mismatch between top of dome and sides of sky dome downtown arcade with 
 https://github.com/bryantmh/rush2recompiled/issues/69
 SF Rush arcade: maybe add the 5 N64 keys the arcade marks with its own Atari cube but our floor test drops (Heights KEY1-2, Sunset KEY6-8; tools/arcade_collectibles.py notes them)
 New mode idea: Knockout. It's a multilap race, at the end of each lap the person in last place is eliminated. Either their car is stopped or explodes.
+embarcadero night. can fly over what should be an invisible wall.
+verify each cheat description ingame

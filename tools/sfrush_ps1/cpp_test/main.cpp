@@ -11,7 +11,7 @@
 //
 // Writes OUT_DIR/sfrush_ps1/ and prints the converter's log and time.
 //
-// SFRUSH_PS1_NIGHT_ART=FILE: writes only n64_night_art.bin (the N64 NIGHT versions' buildings in the PS1's night art,
+// SFRUSH_PS1_NIGHT_ART=FILE: writes only n64_night_art.bin (with SFRUSH_PS1_ART_SET=S n64_snow_art.bin) (the N64 NIGHT versions' buildings in the PS1's night art,
 // docs/sfrush_ps1.md#n64-night-art) to FILE and stops, for tools/rush1/cpp_test's track1_test --night-art.
 
 #include <chrono>
@@ -39,7 +39,10 @@ int main(int argc, char** argv) {
     }
     if (const char* art_path = std::getenv("SFRUSH_PS1_NIGHT_ART"); art_path && *art_path) {
         std::string log;
-        std::vector<uint8_t> art = ps1::n64_night_art(disc, std::filesystem::path("assets") / "sfrush_ps1", log);
+        const char* set = std::getenv("SFRUSH_PS1_ART_SET");   // "S": the snow versions' n64_snow_art.bin
+        std::vector<uint8_t> art = set && std::string(set) == "S"
+            ? ps1::n64_snow_art(disc, std::filesystem::path("assets") / "sfrush_ps1", log)
+            : ps1::n64_night_art(disc, std::filesystem::path("assets") / "sfrush_ps1", log);
         printf("%s", log.c_str());
         std::ofstream f(std::filesystem::u8path(art_path), std::ios::binary);
         f.write(reinterpret_cast<const char*>(art.data()), std::streamsize(art.size()));

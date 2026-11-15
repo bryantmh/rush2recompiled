@@ -633,6 +633,8 @@ float rush2::track2049::mod_traction(uint8_t* rdram, float mph) {
 }
 
 float rush2::track2049::mod_snowfall(uint8_t* rdram) {
+    // An N64 SF Rush course's version raced on the course itself (a SNOW version) takes its track.toml's snowfall.
+    if (float f = rush2::track1::snowfall(rdram); f > 0.0f) return f;
     int s = applied_slot;
     return s >= 0 && MEM_BU(0, (int32_t)track_id) == s ? applied_snowfall.load() : 0.0f;
 }

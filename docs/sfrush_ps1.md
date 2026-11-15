@@ -1250,8 +1250,8 @@ src/snowfall.cpp): none at FOG 1, heavier and faster at each step after.
 
 The PS1 has only three of the N64 game's courses (tracks 1-3, plus its own Chinatown), so the N64's other four,
 Downtown, The Heights, Sunset and The Rock (N64 tracks 4-7), have no PS1 night set. They get NIGHT versions anyway
-(2026-11-14): the N64 course itself, raced as it always is, converted in the PS1 night set's colors. Snow isn't made
-yet: the snow set is hand painted ([Snow and night](#snow-and-night)), so it can't be derived the way night can.
+(2026-11-14): the N64 course itself, raced as it always is, converted in the PS1 night set's colors. SNOW versions
+followed: [N64 snow versions](#n64-snow-versions).
 
 - **Listing:** with the N64 ROM in, the mod writes `tracks/<course>_night/track.toml` for the four (`downtown_night`,
   `the_heights_night`, `sunset_night`, `the_rock_night`; `ps1_track.cpp` `build_track`), no track.glb: `[track] base =
@@ -1274,6 +1274,11 @@ yet: the snow set is hand painted ([Snow and night](#snow-and-night)), so it can
   faces SHADE alone), as the dioramas are, so it goes on as the night dioramas' does: each TLUT the texture-load lists
   load goes through `diorama_look::night` in place, a vertex only untextured triangles use too, textured triangles' shade
   kept.
+- **Banners:** the CHECKPOINT and FINISH banners' TLUTs (the CHKPNT / FINISH texture-load lists) skip the recolor
+  and keep their day colors, so the signs stay lit at night as the PS1 night versions' gantries are (2026-11-14: they
+  went dark with everything else). Not shared with any other list on any of the seven courses (the converter's log
+  counts "banner TLUTs kept lit", 2 each). In game: Downtown's start gantry from 130 ft past it facing back,
+  `--env RUSH2_CS_PLACE=3830,147,268,-0.97,-0.24,0,1 --script "1:B:59" --shots T7`.
 - **Lit windows:** with the PS1 mod's night art (always, from 2026-11-14) the buildings wear the PS1's own night
   texels: [N64 night art](#n64-night-art). Without it (no art in the mod), by guess: a building texture (70% of its triangles on walls, a third of those 12 ft high or more; CI with
   glass: entries under 0.55 of the texture's median brightness or blue, 5-60% of its texels, not green or see-through,
@@ -1369,6 +1374,62 @@ the same art, and the night versions draw the PS1's night texels there (2026-11-
   only; `track1_test.exe . --night OUT --night-art FILE` converts with it (prints the textures redrawn per course) and
   `track1_test.exe . --day OUT` writes the day courses. Road-level views: `tools/rush1/spine_views.py` as in
   [N64 night versions](#n64-night-versions).
+
+## N64 snow versions
+
+**Off for now** (user, 2026-11-14): `build_track` doesn't write the `<course>_snow` folders or n64_snow_art.bin
+(`n64_snow_versions` in `ps1_track.cpp`); set it true to bring them back. The Games-tab option reads N64 Night Versions
+again.
+
+SNOW versions of the same four courses (2026-11-14, visual side; drone and AI tuning for snow is a later pass). The
+PS1's snow set is hand painted ([Snow and night](#snow-and-night)): snow piles, white ledges and frosted trees drawn
+into the art, so it can't be derived by a rule, and matching N64 textures straight against the snow texels fails (the
+snow added detail the N64 art doesn't have). The user's rule: only PS1 art, no texture lightened by us, and a texture
+that matches on day (or night), or sits in the same place on day, takes the snow set's texels at the same spot. The
+day, night and snow sets share one VRAM layout, so a map found on the day texels gives the snow texels too.
+
+- **Listing:** the mod writes `tracks/<course>_snow/track.toml` (`ps1_track.cpp` `build_track`): `[track] base =
+  "sfrush:<course>"`, `[look] recolor = "snow"`, `snowfall = 1`, `[menu] variant_of` the course, `variant = "SNOW"`;
+  no fog color of its own (the PS1 keeps its day fog and sky in the snow). Behind the same Games-tab option, renamed
+  **N64 Night and Snow Versions** (still `sfrush_ps1_n64_night`). Falling snow follows Graphics > Falling Snow and the
+  FOG pick, as on the PS1 snow tracks (none in clear weather).
+- **The art** (`ps1::n64_art(..., "S")`, the mod's `n64_snow_art.bin`, same format as the night art): every map in
+  `n64_night_map.json` except hand windows and palette variants (those are the night's), plus
+  `assets/sfrush_ps1/n64_snow_map.json`, sampled from the snow set (`load_vram` "S"). `n64_snow_map.json` is made by
+  `n64_night_map.py snowmaps MAP.json` from the textures the night map doesn't hold (roads, grass, dirt, trees,
+  barriers): kept by the same day correlation and color rule as the night's, or by eye (overrides `snow_maps`,
+  `snow_reject`, set with `mark ... --snow`). Both maps are in the install's source key.
+- **Location maps** (`n64_night_map.py ground OUT.json SHEETDIR all_*.npz [--only KEYS]`): noisy ground the PS1 redrew
+  (grass, gravel, dirt) has no day texels in common with the N64's. Each such texture takes the PS1 texture most of its
+  faces land on in `scan --all` (grouped by PS1 page and scale, the median affine of the biggest group), when its
+  affine isn't degenerate, it lands 90% on the page, isn't flat and its mean day color is within 40 of the N64's. Trees
+  go through `--only` (billboards over the PS1's own tree sprites, which its snow set paints white): 3 of 7 tree
+  textures mapped (e7a03457, 63bf87d2, f2b1de8f); e86bbf6b's lands off its page (rejected). Rejected by eye: building
+  fronts and signs, and the brick paving d07904b1 (it straddles two PS1 textures).
+- **Material maps** (`n64_night_map.py material OUT.json SHEET.png [--force KEY=REF,...]`, user 2026-11-14: "do the
+  material matching"): what neither day texels nor location reach (the filler gravel and dirt, The Rock's ground, the
+  trees and hedges) borrows the snow map of an already mapped N64 texture of the same material: by default the mapped
+  ground texture nearest in mean color and grain, `--force` for a hand pick; the affine scaled so the texture covers
+  the same PS1 texels. Forced: the gravel and dirt filler (418499f1, 5d8a78fa, c3d492bc) take the PS1 gravel
+  (fcde6500; nearest in color was a road), the hedges the PS1 grass (1d263abd), the trees the mapped trees (63bf87d2,
+  e7a03457). Accepted by eye: 26 (all the grass: The Rock's lawn c17645ca, the hedge tops; sand, dirt, flowerbeds, the
+  trees). Rejected: the brick paving d07904b1, The Rock's loop deck bbbf1207 (a road surface, not snow), the cypress
+  6f5d920a (the palm's crop broke up), odd strips and signs.
+- **Drawing it** (`src/rush1/track1_convert.cpp` `snow_track`): the art only, through `find_night_art` /
+  `apply_night_art`; a texture without art keeps its day colors (nothing lightened). `track1::set_snow_art` before
+  converting (`track_mod::prepare`); its hash is in the snow tracks' cache key (`rush1_<200 + t>`). A texture's
+  see-through texels take the mean of its snow art's colors, still see-through: track textures are mostly drawn without
+  an alpha test, so their color shows, and the black the night uses drew black squares on The Rock's trench walls
+  (HAWAIIFINISH.1, 9% see-through; `fit_palette` now keeps a see-through entry's color, the night's stays 0).
+- **Coverage** (2026-11-14, `n64_night_map.py snowcover [SHEET.png]`): 87 snow maps + the night's; 96, 111, 93 and 14
+  textures redrawn on Downtown, The Heights, Sunset and The Rock. By triangle area without the sea (which snow
+  wouldn't change; `snowcover` counts it as missing): Downtown 81% (ground 93%, walls 75%), The Heights 83% (93%, 73%),
+  Sunset 95% (96%, 92%), The Rock 77% (87%, 68%); by triangles 77%, 69%, 77%, 56%. Still missing: building fronts
+  and signs no PS1 art matches, the brick paving d07904b1 and The Rock's loop deck.
+- **Checking offline:** `SFRUSH_PS1_ART_SET=S SFRUSH_PS1_NIGHT_ART=FILE cmd //c "tools\sfrush_ps1\cpp_test\build.bat
+  OUT"` writes the snow art; `track1_test.exe . --snow OUT --night-art FILE` converts with it; views as in
+  [N64 night versions](#n64-night-versions). In game: `tools/test_race.py downtown_snow --drones 3 --user-settings
+  --shots ...` (`--user-settings` for the user's Falling Snow).
 
 ## Stunt track
 

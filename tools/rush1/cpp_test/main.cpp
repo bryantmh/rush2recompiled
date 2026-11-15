@@ -106,8 +106,10 @@ int main(int argc, char** argv) {
     // (docs/sfrush_ps1.md#n64-night-versions). FILE: the PS1 mod's n64_night_art.bin (tools/sfrush_ps1/cpp_test with
     // SFRUSH_PS1_NIGHT_ART), the buildings drawn in the PS1's night art as the game does with the mod installed.
     // --day OUT_DIR: the same files of the day courses (tools/sfrush_ps1/n64_night_map.py maps their textures).
-    if (argc > 3 && (std::string(argv[2]) == "--night" || std::string(argv[2]) == "--day")) {
-        const auto look = std::string(argv[2]) == "--day" ? rush2::diorama_look::Look::day : rush2::diorama_look::Look::night;
+    // --snow OUT_DIR [--night-art FILE]: the SNOW versions, FILE then the mod's n64_snow_art.bin.
+    if (argc > 3 && (std::string(argv[2]) == "--night" || std::string(argv[2]) == "--day" || std::string(argv[2]) == "--snow")) {
+        const auto look = std::string(argv[2]) == "--day" ? rush2::diorama_look::Look::day :
+                          std::string(argv[2]) == "--snow" ? rush2::diorama_look::Look::snow : rush2::diorama_look::Look::night;
         fs::path dir = argv[3];
         fs::create_directories(dir);
         if (argc > 5 && std::string(argv[4]) == "--night-art") {
@@ -116,7 +118,8 @@ int main(int argc, char** argv) {
                 printf("can't read %s\n", argv[5]);
                 return 2;
             }
-            rush2::track1::set_night_art(art);
+            if (look == rush2::diorama_look::Look::snow) rush2::track1::set_snow_art(art);
+            else rush2::track1::set_night_art(art);
         }
         for (int t = 0; t < rush2::track1::track_count; t++) {
             rush2::track1::ConvertedTrack ct;

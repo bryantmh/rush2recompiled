@@ -11,8 +11,9 @@ an affine: no PS1 pixels. The PS1 install (src/sfrush_ps1/ps1_track.cpp n64_nigh
 through it on the player's own disc, and the night conversion (src/rush1/track1_convert.cpp night_track) puts the
 result in place of the texture.
 
-  python n64_night_map.py scan COURSE PS1_TRACK OUT.npz          one course's candidates (Market 3, Embarcadero 2,
-                                                                   Golden_Gate 1; a few minutes each)
+  python n64_night_map.py scan COURSE PS1_TRACK OUT.npz [--all]  one course's candidates (Market 3, Embarcadero 2,
+                                                                   Golden_Gate 1; a few minutes each); --all: every
+                                                                   texture, not only the buildings' (the snow maps)
   python n64_night_map.py pick OUT.json SHEETDIR A.npz B.npz ...   the best map per texture key, contact sheets
                                                                    (N64 day | PS1 day | PS1 night, mapped)
   python n64_night_map.py search MAP.json BELOW [COURSE ...]     building textures of the courses (default the four
@@ -23,6 +24,23 @@ result in place of the texture.
                                                                    that pass (ACCEPT) or the overrides accept; REVIEWDIR:
                                                                    sheets of the ones left for a look (N64 day | PS1 day |
                                                                    PS1 night, labeled score / color / key)
+  python n64_night_map.py snowmaps MAP.json [REVIEWDIR]           the SNOW versions' maps of the other textures (from
+                                                                   scan --all and pick) -> assets/sfrush_ps1/
+                                                                   n64_snow_map.json; review sheets N64 day | PS1 day |
+                                                                   PS1 snow (mark ... --snow records the review)
+  python n64_night_map.py ground OUT.json SHEETDIR A.npz B.npz ... [--only KEY,KEY]  candidates for the noisy ground textures no map
+                                                                   holds: the PS1 texture most of their faces land on
+                                                                   (the PS1 drew its own grass, gravel, dirt); for
+                                                                   review, mark OUT.json accept ... --snow
+  python n64_night_map.py material OUT.json [SHEET.png] [--force KEY=REF,...]           candidates by material for the ground textures
+                                                                   nothing maps: the nearest mapped ground texture's
+                                                                   snow map; review, mark OUT.json accept ... --snow
+  python n64_night_map.py snowcover [SHEET.png]                     the SNOW versions' share in PS1 snow art, and the
+                                                                   largest textures still missing
+  python n64_night_map.py snowclass COURSE PS1_TRACK OUT.json      every texture's PS1 snow: the share of its texels
+                                                                   the PS1's snow set whitens where they land
+  python n64_night_map.py snowpublish OUT.json A.json B.json C.json   those of the three courses -> OUT.json (texture
+                                                                   key -> snow share, crops; research, not shipped)
   python n64_night_map.py cover OUT.json                           how many building textures of each N64 course
                                                                    the map covers
 
@@ -107,7 +125,7 @@ def ps1_track(t):
     import vram, track
     from snow_map import vram_array, decode_page
     disc = Disc(); e = Exe()
-    vd, vn = vram_array(disc, e, t, ''), vram_array(disc, e, t, 'N')
+    vd, vn, vs = vram_array(disc, e, t, ''), vram_array(disc, e, t, 'N'), vram_array(disc, e, t, 'S')
     table = vram.tex_table(e, t); cluts = vram.clut_ids(e)
     PT, PUV, PK, keys = [], [], [], {}
     for name, verts, faces in track.track_meshes(disc, t):
@@ -123,11 +141,12 @@ def ps1_track(t):
             uv = {i: (f['uv'][i ^ 1][0] & 255, (f['uv'][i ^ 1][1] + voff) & 255) for i in ring}
             for tr in [(ring[0], ring[1], ring[2])] + ([(ring[0], ring[2], ring[3])] if len(ring) == 4 else []):
                 PT.append([track.to_gltf(verts[f['idx'][i]]) for i in tr]); PUV.append([uv[i] for i in tr]); PK.append(k)
-    pages = {k: (b, c, decode_page(vd, b, c), decode_page(vn, b, c)) for (b, c), k in keys.items()}
+    pages = {k: (b, c, decode_page(vd, b, c), decode_page(vn, b, c), decode_page(vs, b, c)) for (b, c), k in keys.items()}
     return np.array(PT), np.array(PUV, float), np.array(PK), pages
 
 
-def scan(course, t, out):
+def scan(course, t, out, snow=False, every=False):
+    """snow: every textured triangle, and per texture the PS1 day and snow texels its texels land on (snowclass)."""
     from n64_census import fit2d, sample
     rng = np.random.default_rng(1)
     PT, PUV, PK, pages = ps1_track(t)
@@ -148,7 +167,8 @@ def scan(course, t, out):
     pn = np.cross(PT[:, 1] - PT[:, 0], PT[:, 2] - PT[:, 0]); pn /= np.maximum(np.linalg.norm(pn, axis=1), 1e-9)[:, None]
     nn_ = np.cross(NA[:, 1] - NA[:, 0], NA[:, 2] - NA[:, 0]); nl = np.linalg.norm(nn_, axis=1); nn_ /= np.maximum(nl, 1e-9)[:, None]
     rows = []   # tex, page key, M00 M01 M10 M11 b0 b1 (local st -> page uv), samples, residual
-    for j in np.where(np.isin(NX, list(build)) & (nl > 1e-6))[0]:
+    stats = {}   # snow: texture -> [samples, whitened]
+    for j in np.where((np.isin(NX, list(build)) if not (snow or every) else NX >= 0) & (nl > 1e-6))[0]:
         tex = NX[j]; H, W = texs[tex].shape[:2]
         uv = NU[j] * [W, H]
         lo = np.floor(uv.min(0)).astype(int); hi = np.ceil(uv.max(0)).astype(int)
@@ -178,6 +198,18 @@ def scan(course, t, out):
         score = np.where((bu > -0.02) & (bv > -0.02) & (bw > -0.02), np.abs(sd), np.inf)
         best = score.argmin(1); ar = np.arange(len(X)); ok = score[ar, best] < 1.5
         if ok.sum() < 8: continue
+        if snow:
+            # Each sample on its own face: the PS1 day and snow texels there, and whether the snow whitened it.
+            kk = cand[best[ok]]
+            B3 = np.c_[bu[ar, best], bv[ar, best], bw[ar, best]][ok]
+            puv = np.floor(np.einsum('kc,kcd->kd', B3, PUV[kk])).astype(int) & 255
+            pkk = PK[kk]
+            day = np.array([pages[int(p)][2][0][v, u] for p, (u, v) in zip(pkk, puv)], float)
+            sn = np.array([pages[int(p)][4][0][v, u] for p, (u, v) in zip(pkk, puv)], float)
+            ld, ls = day @ [0.299, 0.587, 0.114], sn @ [0.299, 0.587, 0.114]
+            white = (ls >= 150) & (ls - ld >= 30) & (sn.max(1) - sn.min(1) <= 60)
+            st_ = stats.setdefault(int(tex), [0, 0]); st_[0] += len(white); st_[1] += int(white.sum())
+            continue
         # One PS1 face's samples (the face most of them land on): its UV map is one affine.
         k = cand[best[ok]]
         top = np.bincount(np.searchsorted(cand, k)).argmax(); sel = k == cand[top]
@@ -191,13 +223,36 @@ def scan(course, t, out):
         sol, res, *_ = np.linalg.lstsq(D, puv, rcond=None)
         r = float(np.sqrt(((D @ sol - puv) ** 2).sum(1).mean()))
         rows.append([tex, PK[k[sel][0]], sol[0, 0], sol[1, 0], sol[0, 1], sol[1, 1], sol[2, 0], sol[2, 1], sel.sum(), r])
-    rows = np.array(rows)
     keys = [tex_key(texs[k]) for k in range(len(texs))]
+    if snow:
+        json.dump({keys[k]: v for k, v in stats.items()}, open(out, 'w'))
+        print(f'  {len(stats)} textures sampled -> {out}', flush=True)
+        return
+    rows = np.array(rows)
     pk = sorted(pages, key=lambda k: k)
     np.savez_compressed(out, rows=rows, keys=np.array(keys), names=np.array(names), build=np.array(sorted(build)),
                         track=t, course=course,
                         page_base=np.array([pages[k][0] for k in pk]), page_clut=np.array([pages[k][1] for k in pk]))
     print(f'  {len(rows)} face maps over {len(set(rows[:, 0].astype(int))) if len(rows) else 0} textures -> {out}', flush=True)
+
+
+def snow_publish(out_path, files):
+    """Each N64 texture's snow on the PS1 (the share of its sampled texels the snow set whitens, over the three
+    courses), with its crop keys: research for snowing the textures no map covers (not shipped: the SNOW versions
+    show the PS1's art only, user 2026-11-14)."""
+    tot = {}
+    for f in files:
+        for k, (n, w) in json.load(open(f)).items():
+            t = tot.setdefault(k, [0, 0]); t[0] += n; t[1] += w
+    imgs, names = all_textures()
+    out = {}
+    for k, (n, w) in sorted(tot.items()):
+        if n < 64 or k not in imgs: continue
+        H = imgs[k].shape[0]
+        out[k] = dict(snow=round(w / n, 3), samples=n, name=names[k],
+                      crops=[[tex_key(imgs[k][:h]), h] for h in range(16, H, 16)])
+    json.dump(out, open(out_path, 'w'), indent=1)
+    print(f'{len(out)} textures -> {out_path}')
 
 
 def sample_page(page, M, b, W, H):
@@ -338,7 +393,7 @@ def search(path, below, courses, shard=(0, 1)):
     pages = []
     for t in (1, 2, 3, 4):
         PT, PUV, PK, pg = ps1_track(t)
-        for k, (base, cid, day, night) in pg.items():
+        for k, (base, cid, day, night, snow) in pg.items():
             pages.append((t, base, cid, gray(day[0]).astype(np.float32), day))
     print(f'{len(pages)} PS1 pages', flush=True)
     todo = {}
@@ -558,23 +613,264 @@ def clip(prefix, rect):
     print(f'{names[keys[0]]}: art kept to {rect}')
 
 
-def mark(path, verdict, prefixes):
+def mark(path, verdict, prefixes, snow=False):
     m = json.load(open(path))
     ov = json.load(open(OVERRIDES)) if os.path.exists(OVERRIDES) else {}
-    ov.setdefault('maps', {}); ov.setdefault('reject', {})
+    yes_k, no_k = ('snow_maps', 'snow_reject') if snow else ('maps', 'reject')
+    ov.setdefault(yes_k, {}); ov.setdefault(no_k, {})
     for p in prefixes:
         keys = [k for k in m if k.startswith(p)]
         if len(keys) != 1:
             print(f'{p}: {len(keys)} keys match'); continue
         k = keys[0]; v = m[k]
         if verdict == 'accept':
-            ov['maps'][k] = {f: v[f] for f in ('track', 'page', 'clut', 'affine', 'size', 'name', 'score')}
-            ov['reject'].pop(k, None)
+            ov[yes_k][k] = {f: v[f] for f in ('track', 'page', 'clut', 'affine', 'size', 'name', 'score')}
+            ov[no_k].pop(k, None)
         else:
-            ov['reject'][k] = v['affine']; ov['maps'].pop(k, None)
-    ov['maps'] = dict(sorted(ov['maps'].items())); ov['reject'] = dict(sorted(ov['reject'].items()))
+            ov[no_k][k] = v['affine']; ov[yes_k].pop(k, None)
+    ov[yes_k] = dict(sorted(ov[yes_k].items())); ov[no_k] = dict(sorted(ov[no_k].items()))
     json.dump(ov, open(OVERRIDES, 'w'), indent=1)
-    print(f"{len(ov['maps'])} accepted, {len(ov['reject'])} rejected")
+    print(f"{len(ov[yes_k])} accepted, {len(ov[no_k])} rejected")
+
+
+SNOW_MAP_OUT = os.path.join(HERE, '..', '..', 'assets', 'sfrush_ps1', 'n64_snow_map.json')
+
+
+def publish_snow(path, review=None):
+    """The SNOW versions' maps of the textures n64_night_map.json doesn't hold (roads, grass, roofs, trees: scan --all,
+    pick): kept as the night's are (their DAY texels correlate and their colors agree, or accepted by eye: overrides
+    "snow_maps" / "snow_reject", mark ... --snow), with their crop keys. The install samples the snow set through these
+    and the night map's (ps1_track.cpp n64_snow_art)."""
+    from snow_map import vram_array, decode_page
+    from ps1 import Disc; from disps1 import Exe
+    from PIL import ImageDraw
+    m = json.load(open(path)); night = json.load(open(MAP_OUT))
+    ov = json.load(open(OVERRIDES)) if os.path.exists(OVERRIDES) else {}
+    yes, no = ov.get('snow_maps', {}), ov.get('snow_reject', {})
+    disc = Disc(); e = Exe(); vd, vs = {}, {}
+    imgs, names = all_textures()
+    out, look = {}, []
+    for k, v in sorted(m.items()):
+        if k not in imgs or k in night or v['name'].startswith(('CHKPNT', 'FINISH')): continue
+        t = v['track']
+        if t not in vd: vd[t], vs[t] = vram_array(disc, e, t, ''), vram_array(disc, e, t, 'S')
+        a = v['affine']; M = np.array([[a[0], a[1]], [a[2], a[3]]]); W, H = v['size']
+        day, msk = sample_page(decode_page(vd[t], tuple(v['page']), v['clut']), M, np.array(a[4:6]), W, H)
+        src = imgs[k]; mm = msk & (src[..., 3] >= 128)
+        color = float(np.median(np.linalg.norm(src[..., :3][mm].astype(float) - day[mm].astype(float), axis=1))) if mm.any() else 999.0
+        v = dict(v, color=round(color, 1))
+        rejected = k in no and no[k] == v['affine']
+        if not rejected and k not in yes and accept(v['score'], color):
+            out[k] = {f: v[f] for f in ('track', 'page', 'clut', 'affine', 'size', 'name', 'score', 'color')}
+        elif v['score'] >= 0.45:
+            snow = sample_page(decode_page(vs[t], tuple(v['page']), v['clut']), M, np.array(a[4:6]), W, H)[0]
+            look.append((k, v, src, day, snow, 'Y' if k in yes and yes[k]['affine'] == v['affine'] else 'N' if rejected else '?'))
+    out.update(yes)
+    for k, v in out.items():
+        if k in imgs: v['crops'] = [[tex_key(imgs[k][:h]), h] for h in range(16, imgs[k].shape[0], 16)]
+    json.dump(dict(sorted(out.items())), open(SNOW_MAP_OUT, 'w'), indent=1)
+    print(f'{len(out)} snow maps -> {SNOW_MAP_OUT}; {len(look)} left for a look')
+    if review:
+        os.makedirs(review, exist_ok=True)
+        tiles = []
+        for k, v, src, day, snow, mark_ in sorted(look, key=lambda x: -x[1]['score']):
+            W, H = v['size']; sc = max(1, 64 // max(W, H))
+            tile = Image.new('RGB', (max(W * sc * 3 + 8, 150), H * sc + 12), (255, 0, 255) if mark_ == '?' else (0, 160, 0) if mark_ == 'Y' else (160, 0, 0))
+            for c, im in enumerate((src[..., :3], day, snow)):
+                tile.paste(Image.fromarray(im.astype(np.uint8)).resize((W * sc, H * sc), Image.NEAREST), (c * (W * sc + 4), 12))
+            ImageDraw.Draw(tile).text((1, 0), f"{v['score']:.2f} {v['color']:.0f} {k[:8]}", fill=(255, 255, 255))
+            tiles.append(tile)
+        per = 30
+        for s0 in range(0, len(tiles), per):
+            T_ = tiles[s0:s0 + per]; w = max(x.width for x in T_) + 6; cols = 3
+            rows = [T_[i:i + cols] for i in range(0, len(T_), cols)]
+            sheet = Image.new('RGB', (w * cols, sum(max(x.height for x in r) + 4 for r in rows)), (40, 40, 40)); y = 0
+            for r in rows:
+                for c, x in enumerate(r): sheet.paste(x, (c * w, y))
+                y += max(x.height for x in r) + 4
+            sheet.save(os.path.join(review, f'review_{s0 // per:02d}.png'))
+
+
+def ground(out_path, sheets, files, only=None):
+    """Candidates for the textures no map holds (n64_night_map.json, n64_snow_map.json): noisy ground (grass, gravel,
+    dirt, paving) whose art the PS1 drew anew, so no day texels match. Each takes the PS1 texture most of its faces
+    land on (the face maps of scan --all, grouped by PS1 page and scale, the group with the most samples; its median
+    affine), where its mean day color is within 40 of the texture's and the affine isn't degenerate. Written in the
+    map's form (score -1, color the mean color distance) for mark ... --snow; sheets N64 day | PS1 day | PS1 snow.
+    With `only` (key prefixes), just those textures, without the ground filters (trees: billboards over the PS1's own
+    tree sprites, mostly transparent)."""
+    from snow_map import vram_array, decode_page
+    from ps1 import Disc; from disps1 import Exe
+    from PIL import ImageDraw
+    night = json.load(open(MAP_OUT)); snowm = json.load(open(SNOW_MAP_OUT)) if os.path.exists(SNOW_MAP_OUT) else {}
+    imgs, names = all_textures(); disc = Disc(); e = Exe(); vd, vs = {}, {}
+    best = {}
+    for f in files:
+        z = np.load(f, allow_pickle=True); t = int(z['track']); keys = list(z['keys']); R = z['rows']
+        for tex in sorted(set(R[:, 0].astype(int))):
+            key = str(keys[tex])
+            if key in night or key in snowm or key not in imgs: continue
+            if only and not any(key.startswith(o) for o in only): continue
+            groups = {}
+            for r in R[R[:, 0] == tex]:
+                g = (int(r[1]),) + tuple(np.round(np.abs(r[2:6]) * 4).astype(int))
+                groups.setdefault(g, []).append(r)
+            g, rs = max(groups.items(), key=lambda kv: sum(r[8] for r in kv[1]))
+            n = sum(r[8] for r in rs)
+            if key not in best or n > best[key][0]:
+                best[key] = (n, t, tuple(int(x) for x in z['page_base'][g[0]]), int(z['page_clut'][g[0]]),
+                             np.median(np.array(rs), axis=0))
+    found, tiles = {}, []
+    for key, (n, t, base, cid, r) in sorted(best.items(), key=lambda kv: -kv[1][0]):
+        M = np.array([[r[2], r[3]], [r[4], r[5]]]); b = r[6:8]
+        if not 0.25 <= abs(np.linalg.det(M)) <= 16: continue
+        if t not in vd: vd[t], vs[t] = vram_array(disc, e, t, ''), vram_array(disc, e, t, 'S')
+        img = imgs[key]; H, W = img.shape[:2]
+        day, msk = sample_page(decode_page(vd[t], base, cid), M, b, W, H)
+        if not only and (msk.mean() < 0.9 or day.reshape(-1, 3).std(0).max() < 4): continue
+        dc = float(np.linalg.norm(img[..., :3].reshape(-1, 3).mean(0) - day.reshape(-1, 3).mean(0)))
+        if dc > 40 and not only: continue
+        found[key] = dict(score=-1, color=round(dc, 1), track=t, page=list(base), clut=cid,
+                          affine=[round(float(x), 4) for x in (M[0, 0], M[0, 1], M[1, 0], M[1, 1], b[0], b[1])],
+                          size=[W, H], name=names[key], samples=int(n))
+        snow = sample_page(decode_page(vs[t], base, cid), M, b, W, H)[0]
+        sc = max(1, 64 // max(W, H))
+        tile = Image.new('RGB', (max(W * sc * 3 + 8, 150), H * sc + 12), (255, 0, 255))
+        for c, im in enumerate((img[..., :3], day, snow)):
+            tile.paste(Image.fromarray(im.astype(np.uint8)).resize((W * sc, H * sc), Image.NEAREST), (c * (W * sc + 4), 12))
+        ImageDraw.Draw(tile).text((1, 0), f"{dc:.0f} {key[:8]} {names[key][:14]}", fill=(255, 255, 255))
+        tiles.append(tile)
+    json.dump(found, open(out_path, 'w'), indent=1)
+    print(f'{len(found)} ground candidates -> {out_path}')
+    if sheets and tiles:
+        os.makedirs(sheets, exist_ok=True)
+        per = 30
+        for s0 in range(0, len(tiles), per):
+            T_ = tiles[s0:s0 + per]; w = max(x.width for x in T_) + 6; cols = 3
+            rows = [T_[i:i + cols] for i in range(0, len(T_), cols)]
+            sheet = Image.new('RGB', (w * cols, sum(max(x.height for x in r) + 4 for r in rows)), (40, 40, 40)); y = 0
+            for r in rows:
+                for c, x in enumerate(r): sheet.paste(x, (c * w, y))
+                y += max(x.height for x in r) + 4
+            sheet.save(os.path.join(sheets, f'ground_{s0 // per:02d}.png'))
+
+
+def material(out_path, sheet, force=None, min_area=200.0):
+    """Candidates by material for the four N64-only courses' ground textures no map holds (n64_night_map.py ground's
+    leftovers: filler the N64 spreads everywhere, and The Rock, which the PS1 lacks): each takes the snow map of the
+    mapped ground texture (n64_snow_map.json) nearest it in the N64 day art (mean color, then grain: per-channel
+    spread), its affine scaled so the new texture covers the same PS1 texels. Ground = most of its area facing up,
+    min_area m^2 over the four courses at least. Written in the map's form (score -2, color the mean color distance,
+    ref the texture whose map it borrows) for mark ... --snow; the sheet shows N64 day | the borrowed texture's N64 day
+    | PS1 day | PS1 snow through the new map. `force` {key prefix: reference key prefix} picks a texture's reference
+    by hand (gravel nearest a road in color takes the gravel; a tree another tree's), and takes it whatever its use. Green textures (grass) count whatever way they face."""
+    from snow_map import vram_array, decode_page
+    from ps1 import Disc; from disps1 import Exe
+    from PIL import ImageDraw
+    night = json.load(open(MAP_OUT)); snowm = json.load(open(SNOW_MAP_OUT))
+    have = {k for k, e in night.items() if 'windows' not in e and 'variant_of' not in e} | set(snowm)
+    imgs, names = all_textures()
+    def feat(img):
+        px = img[..., :3].reshape(-1, 3).astype(float)
+        return px.mean(0), px.std(0)
+    # Ground use over the courses: of the missing textures (the four) and of the snow-mapped ones (all seven).
+    use = {}
+    for course in COURSES:
+        T, U, X, texs, nm = n64_course(course)
+        nrm = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]); area = np.linalg.norm(nrm, axis=1) / 2
+        up = nrm[:, 1] > 0.7 * np.maximum(2 * area, 1e-12)
+        for x in set(X):
+            k = tex_key(texs[x]); sel = X == x
+            if k not in have and course not in ('Downtown', 'The_Heights', 'Sunset', 'The_Rock'): continue
+            u = use.setdefault(k, [0.0, 0.0]); u[0] += area[sel & up].sum(); u[1] += area[sel].sum()
+    refs = [k for k in snowm if k in imgs and k in use and use[k][0] >= 0.5 * use[k][1]]
+    rf = {k: feat(imgs[k]) for k in refs}
+    disc = Disc(); e = Exe(); vd, vs = {}, {}
+    found, tiles = {}, []
+    def green(k):
+        m_ = imgs[k][..., :3].reshape(-1, 3).mean(0)
+        return m_[1] > m_[0] + 6 and m_[1] > m_[2] + 6
+    forced = lambda k: any(k.startswith(f) for f in (force or {}))
+    todo = sorted((k for k, u in use.items() if k not in have and k in imgs and
+                   (forced(k) or (u[1] >= min_area and ((u[0] >= 0.5 * u[1] and u[0] >= min_area) or green(k))))),
+                  key=lambda k: -use[k][0])
+    for key in todo:
+        img = imgs[key]; H, W = img.shape[:2]; m, sd = feat(img)
+        if img[..., 3].mean() < 200 and not forced(key): continue    # see-through: not a ground texture
+        if m[2] > m[0] * 1.3 + 8 and m[2] > m[1] * 1.05: continue    # water stays water
+        best = min(refs, key=lambda r: np.linalg.norm(m - rf[r][0]) + 0.5 * np.linalg.norm(sd - rf[r][1]))
+        for fk, fr in (force or {}).items():
+            if key.startswith(fk): best = next(r for r in snowm if r.startswith(fr))
+        r = snowm[best]; dc = float(np.linalg.norm(m - feat(imgs[best])[0]))
+        a = r['affine']; W1, H1 = r['size']
+        M = np.array([[a[0] * W1 / W, a[1] * H1 / H], [a[2] * W1 / W, a[3] * H1 / H]]); b = np.array(a[4:6])
+        t = r['track']; base = tuple(r['page'])
+        if t not in vd: vd[t], vs[t] = vram_array(disc, e, t, ''), vram_array(disc, e, t, 'S')
+        day = sample_page(decode_page(vd[t], base, r['clut']), M, b, W, H)[0]
+        snow = sample_page(decode_page(vs[t], base, r['clut']), M, b, W, H)[0]
+        found[key] = dict(score=-2, color=round(dc, 1), track=t, page=list(base), clut=r['clut'],
+                          affine=[round(float(x), 4) for x in (M[0, 0], M[0, 1], M[1, 0], M[1, 1], b[0], b[1])],
+                          size=[W, H], name=names[key], ref=best, area=int(use[key][1]))
+        sc = max(1, 64 // max(W, H)); ref_img = imgs[best]
+        tile = Image.new('RGB', (W * sc * 4 + 16, H * sc + 12), (40, 40, 40))
+        rimg = Image.fromarray(ref_img[..., :3]).resize((W * sc, H * sc), Image.NEAREST)
+        for c, im in enumerate((Image.fromarray(img[..., :3]).resize((W * sc, H * sc), Image.NEAREST), rimg,
+                                Image.fromarray(day.astype(np.uint8)).resize((W * sc, H * sc), Image.NEAREST),
+                                Image.fromarray(snow.astype(np.uint8)).resize((W * sc, H * sc), Image.NEAREST))):
+            tile.paste(im, (c * (W * sc + 4), 12))
+        ImageDraw.Draw(tile).text((1, 0), f"{key[:8]} {names[key][:12]} {int(use[key][0])} <- {best[:8]} {dc:.0f}",
+                                  fill=(255, 255, 255))
+        tiles.append(tile)
+    json.dump(found, open(out_path, 'w'), indent=1)
+    print(f'{len(found)} material candidates -> {out_path}')
+    for k, v in found.items(): print(f"  {k} {v['name'][:20]:20} {v['area']:8d} <- {v['ref']} {names[v['ref']][:20]} {v['color']}")
+    if sheet and tiles:
+        w = max(x.width for x in tiles) + 6; cols = 2
+        rows = [tiles[i:i + cols] for i in range(0, len(tiles), cols)]
+        sh = Image.new('RGB', (w * cols, sum(max(x.height for x in r_) + 4 for r_ in rows)), (20, 20, 20)); y = 0
+        for r_ in rows:
+            for c, x in enumerate(r_): sh.paste(x, (c * w, y))
+            y += max(x.height for x in r_) + 4
+        sh.save(sheet)
+
+
+def snow_cover(sheet):
+    """How much of each N64-only course the SNOW versions show in the PS1's snow art (n64_night_map.json's maps that
+    aren't hand windows or palette variants, plus n64_snow_map.json), by triangle area, ground (facing up) and walls
+    apart; with SHEET, a picture of the 48 largest textures still missing, by area over the four courses."""
+    from PIL import ImageDraw
+    night = json.load(open(MAP_OUT)); snowm = json.load(open(SNOW_MAP_OUT))
+    have = {k for k, e in night.items() if 'windows' not in e and 'variant_of' not in e} | set(snowm)
+    missing = {}
+    for course in ('Downtown', 'The_Heights', 'Sunset', 'The_Rock'):
+        T, U, X, texs, names = n64_course(course)
+        nrm = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]); area = np.linalg.norm(nrm, axis=1) / 2
+        up = nrm[:, 1] > 0.7 * np.maximum(2 * area, 1e-12)
+        keys = [tex_key(t) for t in texs]
+        ok = np.array([keys[x] in have for x in X])
+        g = lambda m: 100 * area[m & ok].sum() / max(area[m].sum(), 1e-9)
+        print(f'{course}: {g(np.ones_like(ok))}% of the area in PS1 snow art, ground {g(up):.0f}%, walls {g(~up):.0f}%'.replace('%', '%', 1)
+              .replace(f'{g(np.ones_like(ok))}', f'{g(np.ones_like(ok)):.0f}'))
+        for x in set(X):
+            if keys[x] in have: continue
+            s_ = X == x
+            e = missing.setdefault(keys[x], [0.0, 0.0, texs[x], names[x], set()])
+            e[0] += area[s_ & up].sum(); e[1] += area[s_ & ~up].sum(); e[4].add(course[:4])
+    top = sorted(missing.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
+    print('largest missing (m^2 ground / walls):')
+    for k, (a_up, a_w, _, nm, cs) in top[:30]:
+        print(f'  {k} {nm[:24]:24} {a_up:8.0f} {a_w:8.0f}  {",".join(sorted(cs))}')
+    if sheet:
+        tiles = []
+        for k, (a_up, a_w, img, nm, cs) in top[:48]:
+            H, W = img.shape[:2]; sc = max(1, 96 // max(W, H))
+            t_ = Image.new('RGB', (150, 112), (40, 40, 40))
+            t_.paste(Image.fromarray(img[..., :3]).resize((W * sc, H * sc), Image.NEAREST), (0, 14))
+            ImageDraw.Draw(t_).text((1, 0), f"{k[:8]} {'G' if a_up > a_w else 'W'} {int(a_up + a_w)}", fill=(255, 255, 255))
+            tiles.append(t_)
+        sh = Image.new('RGB', (150 * 8, 112 * ((len(tiles) + 7) // 8)), (40, 40, 40))
+        for i, t_ in enumerate(tiles): sh.paste(t_, ((i % 8) * 150, (i // 8) * 112))
+        sh.save(sheet)
 
 
 def cover(path):
@@ -590,7 +886,9 @@ def cover(path):
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    if a and a[0] == 'scan': scan(a[1], int(a[2]), a[3])
+    if a and a[0] == 'scan': scan(a[1], int(a[2]), a[3], every='--all' in a)
+    elif a and a[0] == 'snowclass': scan(a[1], int(a[2]), a[3], snow=True)
+    elif a and a[0] == 'snowpublish': snow_publish(a[1], a[2:])
     elif a and a[0] == 'pick': pick(a[1], a[2], a[3:])
     elif a and a[0] == 'search':
         shard = (0, 1)
@@ -598,9 +896,21 @@ if __name__ == '__main__':
             i = a.index('--shard'); shard = tuple(int(x) for x in a[i + 1].split('/')); del a[i:i + 2]
         search(a[1], float(a[2]), a[3:] or ['Downtown', 'The_Heights', 'Sunset', 'The_Rock'], shard)
     elif a and a[0] == 'publish': publish(a[1], a[2] if len(a) > 2 else None)
-    elif a and a[0] == 'mark': mark(a[1], a[2], a[3:])
+    elif a and a[0] == 'mark': mark(a[1], a[2], [x for x in a[3:] if x != '--snow'], snow='--snow' in a)
+    elif a and a[0] == 'ground':
+        only = None
+        if '--only' in a:
+            i = a.index('--only'); only = a[i + 1].split(','); del a[i:i + 2]
+        ground(a[1], a[2], a[3:], only)
+    elif a and a[0] == 'snowmaps': publish_snow(a[1], a[2] if len(a) > 2 else None)
     elif a and a[0] == 'windows': windows(a[1], a[2])
     elif a and a[0] == 'clip': clip(a[1], [int(v) for v in a[2].split(',')])
     elif a and a[0] == 'light': light(a[1], [[int(v) for v in r.split(',')] for r in a[2:]])
     elif a and a[0] == 'cover': cover(a[1])
+    elif a and a[0] == 'material':
+        force = {}
+        if '--force' in a:
+            i = a.index('--force'); force = dict(x.split('=') for x in a[i + 1].split(',')); del a[i:i + 2]
+        material(a[1], a[2] if len(a) > 2 else None, force)
+    elif a and a[0] == 'snowcover': snow_cover(a[1] if len(a) > 1 else None)
     else: print(__doc__)

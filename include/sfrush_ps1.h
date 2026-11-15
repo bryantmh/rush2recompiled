@@ -145,6 +145,11 @@ namespace rush2::sfrush_ps1 {
     // The N64 NIGHT versions' buildings in the PS1's night art (n64_night_art.bin, docs/sfrush_ps1.md#n64-night-art),
     // from assets_dir's n64_night_map.json; empty when it can't be read. build_track writes it when the N64 ROM is in.
     std::vector<uint8_t> n64_night_art(const Disc& disc, const std::filesystem::path& assets_dir, std::string& log);
+    // The N64 SNOW versions' (n64_snow_art.bin, docs/sfrush_ps1.md#n64-snow-versions): the night's maps and
+    // n64_snow_map.json's through the snow set.
+    std::vector<uint8_t> n64_snow_art(const Disc& disc, const std::filesystem::path& assets_dir, std::string& log);
+    // Either from the set `set` ("N" or "S").
+    std::vector<uint8_t> n64_art(const Disc& disc, const std::filesystem::path& assets_dir, const char* set, std::string& log);
     // The track select diorama (src/sfrush_ps1/ps1_diorama.cpp) as a glb: the hand-made layout `spec` (JSON) round
     // the route (the AI path's middle, a closed loop, glTF meters as track.glb has it). look: the SNOW / NIGHT
     // version's (rush2::diorama_look::Look as int: 0 day, 1 snow, 2 night).

@@ -114,6 +114,9 @@ namespace {
         // The N64 night versions' map onto the PS1's night art (n64_night_art.bin, docs/sfrush_ps1.md#n64-night-art).
         std::vector<uint8_t> night_map = rush2::upscale::read_file(assets_dir() / "n64_night_map.json");
         h = rush2::track_cache::hash(night_map.data(), night_map.size(), h);
+        // And the snow's (n64_snow_art.bin, docs/sfrush_ps1.md#n64-snow-versions).
+        std::vector<uint8_t> snow_map = rush2::upscale::read_file(assets_dir() / "n64_snow_map.json");
+        h = rush2::track_cache::hash(snow_map.data(), snow_map.size(), h);
         for (const auto& lanes : n64) h = rush2::track_cache::hash(lanes.data(), lanes.size(), h ^ lanes.size());
         char text[17];
         snprintf(text, sizeof(text), "%016llx", (unsigned long long)h);
