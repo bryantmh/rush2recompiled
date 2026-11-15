@@ -671,7 +671,7 @@ def import_data(a):
         n = re.sub(r"_?%08x$" % v, "", str(j.get("name", "")).lower())
         if n and NAME_RE.match(n) and ("name" not in e or a.replace):
             e["name"] = n
-        for k in ("type", "desc", "area"):
+        for k in ("type", "desc", "area", "status", "ref"):
             if j.get(k) and (k not in e or a.replace):
                 e[k] = j[k]
     dump_data(vars_)

@@ -8,6 +8,7 @@
 // - RUSH2_TEST_RACE_LAPS=<n>, RUSH2_TEST_RACE_DRONES=<n>: the track select's LAPS and DRONES (the race keeps the saved
 //   ones otherwise).
 // - RUSH2_TEST_RACE_FOG=<1-4>: the track select's FOG (settings +0xE, the race's 0x800D1FA8).
+// - RUSH2_TEST_RACE_DIFFICULTY=<0-5>: the track select's DIFFICULTY (settings +0xA, the race's 0x8010C211).
 // - RUSH2_TEST_RACE_COLOR=<0-31>: every player's car in that MAIN COLOR (checking a car's paint).
 // - RUSH2_TEST_RACE_BACKWARD=1: the track select's BACKWARD on (settings +0xC, copied to 0x80119848 by
 //   menu_settings_to_race_globals_80094698 at 0x800947C0).
@@ -198,6 +199,9 @@ namespace {
             MEM_B(0, (int32_t)view_cars) = (int8_t)std::atoi(view_car);
         }
         rush2::race_setup::leave_front_end(rdram, ctx);
+        if (const char* difficulty = env("RUSH2_TEST_RACE_DIFFICULTY")) {
+            MEM_B(0xA, (int32_t)menu_settings) = (int8_t)std::atoi(difficulty);
+        }
         std::string types;
         for (int type : cars) {
             types += (types.empty() ? "" : ",") + std::to_string(type);

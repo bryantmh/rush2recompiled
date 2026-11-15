@@ -445,6 +445,28 @@ bool rush2::data_files::write(File file, const std::string& section, const std::
     return true;
 }
 
+namespace {
+    // The Cheats tab's Resurrect in Place and Levitation switches (cheats.json, both bools) as one select
+    // (src/cheats.cpp): Levitation only works with Resurrect in Place on.
+    void migrate_resurrect_cheat() {
+        fs::path path = app_folder() / "cheats.json";
+        json cheats;
+        if (!read_json(path, cheats)) {
+            return;
+        }
+        auto it = cheats.find("cheat_resurrect_in_place");
+        if (it == cheats.end() || !it->is_boolean()) {
+            return;
+        }
+        auto lev = cheats.find("cheat_levitation");
+        bool levitation = lev != cheats.end() && lev->is_boolean() && lev->get<bool>();
+        *it = !it->get<bool>() ? "Off" : levitation ? "Levitation" : "On";
+        cheats.erase("cheat_levitation");
+        // As librecomp writes its configs.
+        write_json(path, cheats, 4);
+    }
+}
+
 void rush2::data_files::migrate() {
     std::lock_guard lock{ files_mutex };
     migrate_saves();
@@ -456,4 +478,5 @@ void rush2::data_files::migrate() {
     migrate_menu_song_dc();
     migrate_soundtrack();
     migrate_menus2049();
+    migrate_resurrect_cheat();
 }

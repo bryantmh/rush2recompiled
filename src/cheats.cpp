@@ -11,6 +11,10 @@
 //   changed in game.
 // - Each cheat's value is written once when it changes here, and once when the config loads (after the boot defaults
 //   have run).
+// - LEVITATION (item 21) is Resurrect in Place's third choice: respawn_place_car (0x80090A40) only reads it with
+//   RESURRECT IN PLACE (item 20) on, where it lifts the 2 s wait between in-place respawns, so pressing ABORT in the
+//   air keeps lifting the car (docs/cheats.md#in-game-behavior). Older configs' two options are merged at startup
+//   (rush2::data_files::migrate).
 // - Changes made in the in-game cheat menu are copied back into this tab and saved. The config isn't thread safe, so
 //   that only happens while no menu is open; the UI only uses the config while a menu is open, and game input (and
 //   so the in-game cheat menu) is disabled then anyway.
@@ -98,6 +102,9 @@ namespace {
         const char* label;
         int8_t value;   // Stored in the cheat's state byte.
         int16_t display; // Index of the label shown in the in-game menu.
+        // With a linked item (Cheat::linked_menu_index): its state byte and label index for this choice.
+        int8_t linked_value = 0;
+        int16_t linked_display = 0;
     };
 
     struct Cheat {
@@ -110,56 +117,58 @@ namespace {
         uint32_t default_choice; // Index of the boot default in choices.
         // Two choices (off, on) with the default first: a checkbox. Otherwise: a selector.
         std::vector<Choice> choices;
+        // A second in-game item this one sets too (one that only works with this one on), -1 if none.
+        int linked_menu_index = -1;
+        uint32_t linked_address = 0;
     };
 
     const std::vector<Cheat> cheat_list = {
         { "cheat_no_car_collisions", "No Car Collisions",
-            "Cars pass through each other instead of colliding.",
+            "Cars drive through each other.",
             0, 0x8011249A, 0, 0,
             { { "On", 0, 0 }, { "Off", 1, 1 } } },
         { "cheat_gravity", "Gravity",
-            "Changes the strength of gravity, which changes how far cars fly off jumps.",
+            "Changes gravity: Light 0.8x, Heavy 1.5x, Jovian 2x.",
             1, 0x800E7D22, 0, 1,
             { { "Light", 0, 0 }, { "Normal", 1, 1 }, { "Heavy", 2, 2 }, { "Jovian", 3, 3 } } },
         { "cheat_cone_mines", "Cone Mines",
-            "Traffic cones explode when they are hit.",
+            "Cones become mines that wreck any car that hits one.",
             2, 0x8010C166, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_car_mines", "Car Mines",
-            "Driving over a traffic cone turns your car into a mine. The next car you bump explodes, and your car "
-            "goes back to normal.",
+            "Hitting a cone turns a car into a mine that wrecks the next car it touches.",
             3, 0x8010C167, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_burning_wreck", "Burning Wreck",
-            "Your car burns like a wreck while you drive, with or without smoke.",
+            "Your car starts as a burnt-out wreck and can barely move.",
             4, 0x800D401C, 0x800D401D, 0,
             { { "Off", 0, 0 }, { "With Smoke", 1, 1 }, { "Without Smoke", 2, 2 } } },
         { "cheat_upside_down", "Upside-Down Track",
-            "Turns the view upside down. Steering is flipped to match.",
+            "Flips the view upside down and reverses steering.",
             5, 0x800D0171, 0, 0,
             { { "Normal", 0, 0 }, { "Upside-Down", 1, 1 } } },
         { "cheat_auto_abort", "Disable Auto-Abort",
-            "Computer cars are no longer put back on the road when they get lost or stuck.",
+            "Stuck or fallen cars, yours included, are no longer put back on the track.",
             6, 0x8010C168, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_super_speed", "Super Speed",
-            "Cars go much faster.",
+            "Your car accelerates harder and reaches higher speeds.",
             7, 0x80111950, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_inside_out_car", "Inside-Out Car",
-            "Cars are drawn inside out.",
+            "Your car is drawn inside out.",
             8, 0x801174E0, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_no_damage", "No Damage",
-            "Crashes don't damage cars.",
+            "Crashes don't dent your car. It can still be wrecked.",
             9, 0x8011CDB0, 0, 0,
             { { "On", 0, 0 }, { "Off", 1, 1 } } },
         { "cheat_invincible", "Invincible",
-            "Your car can't be destroyed.",
+            "Crashes can't wreck or dent your car.",
             10, 0x80119634, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_invisible_car", "Invisible Car",
-            "Cars are invisible.",
+            "All cars are invisible.",
             11, 0x8010C170, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_invisible_track", "Invisible Track",
@@ -167,61 +176,58 @@ namespace {
             12, 0x8010C178, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_no_brakes", "No Brakes",
-            "Cars can't brake.",
+            "Your brakes don't work.",
             13, 0x80125C64, 0, 0,
             { { "On", 0, 0 }, { "Off", 1, 1 } } },
         { "cheat_super_tires", "Super Tires",
-            "Grass and other off-road ground no longer slow you down.",
+            "Dirt and grass slow cars down much less.",
             14, 0x8010D3A6, 0, 0,
             { { "Off", 0, 0 }, { "On", 2, 1 } } },
         { "cheat_mass", "Mass",
-            "Makes cars heavier, so they push other cars around more easily.",
+            "Makes every car heavier, so all of them accelerate slower.",
             15, 0x8010C179, 0, 0,
             { { "Normal", 0, 0 }, { "Heavy", 1, 1 }, { "Massive", 2, 2 } } },
         { "cheat_suicide_mode", "Suicide Mode",
-            "Cars explode when they touch each other. "
-            "<recomp-color primary>Humans</recomp-color> applies it to human players.",
+            "Cars that touch both explode. <recomp-color primary>Humans</recomp-color>: only when a player is involved.",
             16, 0x80119628, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 }, { "Humans", 2, 2 } } },
         { "cheat_do_the_dew", "Do the Dew",
-            "Replaces the hidden keys with Mountain Dew pickups.",
+            "Hidden keys become Mountain Dew cans.",
             17, 0x8010C17A, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_killer_rats", "Killer Rats",
-            "The rats on Lower and Upper Manhattan become giant white rats. Any car that hits one, yours or a "
-            "computer's, is wrecked. Takes effect from the next race.",
+            "The rats on the Manhattan tracks grow huge and wreck any car that touches one. Takes effect next race.",
             18, 0x8010C17C, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_stunts_all_tracks", "Stunts on All Tracks",
-            "Lets you score stunts on every track, not just the stunt track.",
+            "Score stunts on every track.",
             19, 0x8010C200, 0, 0,
             { { "Stunt Track", 0, 0 }, { "All Tracks", 1, 1 } } },
         { "cheat_resurrect_in_place", "Resurrect in Place",
-            "After a wreck, your car comes back where it crashed.",
+            "After a wreck, your car comes back where it wrecked. <recomp-color primary>Levitation</recomp-color>: "
+            "pressing ABORT in the air lifts you higher.",
             20, 0x8010C210, 0, 0,
-            { { "Off", 0, 0 }, { "On", 1, 1 } } },
-        { "cheat_levitation", "Levitation",
-            "With Resurrect in Place on, your car comes back exactly where it wrecked, even in mid-air.",
-            21, 0x8010C254, 0, 0,
-            { { "Off", 0, 0 }, { "On", 1, 1 } } },
+            // The game's LEVITATION (item 21) only works with this on, so it is this cheat's third choice.
+            { { "Off", 0, 0, 0, 0 }, { "On", 1, 1, 0, 0 }, { "Levitation", 1, 1, 1, 1 } },
+            21, 0x8010C254 },
         { "cheat_no_game_timer", "No Race Timer",
             "Turns off the race time limit.",
             22, 0x800D9E88, 0, 0,
             { { "On", 0, 0 }, { "Off", 1, 1 } } },
         { "cheat_new_york_cabs", "New York Cabs",
-            "Every computer car is a New York taxi cab.",
+            "Every computer car is a taxi on the Manhattan tracks.",
             23, 0x800D9E89, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_frame_scale", "Frame Scale",
-            "Changes the size of the car's body.",
+            "Squashes (1) or stretches (2, 3) your car's height.",
             24, 0x8010C43C, 0, 0,
             { { "0", 0, 0 }, { "1", 1, 1 }, { "2", 2, 2 }, { "3", 3, 3 } } },
         { "cheat_tire_scaling", "Tire Scaling",
-            "Adds front and rear tire size options to the car select screen.",
+            "Adds front and rear tire size rows to car select.",
             25, 0x8010C3D4, 0, 0,
             { { "Off", 0, 0 }, { "On", 1, 1 } } },
         { "cheat_fog_color", "Fog Color",
-            "Changes the color of the fog.",
+            "Changes the color of the distant haze.",
             26, 0x8010C440, 0, 0,
             { { "Normal", 0, 0 }, { "Black", 12, 1 }, { "Red", 13, 2 }, { "Green", 14, 3 }, { "Blue", 15, 4 }, { "Yellow", 16, 5 }, { "White", 17, 6 }, { "Orange", 18, 7 }, { "Pink", 19, 8 } } },
     };
@@ -280,15 +286,39 @@ namespace {
             MEM_B(0, (int32_t)cheat.address2) = choice.value;
         }
         MEM_H(2 * cheat.menu_index, (int32_t)cheat_display) = choice.display;
+        if (cheat.linked_menu_index >= 0) {
+            MEM_B(0, (int32_t)cheat.linked_address) = choice.linked_value;
+            MEM_H(2 * cheat.linked_menu_index, (int32_t)cheat_display) = choice.linked_display;
+        }
     }
 
     bool is_checkbox(const Cheat& cheat) {
         return cheat.choices.size() == 2 && cheat.default_choice == 0;
     }
 
-    int find_choice(const Cheat& cheat, int value) {
+    // The cheat's state as one number: its byte, and a linked item's byte above it.
+    int choice_state(const Cheat& cheat, const Choice& choice) {
+        return (uint8_t)choice.value | (cheat.linked_menu_index >= 0 ? (uint8_t)choice.linked_value << 8 : 0);
+    }
+
+    int read_state(uint8_t* rdram, const Cheat& cheat) {
+        int state = (uint8_t)MEM_B(0, (int32_t)cheat.address);
+        if (cheat.linked_menu_index >= 0) {
+            state |= (uint8_t)MEM_B(0, (int32_t)cheat.linked_address) << 8;
+        }
+        return state;
+    }
+
+    // The choice for a state. With a linked item, a state no choice has (the in-game menu turned LEVITATION on with
+    // RESURRECT IN PLACE off, which does nothing) is the choice with the same byte here.
+    int find_choice(const Cheat& cheat, int state) {
         for (size_t c = 0; c < cheat.choices.size(); c++) {
-            if (cheat.choices[c].value == value) {
+            if (choice_state(cheat, cheat.choices[c]) == state) {
+                return (int)c;
+            }
+        }
+        for (size_t c = 0; c < cheat.choices.size(); c++) {
+            if ((uint8_t)cheat.choices[c].value == (state & 0xFF)) {
                 return (int)c;
             }
         }
@@ -343,18 +373,18 @@ namespace {
         {
             { "Unlocks", { cheat_menu_id, unlock_tracks_id, unlock_cars_id, unlock_parts_id } },
             { "Driving", { "cheat_super_speed", "cheat_super_tires", "cheat_no_brakes", "cheat_mass", "cheat_gravity",
-                           "cheat_levitation", "cheat_no_car_collisions" } },
+                           "cheat_no_car_collisions" } },
         },
         {
             { "Survival", { "cheat_invincible", "cheat_no_damage", "cheat_auto_abort", kill_floor_id,
                             "cheat_resurrect_in_place", "cheat_no_game_timer" } },
             { "Race", { "cheat_suicide_mode", "cheat_stunts_all_tracks", "cheat_cone_mines", "cheat_car_mines",
-                        "cheat_killer_rats", no_trains_id, weapons_id } },
+                        "cheat_killer_rats", weapons_id } },
         },
         {
             { "Looks", { "cheat_invisible_car", "cheat_invisible_track", "cheat_upside_down", "cheat_inside_out_car",
                          "cheat_burning_wreck", "cheat_frame_scale", "cheat_tire_scaling", "cheat_fog_color",
-                         "cheat_new_york_cabs", "cheat_do_the_dew" } },
+                         "cheat_new_york_cabs", "cheat_do_the_dew", no_trains_id } },
         },
     };
 
@@ -823,11 +853,11 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
             write_choice(rdram, cheat, cheat.choices[choice]);
             // The config already has this value; drop any older in-game change.
             unsynced_choice[i] = no_write;
-            last_value[i] = cheat.choices[choice].value;
+            last_value[i] = choice_state(cheat, cheat.choices[choice]);
             continue;
         }
 
-        int value = MEM_B(0, (int32_t)cheat.address);
+        int value = read_state(rdram, cheat);
         if (value != last_value[i]) {
             int changed = find_choice(cheat, value);
             if (last_value[i] != no_write && changed != no_write) {
