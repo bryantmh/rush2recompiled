@@ -4962,7 +4962,7 @@ index 95618bc..984759e 100644
          std::vector<uint8_t> bytesTMEM;
          bool decodeTMEM = false;
 diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
-index 0848f3e..bb0b3f5 100644
+index 0848f3e..f0df2b3 100644
 --- a/src/render/rt64_texture_cache.cpp
 +++ b/src/render/rt64_texture_cache.cpp
 @@ -4,6 +4,11 @@
@@ -5118,9 +5118,8 @@ index 0848f3e..bb0b3f5 100644
 +            accessList.push_front({ textureIndex, creationFrame });
 +            listIterators[textureIndex] = accessList.begin();
 +        }
-     }
- 
--    void TextureMap::replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted) {
++    }
++
 +    void TextureMap::unpinAll() {
 +        // Rush 2 recomp: prewarmed textures never used go into the access list as last used when they were made, so
 +        // the next eviction ages them out like any other.
@@ -5130,8 +5129,9 @@ index 0848f3e..bb0b3f5 100644
 +                listIterators[i] = std::prev(accessList.end());
 +            }
 +        }
-+    }
-+
+     }
+ 
+-    void TextureMap::replace(uint64_t hash, Texture *texture, bool shiftedByHalf, bool referenceCounted) {
 +    void TextureMap::replace(uint64_t hash, Texture *texture, ReplacementShift shift, bool referenceCounted, const ReplacementRegion &region) {
 +        const bool shiftedByHalf = (shift == ReplacementShift::Half) || (shift == ReplacementShift::Center);
 +        const bool centered = (shift == ReplacementShift::Center);
@@ -5515,11 +5515,11 @@ index 0848f3e..bb0b3f5 100644
 +                        mipDescriptorSetCount += mipLevels - 1;
 +                    }
 +                }
-+
+ 
 +                while (mipDescriptorSets.size() < mipDescriptorSetCount) {
 +                    mipDescriptorSets.emplace_back(std::make_unique<TextureDecodeDescriptorSet>(directWorker->device));
 +                }
- 
++
 +                auto createResources = [&](size_t i) {
 +                    const TextureUpload &upload = queueCopy[i];
 +                    Texture *newTexture = textureMapAdditions[i].texture;
@@ -6000,7 +6000,7 @@ index 0848f3e..bb0b3f5 100644
      }
  
      void TextureCache::reloadReplacements(bool clearQueue, uint64_t exclusiveDbHash) {
-@@ -1459,71 +2115,81 @@ namespace RT64 {
+@@ -1459,71 +2115,86 @@ namespace RT64 {
          return loadReplacementDirectories({ replacementDirectory });
      }
      
@@ -6027,7 +6027,8 @@ index 0848f3e..bb0b3f5 100644
 +        return applyReplacementDirectories(prepareReplacementDirectories(replacementDirectories), true);
 +    }
 +
-+    std::unique_ptr<PreparedReplacements> TextureCache::prepareReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories) {
++    std::unique_ptr<PreparedReplacements> TextureCache::prepareReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories, const std::atomic<bool> *cancel) {
++        auto cancelled = [cancel]() { return (cancel != nullptr) && cancel->load(); };
 +        std::unique_ptr<PreparedReplacements> p = std::make_unique<PreparedReplacements>();
 +        p->replacementDirectories = replacementDirectories;
          for (const ReplacementDirectory &replacementDirectory : replacementDirectories) {
@@ -6092,6 +6093,10 @@ index 0848f3e..bb0b3f5 100644
 -            for (int32_t i = int32_t(fileSystems.size()) - 1; i >= 0; i--) {
 -                if (fileSystems[i]->load(ReplacementDatabaseFilename, databaseBytes)) {
 +            for (int32_t i = int32_t(p->fileSystems.size()) - 1; i >= 0; i--) {
++                if (cancelled()) {
++                    break;
++                }
++
 +                if (p->fileSystems[i]->load(ReplacementDatabaseFilename, databaseBytes)) {
                      try {
                          ReplacementDatabase db;
@@ -6111,7 +6116,7 @@ index 0848f3e..bb0b3f5 100644
                              }
                          }
                      }
-@@ -1532,37 +2198,144 @@ namespace RT64 {
+@@ -1532,37 +2203,157 @@ namespace RT64 {
                      }
                  }
  
@@ -6123,9 +6128,7 @@ index 0848f3e..bb0b3f5 100644
                          fprintf(stderr, "Failed to load low mip cache.\n");
                      }
                  }
--            }
- 
--            loaderCommandList->end();
++
 +                // Rush 2 recomp: the pack's preload textures, read and uploaded here (PreloadedTexture). The files are
 +                // read in turn, PNGs decoded (with their generated mipmaps) on every core, and the uploads recorded on
 +                // this command list: a font pack's 84 sheets (9 megapixels) took 0.9 s decoded one by one.
@@ -6137,28 +6140,26 @@ index 0848f3e..bb0b3f5 100644
 +
 +                std::vector<PreloadFile> preloadFiles;
 +                for (const std::string &relativePath : p->fileSystemStreamSets[i]) {
++                    if (cancelled()) {
++                        break;
++                    }
++
 +                    PreloadFile file;
 +                    file.relativePath = relativePath;
 +                    if (p->fileSystems[i]->load(relativePath, file.bytes) && (file.bytes.size() >= 4)) {
 +                        preloadFiles.emplace_back(std::move(file));
 +                    }
 +                }
- 
--            if (!textureMap.replacementMap.lowMipCacheTextures.empty()) {
--                copyWorker->commandQueue->executeCommandLists(loaderCommandList.get(), loaderCommandFence.get());
--                copyWorker->commandQueue->waitForCommandFence(loaderCommandFence.get());
++
 +                const uint32_t PNG_MAGIC = 0x474E5089;
 +                std::atomic<size_t> nextFile = 0;
 +                auto decodeFiles = [&]() {
-+                    for (size_t f; (f = nextFile++) < preloadFiles.size();) {
++                    for (size_t f; !cancelled() && ((f = nextFile++) < preloadFiles.size());) {
 +                        PreloadFile &file = preloadFiles[f];
 +                        if (*reinterpret_cast<const uint32_t *>(file.bytes.data()) != PNG_MAGIC) {
 +                            continue;
 +                        }
- 
--                // Memory used by low mip cache is considered as permanently in used.
--                textureMap.replacementMap.usedTexturePoolSize += totalMemory;
--                textureMap.replacementMap.cachedTexturePoolSize += totalMemory;
++
 +                        int width, height;
 +                        stbi_uc *data = stbi_load_from_memory(file.bytes.data(), int(file.bytes.size()), &width, &height, nullptr, 4);
 +                        if (data == nullptr) {
@@ -6184,6 +6185,10 @@ index 0848f3e..bb0b3f5 100644
 +                }
 +
 +                for (PreloadFile &file : preloadFiles) {
++                    if (cancelled()) {
++                        break;
++                    }
++
 +                    if (file.bytes.size() < 4) {
 +                        continue;
 +                    }
@@ -6197,27 +6202,29 @@ index 0848f3e..bb0b3f5 100644
 +                }
              }
  
--            // Build a vector from the known hash versions.
--            textureMap.replacementMap.resolvedHashVersions.clear();
--            textureMap.replacementMap.resolvedHashVersions.insert(textureMap.replacementMap.resolvedHashVersions.end(), knownHashVersions.begin(), knownHashVersions.end());
+-            loaderCommandList->end();
 +            commandList->end();
-+
+ 
+-            if (!textureMap.replacementMap.lowMipCacheTextures.empty()) {
+-                copyWorker->commandQueue->executeCommandLists(loaderCommandList.get(), loaderCommandFence.get());
+-                copyWorker->commandQueue->waitForCommandFence(loaderCommandFence.get());
++            // Rush 2 recomp: a cancelled load submits nothing; the recorded uploads go with the command list.
++            if (cancelled()) {
++                return p;
++            }
+ 
+-                // Memory used by low mip cache is considered as permanently in used.
+-                textureMap.replacementMap.usedTexturePoolSize += totalMemory;
+-                textureMap.replacementMap.cachedTexturePoolSize += totalMemory;
 +            if (!p->lowMipCacheTextures.empty() || !p->preloadedTextures.empty()) {
 +                copyWorker->commandQueue->executeCommandLists(commandList.get(), commandFence.get());
 +                copyWorker->commandQueue->waitForCommandFence(commandFence.get());
-+            }
-+
+             }
+ 
+-            // Build a vector from the known hash versions.
+-            textureMap.replacementMap.resolvedHashVersions.clear();
+-            textureMap.replacementMap.resolvedHashVersions.insert(textureMap.replacementMap.resolvedHashVersions.end(), knownHashVersions.begin(), knownHashVersions.end());
 +            p->resolvedHashVersions.insert(p->resolvedHashVersions.end(), knownHashVersions.begin(), knownHashVersions.end());
-+        }
-+
-+        p->valid = true;
-+        return p;
-+    }
-+
-+    bool TextureCache::applyReplacementDirectories(std::unique_ptr<PreparedReplacements> p, bool waitForPreloads) {
-+        clearReplacementDirectories();
-+        if ((p == nullptr) || !p->valid) {
-+            return false;
          }
  
 -        // Store the file systems in the replacement map.
@@ -6227,6 +6234,16 @@ index 0848f3e..bb0b3f5 100644
 -        textureMap.replacementMap.fileSystemHashVersions = std::move(fileSystemHashVersions);
 -        textureMap.replacementMap.fileSystemStreamSets = std::move(fileSystemStreamSets);
 -        textureMap.replacementMap.fileSystemStreamResolvedPaths.resize(fileSystemCount);
++        p->valid = true;
++        return p;
++    }
++
++    bool TextureCache::applyReplacementDirectories(std::unique_ptr<PreparedReplacements> p, bool waitForPreloads) {
++        clearReplacementDirectories();
++        if ((p == nullptr) || !p->valid) {
++            return false;
++        }
++
 +        uint32_t fileSystemCount = 0;
 +        {
 +            std::unique_lock lock(textureMapMutex);
@@ -6276,7 +6293,7 @@ index 0848f3e..bb0b3f5 100644
  
          // Queue all textures that must be preloaded to the stream queues.
          bool texturesPreloaded = false;
-@@ -1570,6 +2343,10 @@ namespace RT64 {
+@@ -1570,6 +2361,10 @@ namespace RT64 {
              std::unique_lock queueLock(streamDescStackMutex);
              for (uint32_t i = 0; i < fileSystemCount; i++) {
                  for (const std::string &relativePath : textureMap.replacementMap.fileSystemStreamSets[i]) {
@@ -6287,7 +6304,7 @@ index 0848f3e..bb0b3f5 100644
                      streamDescStack.push(StreamDescription(i, relativePath, true));
                      texturesPreloaded = true;
                  }
-@@ -1579,8 +2356,11 @@ namespace RT64 {
+@@ -1579,8 +2374,11 @@ namespace RT64 {
          if (texturesPreloaded) {
              streamDescStackChanged.notify_all();
  
@@ -6302,7 +6319,7 @@ index 0848f3e..bb0b3f5 100644
  
          reloadReplacements(true);
 diff --git a/src/render/rt64_texture_cache.h b/src/render/rt64_texture_cache.h
-index 9131697..68b14a9 100644
+index 9131697..c5359af 100644
 --- a/src/render/rt64_texture_cache.h
 +++ b/src/render/rt64_texture_cache.h
 @@ -5,6 +5,7 @@
@@ -6445,7 +6462,7 @@ index 9131697..68b14a9 100644
  
          TextureCache(RenderWorker *directWorker, RenderWorker *copyWorker, uint32_t threadCount, const ShaderLibrary *shaderLibrary);
          ~TextureCache();
-@@ -236,14 +299,30 @@ namespace RT64 {
+@@ -236,14 +299,32 @@ namespace RT64 {
          void queueGPUUploadTMEM(uint64_t hash, uint64_t creationFrame, const uint8_t *bytes, int bytesCount, int width, int height, uint32_t tlut, const LoadTile &loadTile, bool decodeTMEM);
          void waitForGPUUploads();
          void addResolvedPaths(uint64_t hash, uint32_t width, uint32_t height, uint32_t tlut, const LoadTile &loadTile, const std::vector<uint8_t> &bytesTMEM, bool decodeTMEM, std::vector<ReplacementResolvedPath> &resolvedPaths, uint64_t exclusiveDbHash = 0);
@@ -6472,7 +6489,9 @@ index 9131697..68b14a9 100644
 +        // Rush 2 recomp: loadReplacementDirectories in two steps, so the slow one (opening the packs, parsing their
 +        // databases, uploading their low mip caches) runs on a thread of its own while the game keeps drawing with the
 +        // packs it has. prepare is safe on any thread; apply must be called where loadReplacementDirectories would be.
-+        std::unique_ptr<PreparedReplacements> prepareReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories);
++        // Rush 2 recomp: cancel (optional) set stops the preparation early with an invalid result, so shutdown doesn't
++        // wait out a whole pack load before tearing the device down.
++        std::unique_ptr<PreparedReplacements> prepareReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories, const std::atomic<bool> *cancel = nullptr);
 +        bool applyReplacementDirectories(std::unique_ptr<PreparedReplacements> prepared, bool waitForPreloads);
          bool saveReplacementDatabase();
          void setReplacementDefaultShift(ReplacementShift shift);

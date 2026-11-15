@@ -121,7 +121,7 @@ index 33f79ab..c7f8401 100644
          // The first option is treated as disabled and the second option is treated as enabled.
          bool is_texture_pack_enable_config_option(const recomp::config::ConfigOption& option, bool show_errors);
 diff --git a/recompui/src/base/ui_state.cpp b/recompui/src/base/ui_state.cpp
-index 277a421..4d68b7d 100644
+index 277a421..d5baf97 100644
 --- a/recompui/src/base/ui_state.cpp
 +++ b/recompui/src/base/ui_state.cpp
 @@ -5,6 +5,7 @@
@@ -205,6 +205,19 @@ index 277a421..4d68b7d 100644
  }
  
  void recompui::show_context(ContextId context, std::string_view param) {
+@@ -999,6 +1024,12 @@ Rml::ElementDocument* recompui::load_document(const std::filesystem::path& path)
+ Rml::ElementDocument* recompui::create_empty_document() {
+     std::lock_guard lock{ui_state_mutex};
+ 
++    // Rush 2 recomp: null once the UI is torn down (deinit_hook, on the graphics thread at shutdown) while another
++    // thread still makes a context.
++    if (!ui_state) {
++        return nullptr;
++    }
++
+     return ui_state->context->CreateDocument();
+ }
+ 
 diff --git a/recompui/src/composites/ui_mod_details_panel.cpp b/recompui/src/composites/ui_mod_details_panel.cpp
 index 88291e2..38daf7e 100644
 --- a/recompui/src/composites/ui_mod_details_panel.cpp
@@ -687,6 +700,21 @@ index 4fdf81f..87f4c1f 100644
              return config;
          }
      }
+diff --git a/recompui/src/core/ui_context.cpp b/recompui/src/core/ui_context.cpp
+index e99229a..11c2e13 100644
+--- a/recompui/src/core/ui_context.cpp
++++ b/recompui/src/core/ui_context.cpp
+@@ -278,6 +278,10 @@ recompui::ContextId recompui::create_context(Rml::ElementDocument* document) {
+ 
+ recompui::ContextId recompui::create_context() {
+     Rml::ElementDocument* doc = create_empty_document();
++    // Rush 2 recomp: the UI is gone (shutdown): no context.
++    if (doc == nullptr) {
++        return ContextId::null();
++    }
+     ContextId ret = create_context_impl(doc);
+ 
+     ret.open();
 diff --git a/recompui/src/elements/ui_document.cpp b/recompui/src/elements/ui_document.cpp
 index a60c585..5469505 100644
 --- a/recompui/src/elements/ui_document.cpp
@@ -949,7 +977,7 @@ index 4d8c41e..24f94c7 100644
          virtual ~Slider();
          void set_value(double v);
 diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
-index a7954c7..a84dc44 100644
+index a7954c7..21ea28d 100644
 --- a/recompui/src/renderer/rt64_render_context.cpp
 +++ b/recompui/src/renderer/rt64_render_context.cpp
 @@ -1,3 +1,7 @@
@@ -993,7 +1021,7 @@ index a7954c7..a84dc44 100644
          case ultramodern::renderer::RefreshRate::OptionCount:
              return RT64::UserConfiguration::RefreshRate::OptionCount;
      }
-@@ -335,6 +354,21 @@ renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::Window
+@@ -335,6 +354,22 @@ renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::Window
      high_precision_fb_enabled = app->shaderLibrary->usesHDR;
  }
  
@@ -1002,6 +1030,7 @@ index a7954c7..a84dc44 100644
 +    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
 +    std::thread thread;
 +    std::atomic<bool> done = false;
++    std::atomic<bool> cancel = false;   // set at shutdown: the load stops early and is thrown away
 +    std::unique_ptr<RT64::PreparedReplacements> result;
 +    std::vector<std::string> mod_ids;   // the mods' packs it loads (texture_pack_in_use)
 +
@@ -1015,7 +1044,7 @@ index a7954c7..a84dc44 100644
  renderer::RT64Context::~RT64Context() = default;
  
  void renderer::RT64Context::send_dl(const OSTask* task) {
-@@ -355,6 +389,10 @@ void renderer::RT64Context::send_dummy_workload(uint32_t fb_address) {
+@@ -355,12 +390,23 @@ void renderer::RT64Context::send_dummy_workload(uint32_t fb_address) {
      app->state->listProcessEnd();
  }
  
@@ -1026,7 +1055,20 @@ index a7954c7..a84dc44 100644
  void renderer::RT64Context::update_screen() {
      check_refresh_rate_changes();
      app->updateScreen();
-@@ -424,30 +462,73 @@ void renderer::RT64Context::check_texture_pack_actions() {
+ }
+ 
+ void renderer::RT64Context::shutdown() {
++    // Rush 2 recomp: a pack load still running holds the texture cache and the copy queue, which app->end() frees:
++    // stop it and drop what it loaded (its textures need the device) first, or quitting mid-load crashes.
++    if (pack_load != nullptr) {
++        pack_load->cancel = true;
++        pack_load.reset();
++    }
++
+     if (app != nullptr) {
+         app->end();
+     }
+@@ -424,30 +470,73 @@ void renderer::RT64Context::check_texture_pack_actions() {
      TexturePackAction cur_action;
      while (texture_pack_action_queue.try_dequeue(cur_action)) {
          std::visit(overloaded{
@@ -1109,7 +1151,7 @@ index a7954c7..a84dc44 100644
          // Sort the enabled texture packs in reverse order so that earlier ones override later ones.
          std::vector<std::string> sorted_texture_packs{};
          sorted_texture_packs.reserve(enabled_texture_packs.size());
-@@ -463,18 +544,53 @@ void renderer::RT64Context::check_texture_pack_actions() {
+@@ -463,18 +552,53 @@ void renderer::RT64Context::check_texture_pack_actions() {
              }
          );
  
@@ -1154,7 +1196,7 @@ index a7954c7..a84dc44 100644
 +            PackLoad* load = pack_load.get();
 +            RT64::TextureCache* cache = app->textureCache.get();
 +            load->thread = std::thread([load, cache, dirs = std::move(replacement_directories)] {
-+                load->result = cache->prepareReplacementDirectories(dirs);
++                load->result = cache->prepareReplacementDirectories(dirs, &load->cancel);
 +                load->done = true;
 +            });
          }
@@ -1165,7 +1207,7 @@ index a7954c7..a84dc44 100644
          }
      }
  }
-@@ -557,6 +673,24 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
+@@ -557,6 +681,24 @@ void renderer::secondary_enable_texture_pack(const std::string& mod_id) {
      texture_pack_action_queue.enqueue(TexturePackSecondaryEnableAction{mod_id});
  }
  

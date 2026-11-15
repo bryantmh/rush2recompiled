@@ -851,6 +851,13 @@ namespace {
         using namespace recompui;
         ContextId previous = try_close_current_context();
         ContextId context = create_context();
+        if (context == ContextId::null()) {
+            // The UI is torn down (the window closed as the game started): no overlay.
+            if (previous != ContextId::null()) {
+                previous.open();
+            }
+            return;
+        }
         context.open();
         context.set_captures_input(false);
         context.set_captures_mouse(false);
