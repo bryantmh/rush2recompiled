@@ -1180,7 +1180,7 @@ namespace {
             std::filesystem::path file = std::filesystem::is_directory(m.path, ec)
                 ? m.path / std::filesystem::u8path(hud_mod_file) : m.path;
             auto time = std::filesystem::last_write_time(file, ec);
-            signature += ec ? std::string("-") : std::to_string(time.time_since_epoch().count());
+            signature += ec ? std::string("-") : std::to_string((long long)time.time_since_epoch().count());
             signature += ";";
         }
         if (signature == mod_signature) return false;

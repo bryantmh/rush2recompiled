@@ -1932,7 +1932,7 @@ namespace {
         for (const ModelFile& f : files) {
             std::error_code ec;
             auto time = std::filesystem::last_write_time(mods[f.mod].path, ec);
-            signature += mods[f.mod].mod_id + ":" + f.path + ":" + std::to_string(ec ? 0 : time.time_since_epoch().count()) + ";";
+            signature += mods[f.mod].mod_id + ":" + f.path + ":" + std::to_string(ec ? 0 : (long long)time.time_since_epoch().count()) + ";";
         }
         plan.model_signature = signature;
         std::map<std::string, ModelMod>& loaded = plan.models;
@@ -2049,7 +2049,7 @@ namespace {
                 files.emplace_back(i, f);
                 std::error_code ec;
                 auto time = std::filesystem::last_write_time(mods[i].path, ec);
-                signature += mods[i].mod_id + ":" + f + ":" + std::to_string(ec ? 0 : time.time_since_epoch().count()) + ";";
+                signature += mods[i].mod_id + ":" + f + ":" + std::to_string(ec ? 0 : (long long)time.time_since_epoch().count()) + ";";
             }
         }
         plan.livery_signature = signature;
@@ -2612,7 +2612,7 @@ namespace {
         for (const ModFile& m : mods) {
             std::error_code ec;
             auto time = std::filesystem::last_write_time(m.path, ec);
-            key += std::to_string(ec ? 0 : time.time_since_epoch().count()) + ";";
+            key += std::to_string(ec ? 0 : (long long)time.time_since_epoch().count()) + ";";
         }
         return key;
     }

@@ -53,7 +53,7 @@ if [ "$CONFIGURE" = 1 ] || [ ! -f "$BUILD/build.ninja" ]; then
 fi
 
 echo "== Building"
-cmake --build "$BUILD"
+cmake --build "$BUILD" -- -k 0 # Keep going: one run reports every compile error.
 
 echo "== Packaging"
 APP="$OUT/stage/Rush 2 Recompiled.app"
