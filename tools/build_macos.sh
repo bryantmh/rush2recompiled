@@ -102,6 +102,15 @@ EOF
 # Homebrew's SDL2 and FreeType (and what they load) go inside the bundle, so players don't need Homebrew.
 dylibbundler -of -b -cd -x "$APP/Contents/MacOS/Rush2Recompiled" -d "$APP/Contents/Frameworks" \
     -p @executable_path/../Frameworks -s "$BREW/lib"
+# Homebrew's SDL2 is sdl2-compat, which loads SDL3 at run time (dylibbundler can't see that): first from
+# @loader_path/libSDL3.dylib, beside itself in Frameworks.
+cp -L "$BREW/lib/libSDL3.dylib" "$APP/Contents/Frameworks/libSDL3.dylib"
+chmod u+w "$APP/Contents/Frameworks/libSDL3.dylib"
+install_name_tool -id @executable_path/../Frameworks/libSDL3.dylib "$APP/Contents/Frameworks/libSDL3.dylib"
+if otool -L "$APP/Contents/Frameworks/libSDL3.dylib" | grep -q "$BREW"; then
+    echo "libSDL3.dylib links other Homebrew libraries; bundle them too" >&2
+    exit 1
+fi
 
 # Ad hoc signature: Apple Silicon won't run unsigned code. Libraries first, then the bundle.
 find "$APP/Contents/Frameworks" -name '*.dylib' -exec codesign --force -s - {} \;
