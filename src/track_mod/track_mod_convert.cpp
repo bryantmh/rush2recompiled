@@ -1331,8 +1331,15 @@ namespace {
         std::vector<DrawMaterial> draw;
         for (size_t i = 0; i < order.size(); i++) {
             const rush2::gltf::Material* mat = mats[i];
-            draw.push_back({ &textures[i], mat && mat->alpha_mode != "OPAQUE",
-                             !mat || (mat->wrap_s != 33071 && mat->wrap_t != 33071) });
+            // Fields by name: a positional {texture, cutout, wraps} put the wrap flag in `blend` once that field was
+            // added, drawing every diorama two-pass translucent (a render mode switch per vertex load, so hundreds of
+            // RT64 draw calls whose frame matching cost 18 ms a frame: issue 81). Dioramas have no translucent pass.
+            DrawMaterial dm;
+            dm.texture = &textures[i];
+            dm.cutout = mat && mat->alpha_mode != "OPAQUE";
+            dm.blend = false;
+            dm.wraps = !mat || (mat->wrap_s != 33071 && mat->wrap_t != 33071);
+            draw.push_back(dm);
             draw.back().mirror_s = mat && mat->wrap_s == 33648;
             draw.back().mirror_t = mat && mat->wrap_t == 33648;
         }
