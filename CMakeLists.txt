@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Rush2Recompiled LANGUAGES C CXX)
+if (APPLE)
+    # RT64's Metal backend and recompui's macOS helpers are Objective-C++ (.mm).
+    enable_language(OBJC OBJCXX)
+endif()
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
