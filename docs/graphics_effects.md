@@ -495,7 +495,20 @@ lamps are measured on its glb instead (`tools/car_lamps.py glb <livery>.glb DIR/
 rush2049:<car>/<livery>`: the body sampled from its full-size textures, in the same axes): the game's dump reads the
 N64-size copies, too coarse to see a livery's lamps. Every entry's measurement is in `tools/car_lamps_picks.sh`
 (rerun it after a sweep to measure them again); `pick` writes the lens's color into the entry (the game takes the
-texels near it as the lens).
+texels near it as the lens). The sweep switches Car Lights on in its runs (`graphics.car_lights=On`): the option is
+off by default, and without it nothing is found or dumped. The PlayStation SF Rush cars and the arcade cars are mod
+glbs, measured on them the same way (`glb <car>.glb DIR/<car>.json --key "mod:<NAME>"`).
+
+The finder's headlamps change with the paint: bright, near-white texels are taken as glass, so white or silver paint,
+a white bumper or chrome trim is found instead of a gray lens (GitHub issue 79: the white Bandit, the Dreamcast GX-2's
+white bumper, the pickup's chrome bar). A car whose lamps a player reports gets a hand entry, which no paint moves.
+
+In game: `RUSH2_TEST_LOOK_BACK=1` holds every view's LOOK BACK (docs/camera.md#look-back), so a 2-4 player
+`tools/test_race.py 17 --cars a,b,c,d --env RUSH2_TEST_LOOK_BACK=1 --env RUSH2_TEST_WINDOW=3840x2160 --shots 50
+--config graphics.car_lights=On` shoots four cars' fronts at once (1080p views; a plain chase view in the tunnel start
+leaves views 2-4 over their car's roof, so shoot rear views one car a run). `tools/quad_crops.py SHOT OUT --labels
+...` cuts out each view's car, and `tools/lamp_compare.py OUT DUMP "SHOT|KEY|front|x0,y0,x1,y1"` puts a player's
+screenshot beside the car's gridded view with its lamps.
 
 ### Testing
 

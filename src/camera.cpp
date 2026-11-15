@@ -25,6 +25,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "recomp.h"
@@ -190,7 +191,11 @@ extern "C" void rush2_look_back(uint8_t* rdram, recomp_context* ctx) {
     }
     int mode = (int8_t)MEM_B(car_mode, (int32_t)car);
     int port = rush2::online::game::in_race() ? view : MEM_BU(1, (int32_t)ctx->r20);
-    if (mode < 0 || mode > mode_close_chase || !rush2::controls::look_back_held(port)) {
+    // Test aid: RUSH2_TEST_LOOK_BACK=1 holds every view's LOOK BACK the whole race (front shots of the players' cars in
+    // a scripted run, whose input script can't press a binding: the Car Lights review).
+    static const bool test_look_back = std::getenv("RUSH2_TEST_LOOK_BACK") != nullptr;
+    const bool held = rush2::controls::look_back_held(port) || test_look_back;
+    if (mode < 0 || mode > mode_close_chase || !held) {
         return;
     }
     look.wanted = true;

@@ -88,6 +88,10 @@ takes the turn as a camera cut (more than 60 degrees, src/interpolation.cpp) and
 
 The view's player is its record's port (+1); online, view i is this machine's port i.
 
+Test aid: `RUSH2_TEST_LOOK_BACK=1` holds every view's LOOK BACK for the whole race, so a scripted run
+(tools/test_race.py, whose input script presses N64 buttons, not bindings) can shoot the front of each player's car,
+as the Car Lights review does.
+
 ### Look Back option
 
 Gameplay tab, on by default, takes effect at once (`rush2::set_look_back`). Off, the hook at 0x8009DE58 never notes a
