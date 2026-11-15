@@ -71,6 +71,7 @@
 #include "car2049.h"
 #include "car_mods.h"
 #include "npc_cars.h"
+#include "options_page.h"
 #include "prewarm.h"
 #include "track2049.h"
 #include "track_mod_runtime.h"
@@ -531,7 +532,8 @@ namespace {
             columns_with_rows.push_back(column);
             const recomp::config::ConfigOption& option = config.get_option(id);
 
-            Element* row = context.create_element<Element>(column, 0, "div", false);
+            // A FocusRow so the column scrolls the row into view when one of its controls takes focus from the d-pad.
+            Element* row = context.create_element<rush2::ui::FocusRow>(column);
             row->set_display(Display::Flex);
             row->set_flex_direction(FlexDirection::Row);
             row->set_align_items(AlignItems::Center);
