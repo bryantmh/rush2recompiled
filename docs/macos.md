@@ -2,16 +2,34 @@
 
 The macOS version is built by GitHub Actions on an Apple Silicon runner (`.github/workflows/macos.yml`), not on the
 Windows PC: Apple's SDK and Metal shader compiler only run on a Mac. Each build's `.dmg` is kept as a workflow artifact
-(visible to the repo's collaborators only) so it can be tried on a Mac before it goes into a release.
+(visible to the repo's collaborators only).
 
-## Getting a build
+## Releases
+
+Every release gets its `.dmg` without anyone doing anything:
+
+1. `tools/release.py` (the master pre-push hook) builds the release on the PC, then uploads that build's ROM-derived
+   sources with `mac_ci_sources.upload(.release/src)`; it skips the upload when the pack for those inputs is there.
+2. It pushes master and creates the release. The master push starts the workflow.
+3. When the build is done, the workflow attaches `Rush2Recompiled-<version>-macOS.dmg` to the newest release whose game
+   code equals the build's (`git diff <tag> HEAD` ignoring `.github`, `tools` and `docs`), waiting up to 3 minutes for
+   the release to appear. That's about 20 minutes after the release goes up; the release notes say the `.dmg` follows.
+
+The trigger is the master push, not the release event: GitHub runs a release event's workflow from the tag's commit, so
+a fix to the workflow could never reach an existing release. A `--no-verify` master push of tool-only changes (no
+release) therefore attaches its build to the current release, which has the same game code. A failed Mac build doesn't
+hold back the release; GitHub emails the failure. The PC's `gh` token can't start workflows by hand (no `actions:
+write`), so a missing `.dmg` is fixed by pushing master again with `--no-verify`, or from the Actions page with the
+release tag as input.
+
+## Getting a test build
 
 1. On the PC with the ROM, regenerate the ROM-derived sources for the commit to build (`./.tools/N64Recomp.exe us.toml`,
    `./.tools/RSPRecomp.exe aspMain.us.toml`), then `py tools/mac_ci_sources.py upload`. This attaches them to the draft
    release `ci-recomp-sources`, keyed on a hash of the recompilers' inputs. Only needed when `us.toml`, the symbol file
    or `aspMain.us.toml` changed.
 2. Push the branch (or run the workflow by hand). The workflow downloads the matching sources, runs
-   `tools/build_macos.sh` and uploads `Rush2Recompiled-macOS-<sha>.dmg`.
+   `tools/build_macos.sh` and uploads `Rush2Recompiled-macOS.dmg` as the run's artifact.
 3. Download the artifact from the run's page (`gh run download <run id>`), open the .dmg and drag the app to
    Applications.
 

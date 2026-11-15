@@ -1,7 +1,10 @@
 """Hands the ROM-derived sources to the macOS CI build (.github/workflows/macos.yml) without making them public.
 
-Usage: py tools/mac_ci_sources.py upload     (on the PC that has the ROM, after N64Recomp us.toml and RSPRecomp)
+Usage: py tools/mac_ci_sources.py upload [<tree>]  (on the PC that has the ROM, after N64Recomp us.toml and RSPRecomp)
        python3 tools/mac_ci_sources.py download  (in CI; needs GH_TOKEN with contents: write to see draft releases)
+
+<tree> is the source tree to pack (default: this repo). tools/release.py passes its export, .release/src, so every
+release uploads the pack its own Mac build needs. upload does nothing when the pack for those inputs is already there.
 
 RecompiledFuncs/ and rsp/aspMain.cpp are generated from the ROM, so they can't be committed to the public repo. upload
 packs them into recomp-sources-<key>.tar.gz and attaches it to the draft release ci-recomp-sources (a draft is only
@@ -22,26 +25,37 @@ INPUTS = ["us.toml", "syms/rush2.us.syms.toml", "aspMain.us.toml"]
 OUTPUTS = ["RecompiledFuncs", "rsp/aspMain.cpp"]
 
 
-def key():
+def key(tree=ROOT):
     h = hashlib.sha256()
     for name in INPUTS:
         h.update(name.encode())
-        h.update((ROOT / name).read_bytes().replace(b"\r\n", b"\n"))
+        h.update((tree / name).read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()[:16]
 
 
-def asset_name():
-    return f"recomp-sources-{key()}.tar.gz"
+def asset_name(tree=ROOT):
+    return f"recomp-sources-{key(tree)}.tar.gz"
 
 
 def gh(*args, check=True):
     return subprocess.run(["gh", *args], cwd=ROOT, check=check, capture_output=True, text=True)
 
 
-def upload():
-    newest_input = max((ROOT / name).stat().st_mtime for name in INPUTS)
+def uploaded():
+    """Names of the packs already on the draft release (empty when the release doesn't exist yet)."""
+    result = gh("release", "view", RELEASE, "--json", "assets", "--jq", ".assets[].name", check=False)
+    return set(result.stdout.split()) if result.returncode == 0 else set()
+
+
+def upload(tree=ROOT):
+    tree = Path(tree).resolve()
+    name = asset_name(tree)
+    if name in uploaded():
+        print(f"{name} is already uploaded")
+        return
+    newest_input = max((tree / n).stat().st_mtime for n in INPUTS)
     for name in OUTPUTS:
-        path = ROOT / name
+        path = tree / name
         if not path.exists():
             raise SystemExit(f"{name} is missing: run N64Recomp us.toml and RSPRecomp aspMain.us.toml first")
         stamp = max(p.stat().st_mtime for p in path.rglob("*")) if path.is_dir() else path.stat().st_mtime
@@ -51,8 +65,8 @@ def upload():
     data = io.BytesIO()
     with tarfile.open(fileobj=data, mode="w:gz") as tar:
         for name in OUTPUTS:
-            tar.add(ROOT / name, arcname=name)
-    out = ROOT / "tmp" / asset_name()
+            tar.add(tree / name, arcname=name)
+    out = ROOT / "tmp" / asset_name(tree)
     out.parent.mkdir(exist_ok=True)
     out.write_bytes(data.getvalue())
 
@@ -75,6 +89,7 @@ def download():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ("upload", "download"):
+    if len(sys.argv) not in (2, 3) or sys.argv[1] not in ("upload", "download") or \
+            (sys.argv[1] == "download" and len(sys.argv) == 3):
         raise SystemExit(__doc__)
-    upload() if sys.argv[1] == "upload" else download()
+    upload(*sys.argv[2:]) if sys.argv[1] == "upload" else download()

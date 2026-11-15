@@ -1,14 +1,25 @@
-# macOS build (docs/macos.md). Builds the app on GitHub's Apple Silicon runner and keeps the .dmg as a workflow
-# artifact (repo collaborators only), so a build can be tried on a Mac before it goes into a release.
+# macOS build (docs/macos.md). Builds the app on GitHub's Apple Silicon runner and keeps the .dmg as a workflow artifact
+# (repo collaborators only). A master push (tools/release.py pushes master, then creates the release) also attaches the
+# .dmg to the newest release whose game code is the same as the build's (tools, docs and .github may differ), so each
+# release gets its Mac build. It runs on the push, not the release event: a release event would run the workflow file
+# from the tag's commit, and the tool-only commits that follow a release would never reach it. A manual run given a
+# release tag builds that tag and attaches the .dmg to it.
 name: macOS build
 
 on:
   push:
-    branches: [mac-port]
+    branches: [master, mac-port]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the .dmg to (empty = build the chosen branch, artifact only)
+        required: false
 
 permissions:
   contents: write # The ROM-derived sources sit on a draft release, which only a token with write access can see.
+
+env:
+  TAG: ${{ inputs.tag }}
 
 jobs:
   build:
@@ -17,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.TAG || github.ref }}
           submodules: recursive
           fetch-depth: 0 # git describe --tags gives the version shown in the launcher.
 
@@ -41,7 +53,7 @@ jobs:
       - name: Build
         run: |
           ccache --max-size=2G
-          bash tools/build_macos.sh --out dist --name Rush2Recompiled-macOS-${GITHUB_SHA::7}.dmg
+          bash tools/build_macos.sh --out dist --name Rush2Recompiled-macOS.dmg
           ccache --show-stats
 
       - uses: actions/upload-artifact@v4
@@ -49,3 +61,24 @@ jobs:
           name: Rush2Recompiled-macOS-${{ github.sha }}
           path: dist/*.dmg
           compression-level: 0
+
+      - name: Attach to the release
+        if: env.TAG != '' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$TAG"
+          if [ -z "$tag" ]; then
+            # tools/release.py creates the release right after pushing master; give it time to appear.
+            for attempt in 1 2 3 4 5 6; do
+              latest=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+              if [ -n "$latest" ] && git fetch -q origin tag "$latest" && git diff --quiet "$latest" HEAD -- . ':!.github' ':!tools' ':!docs'; then
+                tag="$latest"; break
+              fi
+              sleep 30
+            done
+          fi
+          if [ -z "$tag" ]; then echo "No release has this build's game code; the .dmg stays a workflow artifact."; exit 0; fi
+          cp dist/Rush2Recompiled-macOS.dmg "dist/Rush2Recompiled-${tag#v}-macOS.dmg"
+          gh release upload "$tag" "dist/Rush2Recompiled-${tag#v}-macOS.dmg" --clobber
+          echo "Attached to $tag"

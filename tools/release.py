@@ -13,6 +13,10 @@ After a successful build the commit is pushed (the push that triggered the hook 
 the zipped game folder and the AppImage are uploaded as a release. VERSION holds the major.minor version and is only changed by hand: the
 first release of a version is tagged v<major>.<minor>, and each later one gets the next patch number, up to .999.
 The change list is then announced on Discord (tools/discord_release_notify.py) when a webhook is configured.
+
+The macOS .dmg is built by GitHub Actions (.github/workflows/macos.yml), which starts when this script pushes master
+and attaches the .dmg to the release about 20 minutes later. CI has no ROM, so before the release is created this script
+uploads the export's RecompiledFuncs to the private draft release (tools/mac_ci_sources.py, skipped when unchanged).
 """
 import io
 import os
@@ -25,6 +29,7 @@ import zipfile
 from pathlib import Path
 
 import discord_release_notify
+import mac_ci_sources
 
 ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / ".release"
@@ -174,13 +179,15 @@ def main():
     SRC.mkdir(parents=True, exist_ok=True)
     export(sha)
     build()
+    mac_ci_sources.upload(SRC)  # The Mac build (started by the release) needs this commit's recompiled code.
     zip_path = package(f"Rush2Recompiled-{tag[1:]}")
     appimage_path = build_linux(f"Rush2Recompiled-{tag[1:]}-x86_64.AppImage")
 
     log_range = [f"{previous}..{sha}"] if previous else ["-1", sha]
     changes = git("log", "--format=- %s", *log_range)
     notes = (f"Windows: unzip anywhere and run `Rush2Recompiled.exe`. Linux: make the `.AppImage` executable and run "
-             f"it. macOS: drag the app from the `.dmg` to Applications and open it; when macOS says it can't verify it, "
+             f"it. macOS (the `.dmg` is added about 20 minutes after the release): drag the app to Applications and open "
+             f"it; when macOS says it can't verify it, "
              f"click Open Anyway in System Settings > Privacy & Security. You'll need your own Rush 2: Extreme Racing "
              f"USA ROM.\n\n"
              f"## Changes\n\n{changes}\n")
