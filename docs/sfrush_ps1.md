@@ -239,7 +239,25 @@ vertices are (x, -height, y) of the track frame. **[V]**
   1000-2000, z -2850 to -3300) the PS1's two drone lines (PATHDAT/EXTDAT) cut 25-80 ft inside the N64's line, over
   the grass class, while the N64's line lies on the PS1's road. They also zigzag there (85-180 ft radius kinks 20-40 ft
   apart), so the converter's corner speeds through it are 70-115 mph against the N64's 130-145. **[V]**
-- **Walls under a road above:** an A wall's face (10 ft under its ground to 40 ft over it) is cut to 3 ft under any
+- **Wall height:** the PS1 tests an A wall at any height, so its face runs from 10 ft under its ground to 1000 ft over
+  it (`wall_height`, ps1_track.cpp), cut only as below. Capped at 40 ft (until 2026-11-14), jumps cleared walls the N64
+  holds: Embarcadero's lane-side walls topped out a median 37 ft over the road against the N64's 81 ft (its building
+  faces reach 80-190 ft; user report). Higher ground within 30 ft BEHIND a wall (away from the road it faces) still
+  cuts it to 3 ft under that ground, since Rush 2 takes a wall from 5 ft behind its plane
+  ([collision](rush2049_research/collision.md#walls-behind-their-cells)) and would shove a car on that ground off it
+  (Embarcadero's hill street, glb x 1390-1432 z 278: a plateau at 82 ft behind its wall keeps the wall 2-4 ft over the
+  street's top). Ground in front no longer cuts it (a street climbing beside the wall). Against the 40 ft build, no
+  wall is lower on any course (Embarcadero raised 429 of 539 matched walls, Chinatown 735 of 747, Golden Gate 663 of
+  750, Market 804 of 906; the rest are raised walls, step walls and walls under or behind ground). **[V]** (converter output)
+- **Walls among big ground polygons:** a wall's ground level comes from its chunk's ground corners within 60 ft of
+  it; where the chunk's ground is a few big polygons none is that close, and the wall used to be dropped: 25 walls
+  (Golden Gate 7, Embarcadero 12, Market 6). One was Embarcadero's 79 ft wall at the corner onto the climb to the hill
+  loop (converter x 2554-2606, z -4708 to -4647; chunk 39), closing the gap between the bend's outer wall and the
+  climb's: cars at speed ran through the gap onto the pavement behind and off its open edge (user report 2026-11-14).
+  Such a wall now takes the ground polygons whose outline comes within 60 ft of it, its own chunk's first (all 25 found
+  ground there), else any chunk's. None of the 25 comes within 3 ft of an AI lane (`tools/lane_surfaces.py --walls 3`
+  reports the same spots as before). **[V]** (converter output)
+- **Walls under a road above:** an A wall's face is cut to 3 ft under any
   ground over its line, and only along the stretch that ground covers (the wall is split into pieces, 4 ft samples).
   Ground counts as over the line where one polygon lies 8 ft out on both sides of it (a road whose edge sits on or
   just past the line, Embarcadero's ramp at x -2674 overhanging its wall by 2-5 ft, keeps the wall that stops cars
@@ -781,7 +799,7 @@ runs it outside the game) builds one mod, `sfrush_ps1`:
   renderer gives it ([Track geometry](#track-geometry)). Faces wind clockwise from the front in the game frame,
   written un-mirrored ([Handedness](#handedness)). Collision = the ground polygons by surface (the grass class as the custom surface `COL_VERGE`, `like = "dirt"`,
   `drag = 15`, since Rush 2's `COL_GRASS` is wheel material 2, its water, which throws the water splash), the walls as faces from 10 ft under the ground
-  beside them to 40 ft over it (cut short under ground above). FINISH and CHECKPOINT_1-3 from the CPF planes. AI:
+  beside them to 1000 ft over it (cut short under ground above or close behind). FINISH and CHECKPOINT_1-3 from the CPF planes. AI:
   [AI lanes](#ai-lanes) (the N64's lines on Golden Gate, Embarcadero and Market with the N64 ROM; otherwise the PS1's
   at 0, 1/3, 2/3 and 1 across its corridor, smoothed), AIPATH_main down their middle; speeds left to the converter. Logo: `assets/sfrush_ps1/chinatown_logo.png`
   (`tools/build_banners.py --ps1`). Track select picture (`preview.png`, behind the route preview): the PS1's own

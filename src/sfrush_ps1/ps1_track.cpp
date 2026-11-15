@@ -1886,8 +1886,8 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
             m.tris.push_back({ base, base + 1, base + 2 });
         }
     }
-    // Walls: the PS1's have no height; each becomes a face from 10 ft under the ground beside it to 40 ft over it, cut
-    // short under any other ground above (a street over a tunnel).
+    // Walls: the PS1's have no height; each becomes a face from 10 ft under the ground beside it to 1000 ft over it, cut
+    // short under any other ground above (a street over a tunnel) or close behind it.
     size_t steps = 0, lifted_walls = 0;
     {
         Mesh& m = by_surface["WALL"];
@@ -1966,12 +1966,65 @@ static bool build_condition(const ps1::Disc& disc, const std::filesystem::path& 
                     hi = std::max(hi, grounds[i].p[c][1]);
                 }
             }
+            // No corner that close: the chunk's ground is a few big polygons (Embarcadero's corner onto the climb to
+            // the hill loop, glb x 779-794 z -1435 to -1416 m: a 79 ft wall closing the gap between the bend's outer
+            // wall and the climb's, all of chunk 39's corners farther off; without it cars at speed ran through the
+            // gap and off the edge behind, user report 2026-11-14). Take the ground polygons whose outline comes within
+            // 60 ft of the wall, its own chunk's first, else any chunk's. 25 walls on Golden Gate, Embarcadero and
+            // Market were dropped before.
+            auto outline_dist = [&](const Ground& gr) {
+                auto seg_seg = [](V2 p0, V2 p1, V2 q0, V2 q1) {
+                    auto pt_seg = [](V2 p, V2 a, V2 b) {
+                        double dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz;
+                        double t = l2 > 0 ? std::clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2, 0.0, 1.0) : 0.0;
+                        return std::hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz);
+                    };
+                    auto cross = [](V2 o, V2 a, V2 b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); };
+                    double d1 = cross(p0, p1, q0), d2 = cross(p0, p1, q1), d3 = cross(q0, q1, p0), d4 = cross(q0, q1, p1);
+                    if (((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0))) return 0.0;
+                    return std::min({ pt_seg(p0, q0, q1), pt_seg(p1, q0, q1), pt_seg(q0, p0, p1), pt_seg(q1, p0, p1) });
+                };
+                double best = 1e18;
+                bool inside = false;
+                for (int c = 0; c < gr.n; c++) {
+                    const V3& p = gr.p[c];
+                    const V3& q = gr.p[(c + 1) % gr.n];
+                    best = std::min(best, seg_seg(w.a, w.b, { p[0], p[2] }, { q[0], q[2] }));
+                    // Crossing test of the wall's start against this edge (inside the outline).
+                    if ((p[2] > w.a[1]) != (q[2] > w.a[1]) &&
+                        w.a[0] < (q[0] - p[0]) * (w.a[1] - p[2]) / (q[2] - p[2]) + p[0])
+                        inside = !inside;
+                }
+                return inside ? 0.0 : best;
+            };
+            for (int pass = 0; pass < 2 && lo > hi; pass++) {
+                for (size_t i = 0; i < grounds.size(); i++) {
+                    if (pass == 0 && chunk_of_ground[i] != w.chunk) continue;
+                    if (outline_dist(grounds[i]) > 60.0) continue;
+                    for (int c = 0; c < grounds[i].n; c++) {
+                        lo = std::min(lo, grounds[i].p[c][1]);
+                        hi = std::max(hi, grounds[i].p[c][1]);
+                    }
+                }
+            }
             if (lo > hi) continue;
-            double bottom = lo - 10.0, top = hi + 40.0;
+            // The PS1 tests an A wall at any height, so the face stands wall_height over the ground: a car jumping
+            // can't clear it. Capped at 40 ft over the ground, jumps cleared walls the N64 holds (its building faces
+            // reach 80-190 ft; Embarcadero's lane-side walls had a median top 37 ft over the road against the N64's
+            // 81 ft, user report 2026-11-14).
+            constexpr double wall_height = 1000.0;
+            double bottom = lo - 10.0, top = hi + wall_height;
+            // Higher ground behind the wall (its back, away from the road it faces) within 30 ft cuts it 3 ft under
+            // that ground, as before, so a street running along its back keeps it out of its way. Ground in front
+            // of it doesn't: a car on a street climbing beside the wall is still held by it.
+            const double fnx = w.normal[0], fnz = w.normal[1];
             for (size_t i = 0; i < grounds.size(); i++) {
                 for (int c = 0; c < grounds[i].n; c++) {
-                    double y = grounds[i].p[c][1];
-                    if (y > hi + 8.0 && y < top + 3.0 && seg_dist(grounds[i].p[c]) < 30.0) top = std::max(hi + 5.0, y - 3.0);
+                    const V3& p = grounds[i].p[c];
+                    double y = p[1];
+                    double front = (p[0] - w.a[0]) * fnx + (p[2] - w.a[1]) * fnz;
+                    if (front > -1.0) continue;
+                    if (y > hi + 8.0 && y < top + 3.0 && seg_dist(p) < 30.0) top = std::max(hi + 5.0, y - 3.0);
                 }
             }
             // Ground passing over the wall's line whose corners are all far from it: Market's street at 61.7 ft, one
