@@ -400,7 +400,11 @@ ambient occlusion):
      over, y and z within 2 units; `carLightOf`) light in one pass: both shaded, from their midpoint and half the gap
      along the car's side (`dirW.w`), one march toward the midpoint. Light under 0.002 (brightest channel) is dropped,
      and light under 0.03 skips the march (its shadow wouldn't show on a night track's dark surfaces).
-     Intensity x shape x Lambert (normal from the depth buffer) / (d^2 + 1), d in feet, windowed to
+     Intensity x shape x Lambert / (d^2 + 1), d in feet, windowed to nothing at the reach. The Lambert normal comes
+     from the full resolution depth buffer one pixel away each way, across and down each from the side whose depth is
+     nearer the pixel's own, and only where the light before Lambert is worth drawing. (It was cross(ddx, ddy) of the
+     position: at half resolution that spans a 2 x 2 quad, 4 full resolution pixels, and a quad straddling an outline
+     or crease gave its whole 4 x 4 block a normal mixed from both surfaces: blocky light along every edge.) Windowed to
      nothing at the reach ((1 - (d / reach)^4)^2). Intensities: headlamp 15000, tail lamp 14 (braking). A headlamp is
      a low-beam spot: Gaussian falloff in tangents off its axis, 0.52 across, 0.065 below, 0.025 above (a sharp top
      cut), so the long pool on the road comes from the grazing angle. A tail lamp is a lobe ((0.3 + 0.7 cos)^2)
@@ -418,9 +422,16 @@ ambient occlusion):
 2. The scene is copied (`copyTexture`, same format and samples) and `CarLightCompositePS` writes scene + albedo x
    light + glow over the lamps' area, per sample with multisampling, leaving pixels no lamp reached alone. The light
    is upsampled from the half resolution pixels round each pixel (the one at half its position, and on an odd row or
-   column the next along): their average where they agree within a tenth, otherwise each weighed by how near its own
-   pixel's depth is to this one's (exp(-40 x relative w gap), the nearest alone if none is near), so light doesn't
-   bleed across a car's outline. The albedo
+   column the next along): their bilinear average, unless the sample is on an edge: its w more than 10% (relative)
+   off its first light pixel's, or, where the light pixels disagree by more than a tenth, off one of the others' (a
+   surface at a grazing angle changes far less per pixel; light varying over one surface stays bilinear: testing the
+   light alone sent most of the road down the edge path, 0.77 ms). On an edge every light pixel within 3 full resolution pixels (3 x 3 to 4 x 4 of
+   them; the light target is cleared two past the area for it) is weighed by a tent 4 pixels wide times how near its
+   own pixel's depth is to this sample's (exp(-40 x relative w gap), the nearest alone if none is near), so light
+   doesn't bleed across a car's outline and each sample of an antialiased edge pixel takes light from its own surface:
+   the light's edge follows the scene's at full resolution. (With only the bilinear set an even pixel had just its own
+   light pixel, and its other samples took the other surface's light: a stepped edge.) A dark first light pixel doesn't
+   discard an edge sample. The albedo
    is estimated: scene / level (the marker's, 110 / 255), never under 0.015, so a black surface still lifts a little,
    and never over 1 (uncapped, a car's paint or lane paint brighter than the level reflected more than all the light
    and the cars in a beam went white).

@@ -331,29 +331,39 @@ def main():
                     'every game state) instead of the range')
     ap.add_argument('--wreck-at', type=float, help='with --trace: wreck that car this many seconds into the race')
     ap.add_argument('--shots', help='screenshot the window at these seconds after launch (comma separated) into '
-                    'DIR/shot_<seconds>.png, or T<seconds> after the title screen first came up (shot_T<seconds>.png); '
+                    'DIR/shot_<seconds>.png, T<seconds> after the title screen first came up (shot_T<seconds>.png) or '
+                    'R<seconds> after the race intro began (game state 10 at 0x8010C0D0: the grid in place, before the '
+                    'countdown; shot_R<seconds>.png); '
                     'a simulation run needs RUSH2_SIM_SHOW=1 to show its window')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     proc = None
     # (from the title, seconds, label): a time written T<seconds> counts from when the title screen first came up, as
     # the game's --input-script T times do (src/main.cpp), so shots follow a menu script whatever the launch takes.
-    shots = sorted(((v.startswith('T'), float(v.lstrip('T')), v) for v in a.shots.split(',')),
+    # A time written R<seconds> counts from when the race intro began, so race shots land on the grid whatever the
+    # launch and track load take. s[0]: None (from launch), 'T' or 'R'.
+    shots = sorted(((v[0] if v[0] in 'TR' else None, float(v.lstrip('TR')), v) for v in a.shots.split(',')),
                    key=lambda s: s[1]) if a.shots else []
     if shots:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rush1'))
         import shots as shot_tool
     reader = [None]         # the RDRAM reader once found
     title_at = [None]       # seconds from launch to the title screen (front-end screen 0x10 at 0x800E7BC4)
+    intro_at = [None]       # seconds from launch to the race intro (game state 10)
 
     def take_shots():
         # The shots that are due, also before the game has started (the launcher's build progress screen).
         now = time.time() - launched
-        if title_at[0] is None and reader[0] is not None and any(s[0] for s in shots):
+        if title_at[0] is None and reader[0] is not None and any(s[0] == 'T' for s in shots):
             w = reader[0].block(0x800E7BC4, 4)
             if w and (struct.unpack('<I', w)[0] >> 16) == 0x10:
                 title_at[0] = now
-        due = [s for s in shots if not s[0] and now >= s[1] or s[0] and title_at[0] is not None and now >= title_at[0] + s[1]]
+        if intro_at[0] is None and reader[0] is not None and any(s[0] == 'R' for s in shots):
+            w = reader[0].block(0x8010C0D0, 4)
+            if w and struct.unpack('<I', w)[0] == 10:
+                intro_at[0] = now
+        start = {None: 0.0, 'T': title_at[0], 'R': intro_at[0]}
+        due = [s for s in shots if start[s[0]] is not None and now >= start[s[0]] + s[1]]
         for s in due:
             hwnd = shot_tool.find_window(pid)
             if hwnd:

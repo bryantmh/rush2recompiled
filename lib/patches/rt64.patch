@@ -1635,7 +1635,7 @@ index 69a82ac..478fd47 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..d5960ee 100644
+index 9fae0d4..485e7be 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,14 +4,20 @@
@@ -1743,7 +1743,7 @@ index 9fae0d4..d5960ee 100644
          RenderDescriptorSet *descRealFbSet = framebuffer.descRealFbSet->get();
          RenderDescriptorSet *descDummyFbSet = framebuffer.descDummyFbSet->get();
  
-@@ -508,92 +539,683 @@ namespace RT64 {
+@@ -508,92 +539,684 @@ namespace RT64 {
              }
          };
  
@@ -2000,8 +2000,9 @@ index 9fae0d4..d5960ee 100644
 +                return;
 +            }
 +
-+            // The composite reads the light's pixels round each of its own, one past its half of the area: cleared too.
-+            const RenderRect lightClear(std::max(area.left / 2 - 1, 0), std::max(area.top / 2 - 1, 0), std::min((area.right + 1) / 2 + 1, halfWidth), std::min((area.bottom + 1) / 2 + 1, halfHeight));
++            // The composite reads the light's pixels round each of its own (at an edge, those within 3 full resolution
++            // pixels), up to two past its half of the area: cleared too.
++            const RenderRect lightClear(std::max(area.left / 2 - 2, 0), std::max(area.top / 2 - 2, 0), std::min((area.right + 1) / 2 + 2, halfWidth), std::min((area.bottom + 1) / 2 + 2, halfHeight));
 +
 +            const bool timed = (carLightQueryPool != nullptr) && (carLightQueryCount < CarLightQueryLimit);
 +            if (timed) {
@@ -2490,7 +2491,7 @@ index 9fae0d4..d5960ee 100644
                  break;
              };
              case InstanceDrawCall::Type::FillRect: {
-@@ -638,6 +1260,10 @@ namespace RT64 {
+@@ -638,6 +1261,10 @@ namespace RT64 {
              }
          }
  
@@ -2501,7 +2502,7 @@ index 9fae0d4..d5960ee 100644
          // Mark targets for resolve.
          if (fbStorage->colorTarget != nullptr) {
              fbStorage->colorTarget->markForResolve();
-@@ -1316,6 +1942,533 @@ namespace RT64 {
+@@ -1316,6 +1943,533 @@ namespace RT64 {
      }
  #endif
  
@@ -3035,7 +3036,7 @@ index 9fae0d4..d5960ee 100644
      void FramebufferRenderer::addFramebuffer(const DrawParams &p) {
          assert(p.fbStorage != nullptr);
          
-@@ -1450,8 +2603,18 @@ namespace RT64 {
+@@ -1450,8 +2604,18 @@ namespace RT64 {
          uint32_t vertexTestZFaceIndicesStart = 0;
          int32_t vertexTestZCallIndex = -1;
          RenderViewport viewportClip;
@@ -3054,7 +3055,7 @@ index 9fae0d4..d5960ee 100644
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2669,443 @@ namespace RT64 {
+@@ -1506,6 +2670,443 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -3498,7 +3499,7 @@ index 9fae0d4..d5960ee 100644
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +3223,21 @@ namespace RT64 {
+@@ -1623,6 +3224,21 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -3520,7 +3521,7 @@ index 9fae0d4..d5960ee 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +3362,63 @@ namespace RT64 {
+@@ -1747,6 +3363,63 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -3584,7 +3585,7 @@ index 9fae0d4..d5960ee 100644
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +3426,8 @@ namespace RT64 {
+@@ -1754,6 +3427,8 @@ namespace RT64 {
              }
          }
  
@@ -6755,19 +6756,20 @@ index 0000000..1e2be1e
 +}
 diff --git a/src/shaders/CarLightCompositePS.hlsl b/src/shaders/CarLightCompositePS.hlsl
 new file mode 100644
-index 0000000..72ebf6f
+index 0000000..da3000b
 --- /dev/null
 +++ b/src/shaders/CarLightCompositePS.hlsl
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,167 @@
 +//
 +// RT64
 +//
 +
 +// Rush 2 recomp: car lights' composite (FramebufferRenderer::submitCarLights). After a view's lamps have added their
 +// light (CarLightPS.hlsl, half resolution) and glow (CarGlowPS.hlsl), each pixel becomes scene + albedo x light + glow.
-+// The light is upsampled: of the (up to four) half resolution pixels round this one, each stands for the full
-+// resolution pixel at twice its position, and counts by how near that pixel's depth is to this one's, so light doesn't
-+// bleed across a car's outline onto what's behind it or the other way. The albedo is estimated: the scene's color over
++// The light is upsampled: each half resolution pixel stands for the full resolution pixel at twice its position.
++// Bilinearly from the (up to four) round this one on open surfaces; at an edge from all within 3 full resolution
++// pixels, each counting by how near that pixel's depth is to this sample's, so light doesn't bleed across a car's
++// outline onto what's behind it or the other way, and the light's edge follows the scene's at full resolution. The albedo is estimated: the scene's color over
 +// the light level the track draws its surfaces at, never under a small floor so a black surface still lifts a little,
 +// nor over 1. Particles (gEXSetParticleLight) are drawn after this pass and lit in RasterPS.hlsl instead.
 +// Then a shoulder over the brightest channel scales all three alike, so a red light on a gray road rolls off toward a
@@ -6839,38 +6841,66 @@ index 0000000..72ebf6f
 +        }
 +    }
 +
-+    if (max(peak, max(glow.r, max(glow.g, glow.b))) < (1.0f / 1024.0f)) {
++    // This sample's w, and how far (relative to the distance) it is from the surface its first light pixel was lit for.
++    // An outline (a car against the road or a wall behind it) is a jump of well over EdgeGap; a surface seen at a grazing
++    // angle changes far less from one pixel to the next. An edge sample may lie on a lit surface while that light
++    // pixel, on the other one, is dark, so a dark one is only dropped off an edge.
++    const float EdgeGap = 0.1f;
++    const float w = wOf(depthAt(pixel, sampleIndex));
++    const float baseGap = abs(wOf(depthAt(min(base, lightMax) * 2, 0)) - w) / max(w, 1.0f);
++    if ((max(peak, max(glow.r, max(glow.g, glow.b))) < (1.0f / 1024.0f)) && (baseGap <= EdgeGap)) {
 +        discard;
 +    }
 +
-+    // Where they agree (within a tenth, as on open road) their average; otherwise each weighed by how near its own
-+    // pixel's depth is to this one's (relative to the distance), the nearest kept if none is near (an edge one pixel
-+    // wide).
++    // An edge: this sample off its first light pixel's surface, or, where the light pixels round it disagree (by more
++    // than a tenth), one of the others off it. Elsewhere (all one surface, however the light varies over it, which
++    // bilinear filtering follows) their bilinear average.
++    bool edge = (baseGap > EdgeGap);
++    if (!edge && ((peak - low) > 0.1f * peak)) {
++        for (int k = 1; k < 4; k++) {
++            const int2 step = int2(k & 1, k >> 1);
++            if (!any(step > odd)) {
++                edge = edge || ((abs(wOf(depthAt(min(base + step, lightMax) * 2, 0)) - w) / max(w, 1.0f)) > EdgeGap);
++            }
++        }
++    }
++
++    // At an edge, every light pixel within 3 full resolution pixels (3 x 3 to 4 x 4 of them), each weighed by its
++    // nearness on screen (a tent 4 pixels wide) and by how near its own pixel's depth is to this sample's (relative to
++    // the distance), the nearest in depth kept if none is near. The wider search gives each sample of an edge pixel
++    // (multisampling) and each even pixel, which has only its own light pixel in the bilinear set, a light pixel on its
++    // own surface, so the light's edge follows the scene's at full resolution and its antialiasing instead of the
++    // light's half resolution grid.
 +    float3 light = average / used;
-+    if ((peak - low) > 0.1f * peak) {
-+        const float w = wOf(depthAt(pixel, sampleIndex));
++    if (edge) {
++        const int2 first = int2(ceil((float2(pixel) - 3.0f) * 0.5f));
++        const int2 last = int2(floor((float2(pixel) + 3.0f) * 0.5f));
 +        float3 weighed = float3(0.0f, 0.0f, 0.0f);
 +        float weights = 0.0f;
 +        float3 nearest = float3(0.0f, 0.0f, 0.0f);
 +        float nearestGap = 1e30f;
-+        for (int k = 0; k < 4; k++) {
-+            const int2 step = int2(k & 1, k >> 1);
-+            if (any(step > odd)) {
-+                continue;
-+            }
++        for (int y = first.y; y <= last.y; y++) {
++            for (int x = first.x; x <= last.x; x++) {
++                const int2 at = clamp(int2(x, y), int2(0, 0), lightMax);
++                const float2 offset = abs(float2(int2(x, y) * 2 - pixel));
++                const float spatial = saturate(1.0f - offset.x * 0.25f) * saturate(1.0f - offset.y * 0.25f);
++                if (spatial <= 0.0f) {
++                    continue;
++                }
 +
-+            const int2 at = min(base + step, lightMax);
-+            const float gap = abs(wOf(depthAt(at * 2, 0)) - w) / max(w, 1.0f);
-+            const float weight = exp(-gap * 40.0f);
-+            weighed += lights[k] * weight;
-+            weights += weight;
-+            if (gap < nearestGap) {
-+                nearestGap = gap;
-+                nearest = lights[k];
++                const float3 sampleLight = gLight.Load(int3(at, 0)).rgb;
++                const float gap = abs(wOf(depthAt(at * 2, 0)) - w) / max(w, 1.0f);
++                const float weight = spatial * exp(-gap * 40.0f);
++                weighed += sampleLight * weight;
++                weights += weight;
++                if (gap < nearestGap) {
++                    nearestGap = gap;
++                    nearest = sampleLight;
++                }
 +            }
 +        }
 +
-+        light = (weights > 0.05f) ? weighed / weights : nearest;
++        light = (weights > 0.02f) ? weighed / weights : nearest;
 +    }
 +
 +#ifdef MULTISAMPLING
@@ -6899,10 +6929,10 @@ index 0000000..72ebf6f
 +}
 diff --git a/src/shaders/CarLightPS.hlsl b/src/shaders/CarLightPS.hlsl
 new file mode 100644
-index 0000000..9928db5
+index 0000000..63bc9f5
 --- /dev/null
 +++ b/src/shaders/CarLightPS.hlsl
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,230 @@
 +//
 +// RT64
 +//
@@ -6975,8 +7005,46 @@ index 0000000..9928db5
 +    return !((depth < 0.99999f) && (w > 0.0f));
 +}
 +
-+// One lamp at lampPos (from the camera) on the surface point p with normal n: its light before any shadow.
-+float3 lampLight(float3 lampPos, float3 p, float3 n, float3 axis, float3 side, bool headlamp) {
++// The point the depth buffer holds at a full resolution pixel, from the camera, and its w (huge for the sky, so a sky
++// neighbor is never taken as the surface's own).
++float3 pointAt(int2 pixel, out float w) {
++    const float depth = depthAt(pixel);
++    w = wOf(depth);
++    const float2 at = float2(pixel) + 0.5f;
++    const float3 p = (at.x * gConstants.dirX.xyz + at.y * gConstants.dirY.xyz + gConstants.dirW.xyz) * max(w, 0.0f);
++    if (isSky(depth, w)) {
++        w = 1e30f;
++    }
++
++    return p;
++}
++
++// The surface's normal at a full resolution pixel, from its own neighbors one pixel away at full resolution: across
++// and down, each from the side whose depth is nearer this pixel's, so a pixel next to an edge takes its normal from
++// its own surface, not from the step across the edge to what is behind or in front. (Screen space derivatives here
++// would span a 2 x 2 quad of half resolution pixels, 4 full resolution pixels, and one quad straddling an edge would
++// give its whole block a normal from both surfaces: blocky light round every outline and crease.) Turned toward the
++// camera.
++float3 normalAt(int2 pixel, float3 p, float w, int2 maxPixel) {
++    float wl, wr, wu, wd;
++    const float3 pl = pointAt(max(pixel - int2(1, 0), int2(0, 0)), wl);
++    const float3 pr = pointAt(min(pixel + int2(1, 0), maxPixel), wr);
++    const float3 pu = pointAt(max(pixel - int2(0, 1), int2(0, 0)), wu);
++    const float3 pd = pointAt(min(pixel + int2(0, 1), maxPixel), wd);
++    const bool right = (pixel.x == 0) || ((pixel.x < maxPixel.x) && (abs(wr - w) < abs(wl - w)));
++    const bool down = (pixel.y == 0) || ((pixel.y < maxPixel.y) && (abs(wd - w) < abs(wu - w)));
++    const float3 across = right ? (pr - p) : (p - pl);
++    const float3 downward = down ? (pd - p) : (p - pu);
++    float3 n = cross(across, downward);
++    const float nLength = length(n);
++    n = (nLength > 1e-12f) ? n / nLength : float3(0.0f, 1.0f, 0.0f);
++    return (dot(n, p) > 0.0f) ? -n : n;
++}
++
++// One lamp at lampPos (from the camera) on the surface point p: its light before any shadow and before the Lambert
++// term, which the caller applies with the direction toward the lamp (l), once it knows the light is worth a normal.
++float3 lampLight(float3 lampPos, float3 p, float3 axis, float3 side, bool headlamp, out float3 l) {
++    l = float3(0.0f, 0.0f, 1.0f);
 +    const float3 toLight = lampPos - p;
 +    const float distance = length(toLight);
 +    const float range = gConstants.light.w;
@@ -6984,9 +7052,8 @@ index 0000000..9928db5
 +        return float3(0.0f, 0.0f, 0.0f);
 +    }
 +
-+    const float3 l = toLight / distance;
++    l = toLight / distance;
 +    const float3 d = -l;
-+    const float lambert = saturate(dot(n, l));
 +    float shape = 0.0f;
 +    const float along = dot(d, axis);
 +    if (headlamp) {
@@ -7014,7 +7081,7 @@ index 0000000..9928db5
 +    const float ratio2 = ratio * ratio;
 +    const float window = saturate(1.0f - ratio2 * ratio2);
 +    const float feet = distance / UnitsPerFoot;
-+    return gConstants.color.rgb * (shape * lambert * window * window / (feet * feet + 1.0f));
++    return gConstants.color.rgb * (shape * window * window / (feet * feet + 1.0f));
 +}
 +
 +float4 PSMain(in float4 pos : SV_Position, in float2 uv : TEXCOORD0) : SV_TARGET {
@@ -7026,16 +7093,6 @@ index 0000000..9928db5
 +    const float w = wOf(depth);
 +    const bool sky = isSky(depth, w);
 +    const float3 p = (fullPos.x * gConstants.dirX.xyz + fullPos.y * gConstants.dirY.xyz + gConstants.dirW.xyz) * max(w, 0.0f);
-+
-+    // The surface's normal from its neighbors (taken before any branch, so the derivatives are whole), turned toward
-+    // the camera.
-+    float3 n = cross(ddx(p), ddy(p));
-+    const float nLength = length(n);
-+    n = (nLength > 1e-12f) ? n / nLength : float3(0.0f, 1.0f, 0.0f);
-+    if (dot(n, p) > 0.0f) {
-+        n = -n;
-+    }
-+
 +    const bool headlamp = gConstants.color.w > 0.5f;
 +    const float3 axis = gConstants.direction.xyz;
 +    const float3 side = normalize(cross(gConstants.up.xyz, axis));
@@ -7046,13 +7103,23 @@ index 0000000..9928db5
 +    }
 +
 +    // The lamp, or a pair of lamps either side of light.xyz (dirW.w: half the gap along the car's side, 0 for one).
++    // Too faint to show (the composite adds albedo x light: under 0.002 is under a tenth of an 8-bit step even on white),
++    // checked before the Lambert term (at most 1) so pixels outside the beam don't read the normal's neighbors.
 +    const float halfGap = gConstants.dirW.w;
-+    float3 irradiance = lampLight(gConstants.light.xyz - side * halfGap, p, n, axis, side, headlamp);
++    float3 l0, l1 = float3(0.0f, 0.0f, 1.0f);
++    const float3 unlit0 = lampLight(gConstants.light.xyz - side * halfGap, p, axis, side, headlamp, l0);
++    float3 unlit1 = float3(0.0f, 0.0f, 0.0f);
 +    if (halfGap != 0.0f) {
-+        irradiance += lampLight(gConstants.light.xyz + side * halfGap, p, n, axis, side, headlamp);
++        unlit1 = lampLight(gConstants.light.xyz + side * halfGap, p, axis, side, headlamp, l1);
 +    }
 +
-+    // Too faint to show (the composite adds albedo x light: under 0.002 is under a tenth of an 8-bit step even on white).
++    const float3 unlit = unlit0 + unlit1;
++    if (max(unlit.r, max(unlit.g, unlit.b)) < MinLight) {
++        return float4(0.0f, 0.0f, 0.0f, 0.0f);
++    }
++
++    const float3 n = normalAt(pixel, p, w, maxPixel);
++    const float3 irradiance = unlit0 * saturate(dot(n, l0)) + unlit1 * saturate(dot(n, l1));
 +    const float peak = max(irradiance.r, max(irradiance.g, irradiance.b));
 +    if (peak < MinLight) {
 +        return float4(0.0f, 0.0f, 0.0f, 0.0f);
