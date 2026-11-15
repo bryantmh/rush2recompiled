@@ -365,7 +365,9 @@ def sweep(a):
     for n in range(0, len(types), 8):
         batch = types[n:n + 8]
         cmd = [sys.executable, os.path.join(HERE, 'test_race.py'), str(a.track), '--cars', str(batch[0]),
-               '--seconds', str(a.seconds), '--out', os.path.join(dump, '_run'), '--env', 'RUSH2_CAR_LIGHTS_DUMP=' + dump]
+               '--seconds', str(a.seconds), '--out', os.path.join(dump, '_run'), '--env', 'RUSH2_CAR_LIGHTS_DUMP=' + dump,
+               # Car Lights defaults to Off: without it nothing is found or dumped.
+               '--config', 'graphics.car_lights=On']
         for k, t in enumerate(batch[1:]):
             cmd += ['--config', 'npc_cars.npc%d_car=%d' % (k + 1, t)]
         if a.dreamcast:

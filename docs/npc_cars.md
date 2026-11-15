@@ -53,6 +53,8 @@ The section's rows follow the chosen car, as the car select's do (src/rush2049/w
   entry's +4 byte is copied whole to the physics car's `+0x7ED` (`0x8009E948`), which car_build_scene_nodes passes to
   car_build_textures (`0x800866CC`) as it does a human's STRIPE from the record getter, so the painter hooks at
   `0x80085D84` / `0x80085D8C` draw it.
+- An N64 2049 car and a new car painted through a mask have Stripe too (drawn by their own code:
+  docs/car_mods.md#stripes-on-one-body-cars); a Dreamcast disc's car or a new car with color schemes has none.
 
 A Random ACCENT follows the stripe the car ends up with: Rush 2's stripe path sets a striped drone's ACCENT to its
 MAIN and its no-stripe path another color, so a chosen stripe (or a chosen MAIN on a striped car) makes ACCENT the

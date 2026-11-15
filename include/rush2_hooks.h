@@ -572,6 +572,8 @@ void rush2_checkpoint_time_difficulty(uint8_t* rdram, recomp_context* ctx, int r
 void rush2_car_rows_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_text(uint8_t* rdram, recomp_context* ctx);
 void rush2_car_rows_widget(uint8_t* rdram, recomp_context* ctx, int shift, int swatch);
+void rush2_tertiary_swatch_show(uint8_t* rdram, recomp_context* ctx);
+void rush2_tertiary_swatch_value(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_drones_step(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_drones_reset(uint8_t* rdram, recomp_context* ctx);
 void rush2_ghost_drones_value(uint8_t* rdram, recomp_context* ctx);

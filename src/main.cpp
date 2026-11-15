@@ -161,7 +161,16 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
     flags |= SDL_WINDOW_VULKAN;
 #endif
 
-    window = SDL_CreateWindow(rush2::program_name.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1600, 900, flags);
+    // RUSH2_TEST_WINDOW=<width>x<height>: the window's size for test runs (captures at the size a player sees).
+    int window_w = 1600, window_h = 900;
+    if (const char* size = getenv("RUSH2_TEST_WINDOW")) {
+        int w = 0, h = 0;
+        if (sscanf(size, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 240) {
+            window_w = w;
+            window_h = h;
+        }
+    }
+    window = SDL_CreateWindow(rush2::program_name.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, window_w, window_h, flags);
 
     if (window == nullptr) {
         exit_error("Failed to create window: %s\n", SDL_GetError());

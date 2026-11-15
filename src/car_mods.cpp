@@ -79,7 +79,7 @@ namespace {
         "D0_D2FR2", "D2_D2FR2", "D0_D2FL2", "D2_D2FL2", "D0_D2RR2", "D2_D2RR2", "D0_D2RL2", "D2_D2RL2", "D0_D2TOP2",
         "H0_L", "H2_L", "H0_R", "H2_R", "H0D_L", "H2D_L", "H0D_R", "H2D_R",
     };
-    constexpr uint32_t cache_version = 6;
+    constexpr uint32_t cache_version = 8; // 8: once more after a test build's stand-ins (7) had marker texels
 
     // Rush 2's car palette classes (0x800C5670, docs/game_fixes.md Rocket windshield): 1-31 MAIN, 33-63 ACCENT,
     // 64-95 / 112-143 / 208-255 stripe stamped, the rest fixed.
@@ -1548,20 +1548,46 @@ std::string rush2::car_mods::livery_name(uint8_t* rdram, int id) {
 }
 
 namespace {
-    // Race car `id`'s (0-7) type and, for a human's, its player's profile (record address in the save area; 0 for a
-    // computer car, which always shows STYLE 1).
-    void race_car_identity(uint8_t* rdram, int id, int& type, uint32_t& profile) {
+    // Race car `id`'s (0-7) type and, for a human's, its player and that player's profile (record address in the save
+    // area; 0 for a computer car, which always shows STYLE 1).
+    void race_car_identity(uint8_t* rdram, int id, int& type, int& player, uint32_t& profile) {
         constexpr uint32_t car_table = 0x800D9C10;    // race cars: 9 bytes each, +1 type, +7 0xB0 a human's
         constexpr uint32_t physics_cars = 0x800F5470; // 0x81C each: +0x7E8 2 a human's, +0x7EA its type
         uint32_t car = physics_cars + id * 0x81C;
         bool human = MEM_BU(0, (int32_t)(car + 0x7E8)) == 2;
         type = human ? MEM_BU(0, (int32_t)(car + 0x7EA)) : MEM_BU(0, (int32_t)(car_table + id * 9 + 1));
         profile = 0;
+        player = -1;
         if (human) {
             for (int p = 0; p < 4; p++) {
-                if (MEM_BU(0, rush2::players4::record(p)) == id) profile = (uint32_t)MEM_W(0x24, rush2::players4::record(p));
+                if (MEM_BU(0, rush2::players4::record(p)) == id) {
+                    player = p;
+                    profile = (uint32_t)MEM_W(0x24, rush2::players4::record(p));
+                }
             }
         }
+    }
+    void race_car_identity(uint8_t* rdram, int id, int& type, uint32_t& profile) {
+        int player;
+        race_car_identity(rdram, id, type, player, profile);
+    }
+}
+
+void rush2::car_mods::car_identity(uint8_t* rdram, int id, int& type, int& player, uint32_t& profile) {
+    type = -1;
+    player = -1;
+    profile = 0;
+    if (MEM_W(0, (int32_t)game_state) == 2) {     // the car select: id = panel x types + type
+        if (id < 0 || id >= rush2::car_types::preview_ids) return;
+        // Two players choose in panels 0 and 1; one player's car shows in panel 1 (found in game: Camaro id 78).
+        int slot = MEM_H(0, (int32_t)race_player_count) == 1 ? 0 : id / types_all;
+        type = id % types_all;
+        player = slot + (rush2::players4::car_select_second_round() ? 2 : 0);
+        profile = (uint32_t)MEM_W(0x24, rush2::players4::record(player));
+    }
+    else {                                        // a race car: a human's is its player's ("car = player", +0)
+        if (id < 0 || id >= 8) return;
+        race_car_identity(rdram, id, type, player, profile);
     }
 }
 
@@ -1595,21 +1621,10 @@ bool rush2::car_mods::look_color(uint8_t* rdram, int id, uint32_t& rgb) {
 }
 
 void rush2::car_mods::paint_livery(uint8_t* rdram, int id) {
-    int type = -1;
+    int type = -1, player = -1;
     uint32_t profile = 0;
-    if (MEM_W(0, (int32_t)game_state) == 2) {     // the car select: id = panel x types + type
-        if (id < 0 || id >= rush2::car_types::preview_ids) return;
-        // Two players choose in panels 0 and 1; one player's car shows in panel 1 (found in game: Camaro id 78).
-        int slot = MEM_H(0, (int32_t)race_player_count) == 1 ? 0 : id / types_all;
-        type = id % types_all;
-        int player = slot + (rush2::players4::car_select_second_round() ? 2 : 0);
-        profile = (uint32_t)MEM_W(0x24, rush2::players4::record(player));
-    }
-    else {                                        // a race car: a human's is its player's ("car = player", +0)
-        if (id < 0 || id >= 8) return;
-        race_car_identity(rdram, id, type, profile);
-    }
-    if (livery_count(type) == 0) return;
+    car_identity(rdram, id, type, player, profile);
+    if (type < 0 || livery_count(type) == 0) return;
     int style = livery_style(rdram, profile, type);
     uint32_t copy = livery_copy(rdram, id);
     if (copy == 0) return;

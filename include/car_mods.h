@@ -54,6 +54,9 @@ namespace rush2::car_mods {
     // disc's Rush 2049 paint job. False when MAIN COLOR paints it. The track map's dots (rush2_map_dot_colors). Game
     // thread.
     bool look_color(uint8_t* rdram, int id, uint32_t& rgb);
+    // Whose car copy `id` is (a car select preview id while the car select is up, else a race car 0-7): its type, its
+    // player (0-3, -1 for a computer car) and that player's profile (record address in the save area, 0 for none).
+    void car_identity(uint8_t* rdram, int id, int& type, int& player, uint32_t& profile);
 }
 
 // Files in the enabled mods (car models, HUD placements).

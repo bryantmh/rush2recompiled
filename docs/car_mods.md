@@ -295,9 +295,10 @@ rebuilt (a new Rush 2049 source).
   (docs/rush2049_research/cars.md#8-implementation-v). Reordering or turning off mods can move a car to another slot: a player's saved choice on that slot then
   becomes the car now in it.
 - **Game Filter:** new cars count as CUSTOM.
-- **Car select rows:** a new car has no STRIPE or STRIPE COLOR row (no stripes are stamped on it). It shows MAIN
-  COLOR and ACCENT COLOR only if its paint masks use them, so a car without a mask keeps its textures' own colors
-  and shows no color rows, like a Dreamcast car's single livery.
+- **Car select rows:** a new car shows MAIN COLOR and ACCENT COLOR only if its paint masks use them, so a car
+  without a mask keeps its textures' own colors and shows no color rows, like a Dreamcast car's single livery. A car
+  whose mask uses MAIN (and has one look, no color schemes) also gets STRIPE and STRIPE COLOR: see
+  [Stripes on one-body cars](#stripes-on-one-body-cars).
 - **Car Sheen:** a new car gets Rush 2's sheen layers, built from its body as California Speed's cars get them, and
   follows the Graphics > Car Sheen setting like a Rush 2 car (Cube Map included). Its hood gets sheen layers too.
 - **Damage:** a new car takes damage with Rush 2049's one-body car code (`set_body`): its body dents by panel, the
@@ -406,6 +407,131 @@ ends by setting the body's mode and combiner back; a lit livery LOD sets G_LIGHT
 Test aid: `RUSH2_TEST_LIVERY=<style>` shows that STYLE on every car with liveries (JUST PLAY has no profile to keep one
 in): `tools/test_race.py 0 --cars 28 --env RUSH2_TEST_LIVERY=1 --script "14:A:5,19.2:B:3" --shots 18.8,19.6` brakes
 the Bruiser in the arcade's first Cuda livery.
+
+## Stripes on one-body cars
+
+Rush 2 stamps its stripes onto its own cars' six panel textures (`car_stamp_stripes_on_panel_80083F50`, from
+`car_build_textures_8008582C`'s 24-pass loop). Cars drawn as one body have none of those panels, so their textures'
+name prefix is `R49X_` and nothing was stamped: the Rush 2049 N64 cars hid the STRIPE row, and new cars hid STRIPE
+and STRIPE COLOR. Both now take Rush 2's seven stripes (`src/car_stripes.cpp`, `include/car_stripes.h`, the blocks in
+`add_damage_textures` and `stripe_paint`, src/rush2049/car2049.cpp):
+
+- **The shapes are Rush 2's.** A stripe is a set of bands along the car's length, measured out from its
+  centerline. Every stripe tile in asset 0x1C (`cars/stripes`, one per STRIPE value and panel shape: `1ST_`, `1F_`,
+  `1FD_`, `2ST_`, `2F_`, `3ST_`, `3A_`, the prefix table at 0x800C6518 indexed by the STRIPE value, entry 0 `DEW_`)
+  reaches across half a panel from its centerline edge, and every tile size has the same bands at the same
+  fractions (SINGLE is 10/64 of the 64-wide `_L2` tile and 5/32 of the 32-wide `_L1`). So each tile is read as bands
+  over the car's half width (the widest |x| of the body): SINGLE 0-10/64, SINGLE FAT 0-20/64, SNGL FADE 0-4/64 solid
+  then steps of 2/64 at alpha C, B, 9, 7, 5, 2 out to 16/64, DOUBLE 6-16/64, DOUBLE FAT 8-28/64, TRIPLE A 0-10/64 and
+  14-20/64, TRIPLE B 0-2/64 and 6-18/64 (`profiles`, from the `_L2` tiles). Rush 2 also places each tile per car and
+  panel (a byte table at 0x800C6230 and floats at 0x800C62B4, 6 per car type, which
+  `car_texture_prefix_lookup_800843EC` hands the stamp; not decoded): the one-body cars use the half width as it is.
+- **The edges are the geometry's.** Painting the bands into the textures (the first try) can't work on these cars:
+  their textures are small (64x32, the PS1 cars' whole body in 256x64), so the edges stair-stepped along the texels,
+  and one texture is used at several places on a car (the same texels on the hood and a door), so a band painted
+  for one place showed at the others and texels used at places far apart could take none (most PS1 cars, the Mini
+  and the UFO among them, showed almost nothing). Instead the band edges are cut by the alpha test, in geometry that
+  is the body's own.
+- **The body is never cut.** Cutting the body's triangles at the band edges (the earlier way) left hairline cracks:
+  a cut point has to be rounded to whole units, so the pieces leave the body's plane and gaps open along the cuts,
+  and eight cut versions of every list grew a car to 2 MB. Now the body lists are drawn as they are, and each ends
+  with one block per STRIPE value (`add_damage_textures`, `emit_stripe_blocks`) that draws the body's painted
+  triangles in that value's bands again, over the body, as decals (`G_RM_ZB_XLU_DECAL`, the body's fog cycle kept),
+  from the body's own vertices (or exact copies), with the body's texture coordinates, through the stripe palette
+  of the band's level (`stripe_tluts`, 7 x 256 entries kept in the car; the car's own palette loaded back after).
+  The same vertices give the same depth, and the same texture coordinates keep all the texture's detail.
+  - **Edges by alpha test:** a triangle a band edge crosses is drawn whole once per edge it crosses, left to right,
+    each layer through the palette of the region right of its edge (a stripe level's, or the car's own where the
+    band ends inside the triangle) and cut off left of the edge by the alpha test (`G_AC_THRESHOLD` at blend alpha
+    128): its vertices are copies of the body's whose shade alpha is 128 + k (x - edge), linear in x, so the cut is a
+    straight line at the edge's x right across the triangle (RT64 interpolates shade perspective-correct). The last
+    layer drawn at a point is its region's. Each edge has one slope k for every triangle it crosses (the steepest
+    that keeps all their vertices in 0-255), so a vertex has one alpha and the cut runs on unbroken across
+    triangles. The edge layers draw in two cycles: alpha (TEXEL0 - 0) x SHADE in the first, which the alpha test
+    reads, the texel's alone in the second, which the blender reads (opaque paint; glass, lights and trim stay
+    see-through), the first blender cycle passing the color on and G_FOG off for them (their shade alpha is the
+    edge's; restored after). A forced blend keeps RT64 on its hard threshold test rather than its filtered cutout
+    coverage. Triangles no edge crosses are drawn whole in their region's palette.
+  - **Painted triangles:** the current texture load is a painted one (it has a scuffed copy), G_TEXTURE is on, the
+    combiner's first color cycle reads TEXEL0, it doesn't face down (outward normal y >= -0.6), and its corners are
+    body vertices. The render mode can't tell glass apart (2049 bodies draw with FORCE_BL), but the Super GT's
+    windows are untextured triangles drawn while its body texture is still loaded, which the combiner and
+    G_TEXTURE tests catch.
+  - **Sheen layers** (`track2049::sheen_parts`) are left as they are: they lie on the uncut body.
+  - **Dents:** the edge layers' vertex copies move as the body vertex each copies (`Paint::StripeVertex`), and each
+    layer's texture load is a damage load like the body's (scuffed by its panel).
+- **The palettes** (`stripe_paint`, at the end of car_build_textures, `rush2_car49_paint`): an N64 2049 car's MAIN
+  and ACCENT shade k (entries 32-63, 64-95) become shade k of a ramp painted from the STRIPE COLOR as the car's own
+  ramps are (the color, then steps towards black); the darkest shades (k >= 28) and every entry that isn't paint
+  are see-through (alpha 0), so glass drawn in the paint ramp's near-black end (the Super GT's windows, entry 62),
+  lights and trim keep the body's look under a stripe. Its third ramp (96-126) is its TERTIARY COLOR, a row of its own
+  (see [Tertiary color](#tertiary-color)). A new car's is the STRIPE COLOR on Rush 2's MAIN and ACCENT ramps (1-31, 33-63), each entry as much darker
+  than its ramp's first as the paint's is; rush2::derive reads a stand-in's paint off entries 1 and 33, so the
+  full-size image is painted in the stripe's color (entries darker than 12% luma see-through, as above). SNGL FADE's steps blend the paint towards the stripe by level /
+  15, as the tile's alpha does. `rush2_car49_paint` reads the STRIPE value from `sp + 0xDB` (the stripe loop's `lb`
+  at 0x80085D58; MAIN, ACCENT and STRIPE COLOR are `sp + 0xD3`, `0xD7`, `0xDF`) and opens that value's blocks: each
+  block's first command is a branch past it (`0xDE010000`), turned into a G_NOOP for the value picked.
+- **Which cars:** the N64 ROM's 2049 cars (`Paint::stripes`), and new cars whose paint mask uses MAIN and that have
+  one look (`set_mod_car`: `paint_main`, no color schemes; the PS1 SF Rush cars among them). A Dreamcast disc's
+  2049 cars keep their paint jobs (STYLE) and have no stripes. The PS1 police car (PIGGY) is drawn white without a
+  paint mask, so it has no stripe, as it has no paint colors.
+- **Rows:** the car select shows STRIPE for an N64 2049 car (`src/rush2049/wings_menu.cpp`) and STRIPE and STRIPE
+  COLOR for a new car whose mask uses MAIN; the General tab's AI Opponents shows Stripe for both. Saved choices are
+  unchanged: these cars' STRIPE starts at NONE (the per-type tables' player rows are 0, and the 2049 and mod types
+  copy the Pickup's defaults), so a car looks as before until a stripe is picked. A computer car can draw a stripe of
+  its own, as Rush 2's random paint gives one to about half of its drones.
+- **Test:** `RUSH2_TEST_RACE_STRIPE=<0-7>[,<color>]` gives every player's car that STRIPE (and STRIPE COLOR) in a
+  direct race (src/test_race.cpp), e.g. four players at once:
+  `tools/test_race.py 1 --cars 24,27,63,66 --env RUSH2_TEST_RACE_STRIPE=2,4 --script "1:B:70" --shots 45` (two
+  2049 cars, the PS1 Mini and UFO), and `RUSH2_TEST_DAMAGE=1` for a damaged car 0. On the car select:
+  `tools/test_race.py menus --config cheats.unlock_all_cars=true --env RUSH2_TEST_TRACK=0 --env RUSH2_TEST_CAR=27
+  --script "T1:START,T4:A,T6.5:A,T10:A,T12:DD,T13:DD,T14:DD,T15:DD,T16:DD,T17:DD,T18:DR,T19:DR" --seconds 30
+  --shots T20,T21,T22,T23` (the Super GT: STRIPE is its seventh row, after TERTIARY COLOR; SINGLE FAT from T19,
+  shots as it turns). `RUSH2_TEST_WINDOW=3840x2160` sizes the window for captures at a player's resolution
+  (slivers a pixel wide don't show at the default 1600x900). `RUSH2_STRIPE_DUMP=<absolute dir>` writes each
+  rewritten car as `<dir>/<body>.bin`. Checked 2026-11-15 at 3840x2160: TRIPLE A on the Super GT, Panther, PS1 bus
+  and UFO in a race, the UFO turning on the car select, and fast scrolling through the car select (cars drawn,
+  memory flat).
+- **Size:** the blocks and edge copies grow a 2049 car from about 55 KB to about 200 KB; the car slots are sized to
+  the largest car (`car_slot_size`), which an arcade livery car already sets at about 750 KB. `RUSH2_STRIPE_LOG=1`
+  logs each body's size before and after, its edge vertices and blocks.
+
+## Tertiary color
+
+An N64 ROM's Rush 2049 car is painted with three colors (2049's COLOR 1-3, `rush2_car49_paint`: palette ramps 32-63,
+64-95, 96-126). Its third used to be the car select's STRIPE COLOR row, relabelled TERTIARY COLOR; with stripes
+drawn on these cars (above) that tied the stripe to the car's own third-color parts, so TERTIARY COLOR is a row of its
+own under ACCENT COLOR and STRIPE COLOR colors only the stripe.
+
+- **The row** (`src/rush2049/wings_menu.cpp`): option id 18 (`option_tertiary`), inserted after ACCENT COLOR for an
+  N64 2049 car's panel (`use_slot`) when the car's textures use the third ramp (`has_tertiary`: at least 16 texels
+  in entries 96-126 over every CI8 image its texture-load lists load, `third_ramp_texels`). Seven of the 13 do:
+  FORMULA 1, ROCKET ZX, MAGNUM, GX-2, MINI XS, VENOM and EURO LX (88 to 3316 texels); the 8-BALL, SUPER GT, BRUISER,
+  LOCUST LX, CRUSHER and PANTHER have none (the SUPER GT 6, its darkest shade), so the row would change nothing and
+  is left off. (The palette itself is loaded as a block in the same lists and is skipped: counted, it gave every car
+  20-odd texels.) The car select's own code ignores ids above 14, so hooks do what it does for a
+  color row: the label (`row_label`, "TERTIARY COLOR"), left / right (`rush2_wings_car_step`: steps through
+  `rush2::paint_colors::count()` colors and repaints both panels' previews, `rush2::car2049::repaint_tertiary`), and
+  the swatch: carselect_widget_cb_cartype_tables_803BAA44 shows a swatch only for ids 2, 3 and 5, so at 0x803BAAF8
+  (`$a3` = the row's option list entry, `$a1` = hide) `rush2_tertiary_swatch_show` keeps it shown for id 18, and at
+  0x803BABD8 (`$v1` = the panel; ids 2, 3, 5 have read their table's color into `sp + 0x20`)
+  `rush2_tertiary_swatch_value` puts the TERTIARY COLOR there. The option list holds 16 rows (0x803CB3B8 up to the
+  panel id at 0x803CB3F8): with the TIRE SIZE cheat's two rows and WINGS a 2049 car's list is full, and the last row
+  (TIRE SIZE R) is left off.
+- **Kept** per profile and car type in the saves' "tertiary" section (`{"<record>": {"<type>": color}}`,
+  `rush2::car2049::tertiary_color`), as the liveries' STYLE is: the player record has no room for it. A player without
+  a profile (JUST PLAY) keeps it for the session (owner = player 1-4). A car with none kept takes its STRIPE COLOR,
+  which was its third color before; the car select keeps that the first time it shows the car (`slot_tertiary`), so
+  a car looks as it did until the row is changed, whatever STRIPE COLOR is set to afterwards.
+- **Painted** by `rush2_car49_paint` for the copy's owner (`rush2::car_mods::car_identity`: a car select preview's
+  panel player, a race car's human player); a computer car has no owner and keeps its STRIPE COLOR as its third
+  color, as before (the AI Opponents' "Tertiary Color" sets both on a 2049 computer car).
+- **Online:** `side_block` sends each 2049 car's TERTIARY COLOR after the record's side slot (13 bytes, 0xFF for
+  none), and `set_guest_side_block` keeps a guest's for its profile copy; machines in one lobby run the same build
+  (the compatibility key holds the build id), so both ends read the same layout.
+- **Test:** `tools/test_race.py menus --config cheats.unlock_all_cars=true --env RUSH2_TEST_TRACK=0 --env
+  RUSH2_TEST_CAR=25 --script "T1:START,T4:A,T6.5:A,T10:A,T12:DD,T13:DD,T14:DD,T15:DD,T16:DD,T17:DR,T18:DR"` steps
+  the Rocket ZX's TERTIARY COLOR (its sixth row); on the Panther (35) the sixth row is STRIPE.
 
 ## Track map dots
 

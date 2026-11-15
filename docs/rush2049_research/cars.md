@@ -193,8 +193,9 @@ Rims + 2049's rims (file 81). Rush 2 cars keep their stock rows and values. Choi
   using Rush 2's table so the car matches the select screen's swatches. 2049's artists mostly use COLOR 1 for the body,
   COLOR 2 for the second colour (lower body, side panels, the Bruiser's racing stripes) and COLOR 3 for trim and
   pinstripes; the Euro LX differs (COLOR 3 is its roof and hood, COLOR 1 a band along its sides) and is kept as 2049
-  authored it. Rush 2's STRIPE patterns are not drawn on the 2049 cars: Rush 2 stamps its stripe tiles onto its own
-  cars' panel textures (func_80083F50), which don't exist on a 2049 body. 2049's per-car defaults (COLOR 1-3:
+  authored it. Rush 2 stamps its stripe tiles onto its own cars' panel textures (func_80083F50), which don't exist on
+  a 2049 body; Rush 2's STRIPE patterns are drawn on the N64 ROM's 2049 cars by their own code instead, in COLOR 3
+  (docs/car_mods.md#stripes-on-one-body-cars). 2049's per-car defaults (COLOR 1-3:
   0x80111604, 0x80111648, 0x8011168C; func_800BB140 gives them to the drones) become the 2049 types' default rows
   (0x800C0ED0 / 0F14 / 0F9C, relocated) and seed new save slots (record block: MAIN bits 5-7 of +1 and 0-1 of +2,
   ACCENT bits 2-6 of +2, STRIPE bits 0-2 and STRIPE COLOR bits 3-7 of +3; func_800B266C / 2640 / 2608 / 25D0).
@@ -280,9 +281,9 @@ grip), DURABILITY (record byte / 100: the weight). The 2049 cars keep Rush 2's l
 - **SUSPENSION** and **TIRES** keep their full Rush 2 effect (yaw damping and suspension curve; steering, yaw and
   off-road grip, from the analogue's base values). 2049's HANDLING stays at each car's own setup; its 0x801116D0 +9
   value (1.0 / 0.5 / 0.0) is untraced, so a HANDLING row is left for later.
-- MAIN, ACCENT and STRIPE COLOR are 2049's COLOR 1-3 (§8 Paint); STRIPE COLOR reads TERTIARY COLOR on a 2049 car.
-  TRANSMISSION, TIRE RIMS, HORN, TORQUE and the tire sizes keep Rush 2's effect; STRIPE has nothing to draw on a 2049
-  body and is hidden. A Dreamcast disc's car has paint jobs in place of the three colors: one STYLE row (see Car select
+- MAIN, ACCENT and TERTIARY COLOR (a row of its own, docs/car_mods.md#tertiary-color) are 2049's COLOR 1-3 (§8 Paint).
+  TRANSMISSION, TIRE RIMS, HORN, TORQUE and the tire sizes keep Rush 2's effect; STRIPE draws Rush 2's stripe in COLOR 3
+  (docs/car_mods.md#stripes-on-one-body-cars). A Dreamcast disc's car has paint jobs in place of the three colors: one STYLE row (see Car select
   rows). 2049's WINGS are the Rush 2049 tab's wings; TEAM and SHEEN have no Rush 2 counterpart.
 - **WINGS is never locked, but style 3 is stunt-only** [V]. The setup overlay (ROM 0xB5C534, vram 0x8038A400) copies
   the setup items into the race rows at 0x803A17E8-0x803A1960: ENGINE, TIRES and FRAME are each walked down until
@@ -325,7 +326,7 @@ shown row 0x803CB3A0[slot] (4 shown), car type 0x803CB362[slot] (s8).
 | Car | Rows |
 |---|---|
 | Rush 2 | unchanged |
-| 2049 (N64 ROM) | STRIPE hidden; STRIPE COLOR labelled TERTIARY COLOR |
+| 2049 (N64 ROM) | TERTIARY COLOR row of its own under ACCENT (docs/car_mods.md#tertiary-color); STRIPE and STRIPE COLOR draw the stripe |
 | 2049 (Dreamcast disc) | ACCENT COLOR, STRIPE, STRIPE COLOR hidden; MAIN COLOR labelled STYLE, value STYLE n, no swatch |
 
 STYLE is the MAIN COLOR byte (MAIN's table copy + (slot + 1) * types + type) modulo the car's paint jobs. func_803B9478 adds a

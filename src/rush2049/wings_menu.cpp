@@ -16,9 +16,11 @@
 // A 2049 car's colors are set as Rush 2049 sets them, so each panel has its own rows (the game keeps one list for
 // both): a Dreamcast disc's car has paint jobs, each its own livery, picked by one STYLE row (MAIN COLOR, its value
 // taken modulo the car's jobs: rush2::car2049::paint_jobs) in place of the three color rows and STRIPE; an N64 ROM's
-// car has three paint ramps, so it keeps its three colors (STRIPE COLOR named TERTIARY COLOR) without STRIPE; a mod
-// car (docs/car_mods.md#new-cars) has its color schemes as STYLE, as a Dreamcast car, or else no stripes and only the
-// MAIN / ACCENT COLOR rows its textures take. A car with liveries (docs/car_mods.md#liveries) gets a STYLE row under
+// car has three paint ramps: MAIN, ACCENT and a TERTIARY COLOR row of its own under ACCENT (id 18, kept by
+// rush2::car2049::tertiary_color, docs/car_mods.md#tertiary-color), and STRIPE and STRIPE COLOR draw its stripe
+// (docs/car_mods.md#stripes-on-one-body-cars); a mod car (docs/car_mods.md#new-cars) has its color schemes
+// as STYLE, as a Dreamcast car, or else the MAIN / ACCENT COLOR rows its textures take, and STRIPE and STRIPE COLOR
+// when MAIN paints it. A car with liveries (docs/car_mods.md#liveries) gets a STYLE row under
 // CAR, except a paint-job car, whose STYLE row lists its liveries after its jobs. The
 // whole list is kept when func_803B81F0 builds it (once per visit) and each panel's list is put in its place before
 // anything reads it: func_803B9478's per-slot loop (0x803B951C, slot $s7), func_803BC048's (0x803BC0C8, slot $s2)
@@ -39,6 +41,7 @@
 #include "car_mods.h"
 #include "data_files.h"
 #include "light_bar.h"
+#include "paint_colors.h"
 #include "players4.h"
 #include "wings_internal.h"
 
@@ -60,6 +63,8 @@ namespace {
     constexpr int option_wings = 15;
     constexpr int option_style = 16; // STYLE (MAIN COLOR) as the swatch widget sees it, so it draws no swatch
     constexpr int option_livery = 17; // STYLE of a car with liveries (rush2::car_mods::livery_count), under CAR
+    constexpr int option_tertiary = 18; // TERTIARY COLOR of an N64 ROM's 2049 car, under ACCENT
+    constexpr uint32_t stripe_colour = rush2::car_types::entry(rush2::car_types::stripe_color, 1, 0); // s8 [slot][types]
     constexpr int max_options = 16;
     constexpr int styles = 3;
 
@@ -119,8 +124,7 @@ namespace {
     // Which rows a slot's car has: Rush 2's, a 2049 car's three ramps, a Dreamcast car's paint jobs, or a California
     // Speed car's two colors (MAIN and ACCENT: src/calspeed/calspeed_cars.cpp) and no ENGINE (it plays its own engine
     // sound, as California Speed has no engine choice: src/car_engines.cpp), or a mod car's: its color schemes as a
-    // Dreamcast car's paint jobs, or else no stripes and only the colors its textures take
-    // (rush2::car2049::mod_car_paints).
+    // Dreamcast car's paint jobs, or else the colors its textures take (rush2::car2049::mod_car_paints).
     Rows slot_rows(uint8_t* rdram, int slot) {
         int type = slot_car(rdram, slot);
         if (rush2::car_types::is_calspeed(type)) return Rows::TwoColors;
@@ -141,6 +145,25 @@ namespace {
         return (uint32_t)MEM_W(0x24, rush2::players4::record(slot_player(slot)));
     }
 
+    // Who keeps panel slot's TERTIARY COLOR: its profile, else its player (1-4).
+    uint32_t tertiary_owner(uint8_t* rdram, int slot) {
+        uint32_t profile = slot_profile(rdram, slot);
+        return profile != 0 ? profile : uint32_t(slot_player(slot) + 1);
+    }
+
+    // Panel slot's car's TERTIARY COLOR. A car that has none kept yet takes its STRIPE COLOR, which was its third
+    // color before the row was its own (what the car looked like stays), and keeps it from then on.
+    int slot_tertiary(uint8_t* rdram, int slot) {
+        int type = slot_car(rdram, slot);
+        uint32_t owner = tertiary_owner(rdram, slot);
+        int c = rush2::car2049::tertiary_color(owner, type);
+        if (c < 0) {
+            c = (int8_t)MEM_B(0, (int32_t)(stripe_colour + slot * rush2::car2049::types + type));
+            rush2::car2049::set_tertiary_color(owner, type, c);
+        }
+        return c;
+    }
+
     // Puts slot's list in place. swatch: for the color swatch widget, which sees STYLE as option_style.
     void use_slot(uint8_t* rdram, int slot, bool swatch = false) {
         if (base_count == 0 || slot < 0 || slot > 1) {
@@ -148,6 +171,9 @@ namespace {
         }
         current_slot = slot;
         Rows rows = slot_rows(rdram, slot);
+        // TERTIARY COLOR only on a car whose textures use the third ramp (docs/car_mods.md#tertiary-color).
+        const bool tertiary = rows == Rows::Ramps && rush2::car2049::has_tertiary(slot_car(rdram, slot));
+        if (tertiary) slot_tertiary(rdram, slot);
         int paints = rows == Rows::Mod ? rush2::car2049::mod_car_paints(slot_car(rdram, slot)) : 3;
         // A car with liveries: STYLE under CAR, and a livery (drawn as authored) has no color rows. A car with paint
         // jobs lists its liveries after them on its one STYLE row (jobs_and_liveries) instead.
@@ -161,15 +187,19 @@ namespace {
                 continue;
             }
             if (rows == Rows::Jobs && (id == option_accent || id == option_stripe || id == option_stripe_colour)) continue;
-            if (rows == Rows::Ramps && id == option_stripe) continue;
             if (rows == Rows::TwoColors && (id == option_stripe || id == option_stripe_colour || id == option_engine)) continue;
-            if (rows == Rows::Mod && (id == option_stripe || id == option_stripe_colour ||
+            // A mod car takes stripes on its MAIN paint (docs/car_mods.md#stripes-on-one-body-cars).
+            if (rows == Rows::Mod && (((id == option_stripe || id == option_stripe_colour) && !(paints & 1)) ||
                                       (id == option_main && !(paints & 1)) || (id == option_accent && !(paints & 2)))) {
                 continue;
             }
             if (rows == Rows::Jobs && swatch && id == option_main) id = option_style;
             MEM_W(0, (int32_t)(option_ids + count * 4)) = id;
             count++;
+            if (id == option_accent && tertiary && count < max_options) {
+                MEM_W(0, (int32_t)(option_ids + count * 4)) = option_tertiary;
+                count++;
+            }
             if (id == 0 && liveries && count < max_options) {
                 MEM_W(0, (int32_t)(option_ids + count * 4)) = option_livery;
                 count++;
@@ -188,7 +218,7 @@ namespace {
         if (id == option_livery) return style_label_ptr;
         Rows rows = slot_rows(rdram, current_slot);
         if (rows == Rows::Jobs && (id == option_main || id == option_style)) return style_label_ptr;
-        if (rows == Rows::Ramps && id == option_stripe_colour) return tertiary_label_ptr;
+        if (id == option_tertiary) return tertiary_label_ptr;
         return 0;
     }
 
@@ -277,6 +307,15 @@ extern "C" void rush2_wings_car_step(uint8_t* rdram, recomp_context* ctx) {
         for (int panel = 0; panel < 2; panel++) {
             rush2::car_mods::paint_livery(rdram, panel * rush2::car2049::types + type);
         }
+        return;
+    }
+    if ((int32_t)ctx->r15 == option_tertiary && step != 0) {
+        int type = slot_car(rdram, slot);
+        int n = rush2::paint_colors::count();
+        int c = ((slot_tertiary(rdram, slot) + step) % n + n) % n;
+        rush2::car2049::set_tertiary_color(tertiary_owner(rdram, slot), type, c);
+        // Both panels' previews of the car (one player's shows in panel 1); each shows its own player's.
+        for (int panel = 0; panel < 2; panel++) rush2::car2049::repaint_tertiary(rdram, panel * rush2::car2049::types + type);
         return;
     }
     if ((int32_t)ctx->r15 == option_main && step != 0 && slot_rows(rdram, slot) == Rows::Jobs) {
@@ -417,4 +456,17 @@ void rush2::wings::load_styles() {
         saved_styles[i] = style;
         set_player_style(i, style);
     }
+}
+
+// The color swatch widget (carselect_widget_cb_cartype_tables_803BAA44) shows only ids 2, 3 and 5: at 0x803BAAF8
+// ($a3 = the row's entry in the option list, $a1 = hide it) TERTIARY COLOR is shown too, and at 0x803BABD8 ($v1 = the
+// panel, its color read into sp + 0x20 for ids 2, 3, 5) it gets the car's TERTIARY COLOR.
+extern "C" void rush2_tertiary_swatch_show(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)MEM_W(0, (int32_t)ctx->r7) == option_tertiary) ctx->r5 = 0;
+}
+
+extern "C" void rush2_tertiary_swatch_value(uint8_t* rdram, recomp_context* ctx) {
+    if ((int32_t)MEM_W(0, (int32_t)ctx->r7) != option_tertiary) return;
+    int slot = (int32_t)ctx->r3 & 1;
+    MEM_W(0x20, (int32_t)ctx->r29) = slot_tertiary(rdram, slot);
 }

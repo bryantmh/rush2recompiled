@@ -474,7 +474,9 @@ namespace {
         bool is_2049 = chosen >= rush2::car2049::first_type && chosen < rush2::car2049::types &&
                        !rush2::car_types::is_mod(chosen);
         int jobs = rush2::car2049::paint_jobs(chosen);
-        if (!is_2049 && jobs == 0) { // a mod car with color schemes has no stripes
+        // A Dreamcast disc's car or a mod car with color schemes has no stripes (an N64 2049 car's are in its third
+        // ramp, docs/car_mods.md#stripes-on-one-body-cars).
+        if (jobs == 0) {
             std::vector<std::pair<int, std::string>> stripe_values = { { random_value, "Random" } };
             for (int s = 0; s < stripes; s++) {
                 stripe_values.emplace_back(s, stripe_names[s]);

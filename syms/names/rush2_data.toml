@@ -4375,6 +4375,33 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800C6230
+name = "car_stripe_tile_offsets"
+type = "s8[22][6]"
+desc = "Per car type and panel, a byte car_texture_prefix_lookup_800843EC hands car_stamp_stripes_on_panel_80083F50 as its a3 when placing a stripe tile (likely the tile's offset on the panel; not decoded)."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800C62B4
+name = "car_stripe_tile_scales"
+type = "f32[22][6]"
+desc = "Per car type and panel, a float car_texture_prefix_lookup_800843EC hands car_stamp_stripes_on_panel_80083F50 (stack arg, clamped to 1-4 there) when placing a stripe tile (likely the tile's scale on the panel; not decoded)."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
+vram = 0x800C6518
+name = "car_stripe_tile_prefixes"
+type = "const char *[8]"
+desc = "Stripe tile name prefixes by STRIPE value (asset 0x1C tiles <prefix><size>_<panel>): 0 DEW_, 1 1ST_ SINGLE, 2 1F_ SINGLE FAT, 3 1FD_ SNGL FADE, 4 2ST_ DOUBLE, 5 2F_ DOUBLE FAT, 6 3ST_ TRIPLE A, 7 3A_ TRIPLE B; read by car_texture_prefix_lookup_800843EC."
+area = "car"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+
+[[var]]
 vram = 0x800CA1A8
 name = "pvs_region_counts"
 type = "u8[12]"
@@ -7269,8 +7296,8 @@ name = "track_object_spawn_key"
 type = "u8"
 desc = "s8 count of the keys func_800BC3F8 has created this race: a key's bit (+0x68) is this count. Reset at track load."
 area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v"
 
 [[var]]
 vram = 0x800D9D40
@@ -7296,8 +7323,8 @@ name = "race_preload_out_h"
 type = "u16"
 desc = "Halfword written by race_preload_car_assets, never read (low confidence)."
 area = "car"
-status = "verified"
-ref = "docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D9D46
@@ -7386,8 +7413,8 @@ name = "breakable_spawn_key"
 type = "u8"
 desc = "s8 count of the Dew cans func_800BC3F8 has created this race: a can's bit (+0x68) is 12 + this count, so HAWAII's fifth can gets bit 16, past Rush 2's u16 key mask. Reset at track load."
 area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v"
 
 [[var]]
 vram = 0x800D9DC5
@@ -7413,8 +7440,8 @@ name = "save_name_slot_2_flag"
 type = "u8"
 desc = "Name slot record byte, slot 2."
 area = "save"
-status = "verified"
-ref = "docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v"
+status = "inferred"
+ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800D9E01

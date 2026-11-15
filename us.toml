@@ -9393,6 +9393,17 @@ func = "carselect_widget_cb_cartype_tables_803BAA44"
 before_vram = 0x803BAA44
 text = "    rush2_car_rows_widget(rdram, ctx, 8, 1);"
 
+# The swatch of a 2049 car's TERTIARY COLOR row (src/rush2049/wings_menu.cpp, docs/car_mods.md#tertiary-color).
+[[patches.hook]]
+func = "carselect_widget_cb_cartype_tables_803BAA44"
+before_vram = 0x803BAAF8
+text = "    rush2_tertiary_swatch_show(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_widget_cb_cartype_tables_803BAA44"
+before_vram = 0x803BABD8
+text = "    rush2_tertiary_swatch_value(rdram, ctx);"
+
 [[patches.hook]]
 func = "carselect_widget_cb_d_803BAC24"
 before_vram = 0x803BAC24
