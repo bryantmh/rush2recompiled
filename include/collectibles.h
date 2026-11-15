@@ -14,8 +14,15 @@ namespace rush2::collectibles {
     constexpr int rush2_courses = 12;       // Rush 2's tracks 0-11 (Las Vegas .. Stunt 1).
     constexpr int rush2_keys = 12;          // Per Rush 2 track: keys are bits 0-11, Dew cans bits 12-15.
     constexpr int rush2_cans = 4;
-    constexpr uint16_t rush2_key_bits = 0x0FFF;
-    constexpr uint16_t rush2_can_bits = 0xF000;
+    constexpr uint32_t rush2_key_bits = 0x0FFF;
+    // Bit 16 is HAWAII's fifth Dew can (docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v): Rush 2 numbers its cans
+    // 12 + n in creation order, and HAWAII has five, so the last one's bit is past its u16 mask. The recomp keeps it in
+    // its own save (src/collectibles.cpp), so it can be taken like the others.
+    constexpr uint32_t rush2_can_bits = 0x1F000;
+    constexpr int rush2_extra_can_bit = 16;
+    constexpr int rush2_extra_can_track = 2;    // HAWAII
+    // The Dew cans on Rush 2 track t.
+    constexpr int rush2_cans_on(int t) { return t == rush2_extra_can_track ? rush2_cans + 1 : rush2_cans; }
     constexpr int sfrush_courses = 7;       // SF Rush tracks 1-7 (track select ids 18-24).
     constexpr int rush2049_courses = 6;     // Rush 2049 race tracks 1-6 (ids 12-17).
     constexpr int stunt2049_courses = 4;    // Rush 2049 stunt arenas 1-4 (ids 25-28).
@@ -39,7 +46,7 @@ namespace rush2::collectibles {
 
     struct Progress {
         std::string name;   // The profile's name; empty for players without a profile (this session only).
-        std::array<uint16_t, rush2_courses> rush2{};
+        std::array<uint32_t, rush2_courses> rush2{};    // Rush 2's u16 masks, with bit 16 (rush2_can_bits) added.
         std::array<uint16_t, sfrush_courses> sfrush{};
         std::array<uint16_t, rush2049_courses> rush2049{};
         std::array<uint16_t, stunt2049_courses> stunt2049{};
@@ -60,6 +67,9 @@ namespace rush2::collectibles {
     // coin, over every game. Rush 2's finds are read once per frame. max_points() is everything there is to find.
     int points(const std::string& name);
     int max_points();
+    // Whether HAWAII's fifth Dew can (rush2_extra_can_bit) was found by profile `name` ("" = players without one), or
+    // with anyone, by any profile or player without one (the records screen's TOTALS).
+    bool rush2_extra_can_found(const std::string& name, bool anyone);
     // The unlock system's items a profile bought (by id), and buying one: false if it is already bought or the
     // profile's points less `spent` (what its purchases cost) don't cover `cost`.
     std::set<std::string> purchases(const std::string& name);

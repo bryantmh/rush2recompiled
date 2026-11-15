@@ -558,7 +558,7 @@ namespace {
         else if (t >= 0 && t < rush2_courses) {
             // Rush 2's key and Dew can (asset 18, loaded for every race).
             out.push_back({ "KEYS", { "KEYO1" }, bits(p.rush2[t] & rush2_key_bits), rush2_keys });
-            out.push_back({ "CANS", { "DOTHEDEWO1" }, bits(p.rush2[t] & rush2_can_bits), rush2_cans });
+            out.push_back({ "CANS", { "DOTHEDEWO1" }, bits(p.rush2[t] & rush2_can_bits), rush2_cans_on(t) });
         }
         return out;
     }

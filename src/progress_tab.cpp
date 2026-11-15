@@ -62,7 +62,7 @@ namespace {
         for (const Progress& p : list) {
             s += label_of(p) + ":" + std::to_string(rush2::collectibles::points(p.name)) + ":";
             for (const std::string& id : rush2::collectibles::purchases(p.name)) s += id + ",";
-            for (uint16_t m : p.rush2) s += std::to_string(m) + ",";
+            for (uint32_t m : p.rush2) s += std::to_string(m) + ",";
             for (uint16_t m : p.sfrush) s += std::to_string(m) + ",";
             for (uint16_t m : p.rush2049) s += std::to_string(m) + ",";
             for (uint16_t m : p.stunt2049) s += std::to_string(m) + ",";
@@ -414,12 +414,12 @@ namespace {
                 return;
             }
             using namespace rush2::collectibles;
-            auto count = [](uint16_t m) { return std::popcount((unsigned)m); };
+            auto count = [](uint32_t m) { return std::popcount(m); };
             std::vector<Line> lines;
             for (int t = 0; t < rush2_courses; t++) {
                 lines.push_back({ rush2_tracks[t], {
                     { count(p->rush2[t] & rush2_key_bits), rush2::collectibles::rush2_keys },
-                    { count(p->rush2[t] & rush2_can_bits), rush2_cans } } });
+                    { count(p->rush2[t] & rush2_can_bits), rush2_cans_on(t) } } });
             }
             add_section("Rush 2", { "keys", "Dew cans" }, lines);
 

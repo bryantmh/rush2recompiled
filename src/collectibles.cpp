@@ -27,7 +27,9 @@
 //   frame from the coin's breakable (position +0x2C) by the main loop hook: the breakable update hook doesn't run
 //   every frame, and a race's setup clears battle_render's slots after the coins are made.
 // Rush 2's own keys and Dew cans aren't touched: once per frame (rush2_collect_frame) their masks are copied from the
-// Controller Pak image's profiles, the race players' records and the no-profile table, for the Progress tab.
+// Controller Pak image's profiles, the race players' records and the no-profile table, for the Progress tab. The one
+// exception is HAWAII's fifth Dew can (docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v): its bit, 16, is past Rush 2's
+// u16 mask, so Rush 2 could never take it. This file keeps it, per profile, in the masks' "rush2_extra" section.
 // Masks are kept per profile name in the save file's "collectibles" section (include/data_files.h). Players
 // without a profile share one
 // session-only set, like Rush 2's no-profile keys. As in Rush 2, keys are only placed with one player (the placement
@@ -64,6 +66,7 @@
 #include "rush2.h"
 #include "audio2049.h"
 #include "battle_render.h"
+#include "calspeed.h"
 #include "collectibles.h"
 #include "online.h"
 #include "track1.h"
@@ -106,7 +109,9 @@ namespace {
     constexpr int first_ps1 = first_stunt + stunt2049_courses;
     constexpr int courses = first_ps1 + sfrush_ps1_courses;
     static_assert(first_ps1 == sfrush_ps1_course);
-    using Masks = std::array<uint16_t, courses>;
+    // After the courses: per Rush 2 track, the bits of its keys and cans past Rush 2's u16 mask (bit 0 = bit 16).
+    constexpr int first_rush2_extra = courses;
+    using Masks = std::array<uint16_t, courses + rush2_courses>;
     // Whether course c has coins (Rush 2049's tracks and arenas), not keys.
     bool coin_course(int c) { return c >= first_rush2049 && c < first_ps1; }
 
@@ -188,6 +193,16 @@ namespace {
         return -1;
     }
 
+    // Whether key bit `bit` is HAWAII's fifth Dew can in a race of Rush 2's own HAWAII (no added or custom track in its
+    // slot). Rush 2 numbers cans 12 + n as func_800BC3F8 creates them, so the fifth is bit 16, past its u16 mask:
+    // func_8005F418 dropped it and func_8005F00C never found it taken, so the can stayed out and played its pickup
+    // sound on every pass (GitHub issue #74).
+    bool extra_can(uint8_t* rdram, uint32_t bit) {
+        return bit == (uint32_t)rush2_extra_can_bit && MEM_BU(0, (int32_t)track_id) == rush2_extra_can_track &&
+               rush2::track2049::race_track() == 0 && rush2::track1::race_track() == 0 &&
+               rush2::track_mod::race_track() < 0 && rush2::calspeed::race_track() == 0;
+    }
+
     std::string read_name(uint8_t* rdram, uint32_t addr, int size) {
         std::string s;
         for (int i = 0; i < size; i++) {
@@ -259,7 +274,8 @@ namespace {
     }
 
     // The section: { "version": 1, "profiles": [ { "name": "BOB", "key": "424f42", "sfrush": [7 masks],
-    // "rush2049": [6 masks], "stunt2049": [4 masks], "sfrush_ps1": [1 mask], "unlocks": [item ids] } ] }. key is the
+    // "rush2049": [6 masks], "stunt2049": [4 masks], "sfrush_ps1": [1 mask], "rush2_extra": [12 masks],
+    // "unlocks": [item ids] } ] }. key is the
     // name's bytes (the game's character set isn't always ASCII); name is only for reading. A section a save doesn't
     // have (sfrush_ps1 before Chinatown's keys) reads as nothing found.
     struct Section {
@@ -269,7 +285,8 @@ namespace {
     };
     constexpr Section sections[] = { { "sfrush", 0, sfrush_courses }, { "rush2049", first_rush2049, rush2049_courses },
                                      { "stunt2049", first_stunt, stunt2049_courses },
-                                     { "sfrush_ps1", first_ps1, sfrush_ps1_courses } };
+                                     { "sfrush_ps1", first_ps1, sfrush_ps1_courses },
+                                     { "rush2_extra", first_rush2_extra, rush2_courses } };
 
     void load_store() {
         if (store_loaded) {
@@ -392,10 +409,17 @@ namespace {
 
     // Points: 1 per key and silver coin, 2 per Dew can and gold coin. A key found counts whether or not the version it
     // was found on is still installed; installed limits the keys to those of versions the player has (max_points()).
+    // A Rush 2 track's mask with the bits this file keeps for it (rush2_can_bits).
+    uint32_t rush2_mask(const Rush2Masks& r2, const Masks& m, int t) {
+        return r2[t] | (uint32_t)m[first_rush2_extra + t] << 16;
+    }
+
     int points_of(const Rush2Masks& r2, const Masks& m, bool installed = false) {
         int p = 0;
-        for (uint16_t mask : r2) {
-            p += bits(mask & rush2_key_bits) + 2 * bits(mask & rush2_can_bits);
+        for (int t = 0; t < rush2_courses; t++) {
+            uint32_t mask = rush2_mask(r2, m, t);
+            uint32_t cans = rush2_can_bits & ((1u << (12 + rush2_cans_on(t))) - 1);
+            p += bits(mask & rush2_key_bits) + 2 * bits(mask & cans);
         }
         for (int c = 0; c < courses; c++) {
             p += key_course(c) ? bits(m[c] & rush2::collectibles::key_bits(c, installed))
@@ -428,7 +452,9 @@ namespace {
     Progress progress_of(const std::string& name, const Rush2Masks& r2, const Masks& m) {
         Progress p;
         p.name = name;
-        p.rush2 = r2;
+        for (int t = 0; t < rush2_courses; t++) {
+            p.rush2[t] = rush2_mask(r2, m, t);
+        }
         std::copy(m.begin(), m.begin() + sfrush_courses, p.sfrush.begin());
         std::copy(m.begin() + first_rush2049, m.begin() + first_stunt, p.rush2049.begin());
         std::copy(m.begin() + first_stunt, m.begin() + first_ps1, p.stunt2049.begin());
@@ -506,6 +532,21 @@ int rush2::collectibles::max_points() {
     Masks m;
     m.fill(0xFFFF);
     return points_of(r2, m, true);
+}
+
+bool rush2::collectibles::rush2_extra_can_found(const std::string& name, bool anyone) {
+    std::lock_guard lock{ collect_mutex };
+    load_store();
+    constexpr int at = first_rush2_extra + rush2_extra_can_track;
+    constexpr uint16_t bit = 1u << (rush2_extra_can_bit - 16);
+    if (!anyone) {
+        return (side_masks_of(name)[at] & bit) != 0;
+    }
+    bool found = (guest[at] & bit) != 0;
+    for (const auto& [listed, m] : store) {
+        found = found || (m[at] & bit) != 0;
+    }
+    return found;
 }
 
 std::set<std::string> rush2::collectibles::purchases(const std::string& name) {
@@ -682,15 +723,19 @@ extern "C" int rush2_collect_taken(uint8_t* rdram, recomp_context* ctx) {
         ctx->r2 = 0;
         return 1;
     }
+    uint32_t bit = (uint32_t)ctx->r4 & 31;
     int c = hosted_course(rdram);
-    if (c < 0) {
+    if (c < 0 && extra_can(rdram, bit)) {
+        c = first_rush2_extra + rush2_extra_can_track;
+        bit -= 16;
+    }
+    else if (c < 0) {
         return 0;
     }
     if (MEM_BU(0, (int32_t)attract_demo) != 0) {
         ctx->r2 = 1;
         return 1;
     }
-    uint32_t bit = (uint32_t)ctx->r4 & 31;
     int players = (int16_t)MEM_H(0, (int32_t)race_players);
     std::lock_guard lock{ collect_mutex };
     std::string name;
@@ -707,14 +752,18 @@ extern "C" int rush2_collect_taken(uint8_t* rdram, recomp_context* ctx) {
 // Start of func_8005F418 ($a0 = key bit, $a1 = player): the player takes the key. On an added track it goes into this
 // file's masks (saved at once for a profile).
 extern "C" int rush2_collect_take(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t bit = (uint32_t)ctx->r4 & 31;
     int c = hosted_course(rdram);
-    if (c < 0) {
+    if (c < 0 && extra_can(rdram, bit)) {
+        c = first_rush2_extra + rush2_extra_can_track;
+        bit -= 16;
+    }
+    else if (c < 0) {
         return 0;
     }
     if (MEM_BU(0, (int32_t)attract_demo) != 0 || MEM_W(0, (int32_t)game_mode) == 3) {
         return 1;
     }
-    uint32_t bit = (uint32_t)ctx->r4 & 31;
     int player = (int32_t)ctx->r5;
     bool taken;
     {

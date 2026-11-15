@@ -15,7 +15,7 @@ tab, later in game.
 
 **Unlocks (done).** The store design was chosen; §2.3-2.4 below are the earlier per-game plans, kept for the
 original rules the port follows with the unlock system off.
-- **Points.** 1 per key and silver coin, 2 per Dew can and gold coin, over every game (533 in all), per profile
+- **Points.** 1 per key and silver coin, 2 per Dew can and gold coin, over every game (`max_points()`, which counts HAWAII's fifth Dew can), per profile
   (`rush2::collectibles::points`). Purchases are item ids in the profile's `collectibles.json` block (`"unlocks"`).
 - **Items** (src/unlocks.cpp, table 2 of the user's suggestions, about half the points): Rush 2's six mystery cars,
   Rush 2049 cars 7-13 (LOCUST LX added at 10), MIDWAY, PIPE, SF Rush track 7, Rush 2049 tracks 4-6, stunt arenas
@@ -69,8 +69,9 @@ original rules the port follows with the unlock system off.
 
 ### 1.1 Rush 2's key system (what we reuse) [V]
 
-- **Placement.** Each Rush 2 track has 12 `KEY` and 4 `DOTHEDEW` objects (behavior 8). Track 2 has a fifth
-  `DOTHEDEW`.
+- **Placement.** Each Rush 2 track has 12 `KEY` and 4 `DOTHEDEW` objects (behavior 8). Track 2 (HAWAII) has a fifth
+  `DOTHEDEW`, which Rush 2 could never take (see the next section). NYTWO's placement also has a `DOTHEDEW` under a
+  top-level `NYTWODEWCAN` record outside the track's tree, which is never placed.
 - **Save.** Each track has a u16 mask in the player record at +0x18 + track·2. Bits 0-11 are keys and bits 12-15 are
   Dew cans. Without a profile the mask lives in the session table 0x800C1DBC[track].
 - **Pickup.**
@@ -90,6 +91,31 @@ original rules the port follows with the unlock system off.
   **Unlocks are per track.** A mystery car is offered only on the track where its keys were found.
 - **Existing hook.** `rush2_track49_keys` (src/rush2049/track2049_menu.cpp) already makes `func_803B1AB0` return 0 keys for
   ids 12 and up.
+
+### Fifth Dew can on HAWAII [V]
+
+GitHub issue #74. `func_800BC3F8` (the key spawn) numbers keys and cans in creation order: a key gets the counter at
+0x800D9D38, a Dew can (class sound 0x80125C54 == 0x756) gets 12 + the counter at 0x800D9DB8, into +0x68. HAWAII's
+placement (asset 0x41) has five `DOTHEDEW` records, under HAWAIIL17471, HAWAIIL17371, HAWAIIL17830, HAWAIIL13283 and
+HAWAIIL17928, so the fifth created gets bit 16. `func_8005F418` ORs `1 << 16` into the track's u16 mask and stores
+nothing, and `func_8005F00C` never finds the bit, so the can stays out, plays its pickup sound on every pass and
+counts nowhere. The original game has the same bug.
+
+The recomp keeps the bit itself (src/collectibles.cpp, `extra_can`): in a race of Rush 2's own HAWAII (no added or
+custom track in the slot), the hooks at the start of `func_8005F00C` and `func_8005F418` answer and store bit 16 in
+the profile's `"rush2_extra"` masks in `collectibles.json` (one u16 per Rush 2 track, bit 0 = bit 16; players without a
+profile keep it for the session, like Rush 2's no-profile keys). `Progress::rush2` carries it as bit 16
+(`rush2_can_bits` = 0x1F000), so the Progress tab and the pause menu count 5 cans on HAWAII and it is worth 2 points.
+The car select's DEW car still needs Rush 2's four cans (bits 12-15, `func_803B1AB0`): the fifth is extra.
+
+The records screen's STATISTICS page (`func_803B0A90`) has 16 icons, `func_803C5514` widgets for slots 0-15 lit by
+bit n of the save's u16 mask, so it had no place for the fifth can. Its 40 widgets come from the list 0x803C89C0
+(0x28 bytes each: +0 texture name, +4 x << 16 | y, +0x20 callback, +0x24 argument, the widget's +0x2C), made by
+`func_800604FC(0, 0, list, 40)` at 0x803B0B9C. The hook at 0x803B0B94 (`rush2_records_screen_widgets`,
+src/rush2049/track2049_records.cpp) passes a copy with a 41st entry, slot 15's DEWICON with argument 16 at x 288
+(past the 4:3 row's end), and 0x803B0BA0 is patched to count 41. `rush2_records_screen_icon` shows slot 16 on
+HAWAII's stats page only, lit from `collectibles::rush2_extra_can_found`: the viewed profile's (pak 0x803D0274,
+record 0x803D027C), or anyone's on TOTALS (0x803D026C < 0).
 
 ### 1.2 SF Rush keys [V]
 

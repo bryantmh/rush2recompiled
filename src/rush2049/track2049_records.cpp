@@ -953,6 +953,17 @@ namespace {
     }
     uint32_t icon_names = 0;        // RDRAM: "KEYICON", "DEWICON" (16 bytes each), for the widgets' texture names.
 
+    // The screen's 40 widgets come from the list 0x803C89C0 (0x28 bytes each: +0 texture name, +4 x << 16 | y, ...,
+    // +0x20 callback, +0x24 argument), made by func_800604FC(0, 0, list, 40) at 0x803B0B9C. The screen is given a copy
+    // with a 41st: HAWAII's fifth Dew can (docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v), slot 15's DEWICON entry
+    // with argument 16 one icon further right (x 288, past the 4:3 row's end).
+    constexpr uint32_t widget_list = 0x803C89C0;
+    constexpr uint32_t widget_size = 0x28;
+    constexpr int widget_count = 40;
+    constexpr int last_icon_widget = 38;    // Slot 15's entry.
+    constexpr int fifth_can_slot = 16;
+    uint32_t widget_copy = 0;
+
     // The stock games' courses that are only custom tracks here, listed on the records screen after the courses of
     // their game (`after`: the added course they follow) while their mod is installed: Rush 2049 arcade's own track
     // and the PlayStation SF Rush's. key_course: their collectibles course (src/collectibles.cpp), or -1.
@@ -1314,6 +1325,36 @@ extern "C" void hud_widget_setup_icon_80080DBC(uint8_t* rdram, recomp_context* c
 // instead of HAWAII's: hidden off the stats page, else lit by its bit. Returns 1 when it did (the function is skipped).
 extern "C" int rush2_records_screen_icon(uint8_t* rdram, recomp_context* ctx) {
     uint32_t w = (uint32_t)ctx->r4;
+    if (MEM_W(0x2C, (int32_t)w) == fifth_can_slot) {
+        // HAWAII's fifth Dew can (widget_list): shown on HAWAII's stats page, lit when the viewed profile (or anyone,
+        // on TOTALS) found it.
+        int index = MEM_W(0, (int32_t)screen_index);
+        bool shown = MEM_W(0, (int32_t)screen_page) == 2 && index != 24 && index % 12 == host_slot &&
+                     !screen_on_course(rdram);
+        recomp_context call = *ctx;
+        call.r4 = (gpr)(int32_t)w;
+        call.r5 = shown ? 0 : 1;
+        hud_widget_init_type_80060DA8(rdram, &call);
+        if (shown) {
+            bool found;
+            if ((int16_t)MEM_H(0, (int32_t)screen_profile) < 0) {
+                found = rush2::collectibles::rush2_extra_can_found("", true);
+            }
+            else {
+                uint32_t record = pak_records + uint32_t((int16_t)MEM_H(0, (int32_t)screen_pak)) * 0x2200 +
+                                  uint32_t((int16_t)MEM_H(0, (int32_t)screen_record)) * 0x6C0;
+                found = rush2::collectibles::rush2_extra_can_found(read_name(rdram, record + 2), false);
+            }
+            call = *ctx;
+            call.r4 = (gpr)(int32_t)w;
+            call.r5 = found ? 1 : 0;
+            call.r6 = 0x10;
+            call.r7 = 0x20;
+            hud_widget_setup_icon_80080DBC(rdram, &call);
+        }
+        ctx->r2 = 1;
+        return 1;
+    }
     int n = MEM_W(0x2C, (int32_t)w) & 0xF;
     if (icon_names == 0) {
         icon_names = (uint32_t)((uint8_t*)recomp::alloc(rdram, 32) - rdram) + 0x80000000;
@@ -1352,6 +1393,26 @@ extern "C" int rush2_records_screen_icon(uint8_t* rdram, recomp_context* ctx) {
     }
     ctx->r2 = 1;
     return 1;
+}
+
+// func_803B0A90 at 0x803B0B94, the records screen opening ($a2 = its widget list, 0x803C89C0; the count in $a3 is 41,
+// patched at 0x803B0BA0): the list's copy with HAWAII's fifth Dew can icon (widget_list).
+extern "C" void rush2_records_screen_widgets(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t bytes = widget_size * (widget_count + 1);
+    if (widget_copy == 0) {
+        widget_copy = (uint32_t)((uint8_t*)recomp::alloc(rdram, bytes) - rdram) + 0x80000000;
+    }
+    for (uint32_t i = 0; i < widget_size * widget_count; i += 4) {
+        MEM_W(0, (int32_t)(widget_copy + i)) = MEM_W(0, (int32_t)(widget_list + i));
+    }
+    uint32_t added = widget_copy + widget_size * widget_count;
+    for (uint32_t i = 0; i < widget_size; i += 4) {
+        MEM_W(0, (int32_t)(added + i)) = MEM_W(0, (int32_t)(widget_list + widget_size * last_icon_widget + i));
+    }
+    uint32_t xy = (uint32_t)MEM_W(4, (int32_t)added);
+    MEM_W(4, (int32_t)added) = (int32_t)(xy + (0x10u << 16));
+    MEM_W(0x24, (int32_t)added) = fifth_can_slot;
+    ctx->r6 = (gpr)(int32_t)widget_copy;
 }
 
 // The jr $ra of func_803C430C (0x803C5460).

@@ -2299,6 +2299,18 @@ func = "records_screen_803B0A90"
 before_vram = 0x803B0AF0
 text = "    rush2_records_screen_close(rdram, ctx);"
 
+# The stats page's 17th icon, HAWAII's fifth Dew can (docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v): the screen's
+# widgets are made from a copy of its list with one more entry.
+[[patches.hook]]
+func = "records_screen_803B0A90"
+before_vram = 0x803B0B94
+text = "    rush2_records_screen_widgets(rdram, ctx);"
+
+[[patches.instruction]]
+func = "records_screen_803B0A90"
+vram = 0x803B0BA0
+value = 0x24070029 # addiu $a3, $zero, 0x29
+
 [[patches.hook]]
 func = "records_screen_803B0A90"
 before_vram = 0x803B0BC8

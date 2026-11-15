@@ -7267,7 +7267,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D9D38
 name = "track_object_spawn_key"
 type = "u8"
-desc = "Byte reset at track load and used as key by track_object_spawn_key."
+desc = "s8 count of the keys func_800BC3F8 has created this race: a key's bit (+0x68) is this count. Reset at track load."
 area = "track"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -7296,8 +7296,8 @@ name = "race_preload_out_h"
 type = "u16"
 desc = "Halfword written by race_preload_car_assets, never read (low confidence)."
 area = "car"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v"
 
 [[var]]
 vram = 0x800D9D46
@@ -7384,7 +7384,7 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 vram = 0x800D9DB8
 name = "breakable_spawn_key"
 type = "u8"
-desc = "Byte reset at track load and used by track_object_spawn_key and breakable_alloc (low confidence)."
+desc = "s8 count of the Dew cans func_800BC3F8 has created this race: a can's bit (+0x68) is 12 + this count, so HAWAII's fifth can gets bit 16, past Rush 2's u16 key mask. Reset at track load."
 area = "track"
 status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
@@ -7413,8 +7413,8 @@ name = "save_name_slot_2_flag"
 type = "u8"
 desc = "Name slot record byte, slot 2."
 area = "save"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+status = "verified"
+ref = "docs/unlocks_plan.md#fifth-dew-can-on-hawaii-v"
 
 [[var]]
 vram = 0x800D9E01
