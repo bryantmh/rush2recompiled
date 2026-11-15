@@ -298,6 +298,7 @@ namespace {
         // rush2_car49_paint fills the palettes and opens the block of the car's STRIPE (stripe_paint).
         bool stripes = false;     // set before add_damage_textures: make the blocks
         bool third_ramp = false;  // its textures use its third paint ramp (TERTIARY COLOR has something to color)
+        bool stripes_above_widest = false; // ModCar::stripes_above_widest (set before add_damage_textures)
         bool mod_palette = false; // Rush 2's car palette (MAIN 1-31, ACCENT 33-63), else a 2049 car's ramps (32-95)
         uint32_t stripe_tluts = 0; // file offset of the palettes (level_count x 256 RGBA5551)
         struct StripeBlock {
@@ -1285,6 +1286,26 @@ namespace {
             r.levels.push_back(r.edges.empty() ? level_at(bands, 0.0f) : level_at(bands, (r.edges.back() + 0.5f) / 64.0f));
             return r;
         };
+        // Paint::stripes_above_widest: the middle of the body's bounds and the height of its widest point (the
+        // highest of the vertices farthest out from the middle, across).
+        float body_center[3] = { 0.0f, 0.0f, 0.0f }, widest_y = -1e30f;
+        if (p.stripes_above_widest && !p.rest.empty()) {
+            for (int c = 0; c < 3; c++) {
+                int lo = p.rest[0][c], hi = lo;
+                for (const auto& r : p.rest) {
+                    lo = std::min<int>(lo, r[c]);
+                    hi = std::max<int>(hi, r[c]);
+                }
+                body_center[c] = (lo + hi) * 0.5f;
+            }
+            float widest = 0.0f;
+            for (const auto& r : p.rest) widest = std::max(widest, std::hypot(r[0] - body_center[0], r[2] - body_center[2]));
+            for (const auto& r : p.rest) {
+                if (std::hypot(r[0] - body_center[0], r[2] - body_center[2]) >= widest - 0.5f) {
+                    widest_y = std::max(widest_y, float(r[1]));
+                }
+            }
+        }
         Regions value_regions[rush2::car_stripes::values];
         for (int v = 1; v < rush2::car_stripes::values; v++) value_regions[v] = regions(v);
         auto edge_x = [half](int n) { return float(n) / 64.0f * half; };
@@ -1522,7 +1543,15 @@ namespace {
                         for (int k = 0; k < 3; k++) pos[i][k] = float(v[k]);
                         t->x[i] = pos[i][0];
                     }
-                    if (rush2::car_stripes::outward_normal_y(pos[0], pos[1], pos[2]) < -0.6f) return;
+                    if (!p.stripes_above_widest) {
+                        if (rush2::car_stripes::outward_normal_y(pos[0], pos[1], pos[2]) < -0.6f) return;
+                    }
+                    else {
+                        // A car with ModCar::stripes_above_widest (the PS1 UFO): nothing below its widest point, nor
+                        // facing down from the middle of its body (its origin is at the ground, under the saucer).
+                        if ((pos[0][1] + pos[1][1] + pos[2][1]) / 3.0f < widest_y ||
+                            rush2::car_stripes::outward_normal_y(pos[0], pos[1], pos[2], body_center) < -0.6f) return;
+                    }
                     t->combine = (uint64_t(combine[0]) << 32) | combine[1];
                     t->load = current;
                     const std::array<int16_t, 3>* v[3] = { &buffer[(a / 2) & 63], &buffer[(b / 2) & 63], &buffer[(c / 2) & 63] };
@@ -1925,7 +1954,7 @@ static void load_cars(uint8_t* rdram) {
 
 static void set_body(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
                      const std::map<uint32_t, std::vector<uint8_t>>& scuffed, const std::vector<uint8_t>& palette,
-                     bool stripes = false);
+                     bool stripes = false, bool stripes_above_widest = false);
 
 void rush2::car2049::set_body_car(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
                                   const std::map<uint32_t, std::vector<uint8_t>>& scuffed) {
@@ -2112,7 +2141,8 @@ void rush2::car2049::set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car
         MEM_B(0, (int32_t)(logo_names + (type - first_type) * 16 + i)) = i < logo.size() ? logo[i] : 0;
     }
     // Painted through a paint mask without color schemes: Rush 2's stripes go on its MAIN and ACCENT paint.
-    set_body(rdram, type, std::move(car), prefix, scuffed, {}, spec.paint_main && spec.schemes <= 1);
+    set_body(rdram, type, std::move(car), prefix, scuffed, {}, spec.paint_main && spec.schemes <= 1,
+             spec.stripes_above_widest);
     {
         std::lock_guard lock{ side_mutex };
         mod_slots[n].spec = spec;
@@ -2583,7 +2613,7 @@ static void find_scheme_blocks(const std::vector<uint8_t>& car, Paint& p) {
 
 static void set_body(uint8_t* rdram, int type, std::vector<uint8_t> car, const std::string& prefix,
                      const std::map<uint32_t, std::vector<uint8_t>>& scuffed, const std::vector<uint8_t>& palette,
-                     bool stripes) {
+                     bool stripes, bool stripes_above_widest) {
     bool calspeed = rush2::car_types::is_calspeed(type);
     if (type < 0 || (type >= rush2_types && !calspeed && !rush2::car_types::is_mod(type)) || car.size() < 0x28) return;
     Paint& p = bodies[type];
@@ -2600,6 +2630,7 @@ static void set_body(uint8_t* rdram, int type, std::vector<uint8_t> car, const s
     }
     collect_body_vertices(car, prefix, p);
     p.stripes = stripes;
+    p.stripes_above_widest = stripes_above_widest;
     p.mod_palette = true;
     add_damage_textures(car, prefix + "FRAME1", type, p);
     find_scheme_blocks(car, p);

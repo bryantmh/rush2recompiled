@@ -425,6 +425,8 @@ bool ps1::build_cars(const Disc& disc, const std::filesystem::path& assets_dir, 
             spec["no_wings"] = true;
             spec["no_skid_marks"] = true;
             spec["no_wheel_dust"] = true;
+            // Its origin is at the ground, under the saucer: STRIPE stays on top of the rim, off the underside and pods.
+            spec["stripes_above_widest"] = true;
         }
         if (car.paintable) spec["main_color"] = default_main_color;
         // Its name in SF Rush's lettering (tools/build_banners.py --ps1: assets/sfrush_ps1/<id>_name.png, 128 x 32).

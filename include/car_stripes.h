@@ -30,8 +30,9 @@ namespace rush2::car_stripes {
     constexpr int level_values[level_count] = { 15, 12, 11, 9, 7, 5, 2 };
     int level_slot(int level);               // index into level_values, -1 for none
 
-    // The y of a triangle's unit normal turned away from the car's center (car space), whichever way it is wound.
-    float outward_normal_y(const float a[3], const float b[3], const float c[3]);
+    // The y of a triangle's unit normal turned away from `center` (car space; the car's origin unless given),
+    // whichever way it is wound.
+    float outward_normal_y(const float a[3], const float b[3], const float c[3], const float center[3] = nullptr);
 }
 
 #endif

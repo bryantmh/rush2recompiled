@@ -168,6 +168,7 @@ namespace rush2::car2049 {
         bool wings_hidden = false;     // "no_wings": the wings work but aren't drawn (src/rush2049/wings_render.cpp)
         bool marks_hidden = false;     // "no_skid_marks": its wheels lay no tire marks (src/surface_fx.cpp)
         bool dust_hidden = false;      // "no_wheel_dust": its wheels throw no dust, smoke or spray (src/surface_fx.cpp)
+        bool stripes_above_widest = false; // "stripes_above_widest": STRIPE paints nothing below the body's widest point
         float shadow_radius = 0.0f;    // "round_shadow": a round shadow this many feet across the middle (src/mod_car_shadow.cpp); 0: the game's
         std::vector<uint8_t> logo;     // "logo": the car select name logo, an encoded 128 x 32 image; empty: lettered
         // "lights": its headlamps and tail lamps for Car Lights (src/car_lights.cpp); empty: found on the body.

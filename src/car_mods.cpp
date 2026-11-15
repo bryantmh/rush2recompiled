@@ -2268,7 +2268,8 @@ namespace {
             spec.wings_hidden = j["no_wings"].get<bool>();
         }
         for (const auto& [key, flag] : { std::pair<const char*, bool*>{ "no_skid_marks", &spec.marks_hidden },
-                                         std::pair<const char*, bool*>{ "no_wheel_dust", &spec.dust_hidden } }) {
+                                         std::pair<const char*, bool*>{ "no_wheel_dust", &spec.dust_hidden },
+                                         std::pair<const char*, bool*>{ "stripes_above_widest", &spec.stripes_above_widest } }) {
             if (!j.contains(key)) continue;
             if (!j[key].is_boolean()) {
                 error = std::string("\"") + key + "\" is true or false";

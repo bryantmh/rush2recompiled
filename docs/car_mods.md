@@ -211,6 +211,7 @@ Put these files per car in the mod under `rush2/new_cars/` (the car's ID is any 
 | `no_wings` | `true` hides the car's wings: they still open in the air and steer it there, unseen. Default `false`. |
 | `no_skid_marks` | `true`: the car's wheels lay no tire marks. Default `false`. |
 | `no_wheel_dust` | `true`: the car's wheels throw no dust, smoke or spray (its own effects, such as sparks, stay). Default `false`. |
+| `stripes_above_widest` | `true`: [STRIPE](#stripes-on-one-body-cars) paints nothing below the body's widest point, nor anything facing down from the middle of the body (for a car whose origin isn't inside its body, as the PS1 UFO's is at the ground under its saucer). Default `false`. |
 | `round_shadow` | A radius in feet: the car's shadow is a soft disc that wide around its middle (a hovering saucer's), on the ground under its wheels, in place of the box between them. Default: the game's shadow. |
 | `lights` | The car's lamps for [Car Lights](#car-lights): a list of `{"kind": "head" or "tail", "at": [x, y, z], "size": radius}` in the glb's space (1/16 ft units, as `wheels`), one entry per lamp (list both sides). The brightest texels within the radius glow as the lens, or with `"color": [r, g, b]` (the lens's color, 0-255) the texels near that color; `"lens": false` for a hidden lamp (no glow on the body). The headlamps or tail lamps listed replace the ones found on the body, kind by kind. Default: found on the body (tail lamps from the brake lights, headlamps from bright texels at the front, or else placed from the body's shape). |
 | `logo` | A 128 x 32 PNG in `rush2/new_cars/` drawn as the car's car select name logo instead of `name` in Rush 2049's lettering (the SF Rush PlayStation cars use it for SF Rush's lettering). Default: none. |
@@ -454,7 +455,9 @@ and STRIPE COLOR. Both now take Rush 2's seven stripes (`src/car_stripes.cpp`, `
     coverage. Triangles no edge crosses are drawn whole in their region's palette.
   - **Painted triangles:** the current texture load is a painted one (it has a scuffed copy), G_TEXTURE is on, the
     combiner's first color cycle reads TEXEL0, it doesn't face down (outward normal y >= -0.6), and its corners are
-    body vertices. The render mode can't tell glass apart (2049 bodies draw with FORCE_BL), but the Super GT's
+    body vertices. A car mod with `stripes_above_widest` (the PS1 UFO, whose origin is at the ground under its
+    saucer, so its underside looked to face up) takes nothing below its widest point and measures facing from the
+    middle of its body. The render mode can't tell glass apart (2049 bodies draw with FORCE_BL), but the Super GT's
     windows are untextured triangles drawn while its body texture is still loaded, which the combiner and
     G_TEXTURE tests catch.
   - **Sheen layers** (`track2049::sheen_parts`) are left as they are: they lie on the uncut body.

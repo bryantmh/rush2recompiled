@@ -46,12 +46,12 @@ int level_slot(int level) {
     return -1;
 }
 
-float outward_normal_y(const float a[3], const float b[3], const float c[3]) {
+float outward_normal_y(const float a[3], const float b[3], const float c[3], const float center[3]) {
     float e1[3], e2[3], n[3], mid[3];
     for (int i = 0; i < 3; i++) {
         e1[i] = b[i] - a[i];
         e2[i] = c[i] - a[i];
-        mid[i] = (a[i] + b[i] + c[i]) / 3.0f;
+        mid[i] = (a[i] + b[i] + c[i]) / 3.0f - (center != nullptr ? center[i] : 0.0f);
     }
     n[0] = e1[1] * e2[2] - e1[2] * e2[1];
     n[1] = e1[2] * e2[0] - e1[0] * e2[2];
