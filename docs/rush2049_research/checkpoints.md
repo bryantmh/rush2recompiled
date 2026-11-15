@@ -195,7 +195,7 @@ collision at `fill` time would tighten it.
 
 ### 2.1 Checkpoint Time Difficulty setting (2026-11-14)
 
-The General tab's Gameplay option **Checkpoint Time Difficulty** (`checkpoint_difficulty`, src/checkpoint_time.cpp)
+The General tab's Gameplay option **Checkpoint Time** (labeled so it fits one line; `checkpoint_difficulty`, src/checkpoint_time.cpp)
 picks the DIFFICULTY f uses, apart from the one the computer cars' pace uses (rubber_band_800A1A98,
 docs/npc_cars.md#drone-catch-up). Values: Same as Race (key `Linked`, the default, Rush 2's behavior) or `0`-`5`,
 labeled with their f (x1.375 ... x1.000). Hooks right after the three loads of `0x8010C211` that compute f put the

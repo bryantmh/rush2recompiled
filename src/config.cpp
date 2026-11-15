@@ -949,7 +949,7 @@ static void add_checkpoint_time_option(recomp::config::Config& config) {
     using rush2::checkpoint_time::Setting;
     config.add_enum_option(
         checkpoint_time_option::id,
-        "Checkpoint Time Difficulty",
+        "Checkpoint Time",
         "Sets how much time the race clock gives you at the start and at each checkpoint, apart from how fast the "
         "computer cars drive. <recomp-color primary>Same as Race</recomp-color> uses the race's DIFFICULTY for both, "
         "as in Rush 2. A number picks a DIFFICULTY for the clock alone, from 0 (slider all the way left, most time) "
