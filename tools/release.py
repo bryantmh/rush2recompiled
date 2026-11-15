@@ -180,7 +180,9 @@ def main():
     log_range = [f"{previous}..{sha}"] if previous else ["-1", sha]
     changes = git("log", "--format=- %s", *log_range)
     notes = (f"Windows: unzip anywhere and run `Rush2Recompiled.exe`. Linux: make the `.AppImage` executable and run "
-             f"it. You'll need your own Rush 2: Extreme Racing USA ROM.\n\n"
+             f"it. macOS: drag the app from the `.dmg` to Applications and open it; when macOS says it can't verify it, "
+             f"click Open Anyway in System Settings > Privacy & Security. You'll need your own Rush 2: Extreme Racing "
+             f"USA ROM.\n\n"
              f"## Changes\n\n{changes}\n")
 
     # Push the commit now so the release tag can point at it; the outer push then finds master up to date.

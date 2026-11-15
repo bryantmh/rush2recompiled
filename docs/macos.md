@@ -15,8 +15,11 @@ Windows PC: Apple's SDK and Metal shader compiler only run on a Mac. Each build'
 3. Download the artifact from the run's page (`gh run download <run id>`), open the .dmg and drag the app to
    Applications.
 
-The app is signed ad hoc (no Apple Developer ID, no notarization), so macOS quarantines a downloaded copy. Clear it once
-with right-click > Open, or `xattr -dr com.apple.quarantine "/Applications/Rush 2 Recompiled.app"`.
+The app is signed ad hoc (no Apple Developer ID, no notarization), so macOS quarantines a downloaded copy and says it
+"could not verify" the app. Clear it once: open the app, then click Open Anyway in System Settings > Privacy & Security
+(macOS 15 dropped the old right-click > Open way), or `xattr -dr com.apple.quarantine "/Applications/Rush 2
+Recompiled.app"`. The release notes say this (tools/release.py). Only a paid Apple Developer ID with notarization
+removes the warning.
 
 ## How the port works
 

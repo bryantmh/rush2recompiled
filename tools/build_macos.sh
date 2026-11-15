@@ -11,7 +11,7 @@
 # the tree first: CI downloads them with tools/mac_ci_sources.py. Notes: docs/macos.md.
 #
 # The app is signed ad hoc (no Apple Developer ID), so a downloaded copy is quarantined by Gatekeeper: the player
-# clears that once with right-click > Open, or xattr -dr com.apple.quarantine "Rush 2 Recompiled.app".
+# clears that once with Open Anyway in System Settings > Privacy & Security (docs/macos.md).
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
