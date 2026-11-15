@@ -320,6 +320,17 @@ namespace {
                 true);
         }
 
+        // A card's height: padding, name, summary and its longest list of rules (one line each at Body's 20px), so a
+        // rule added to the list grows the cards and the rows below them move down rather than overlapping.
+        static float card_height() {
+            int keep = 0, change = 0;
+            for (const Rule& r : rules()) {
+                keep += r.keep != nullptr;
+                change += r.change != nullptr;
+            }
+            return 20.0f + 52.0f + 8.0f + 20.0f + 8.0f + 20.0f * (float)std::max(keep, change) + 20.0f + 4.0f;
+        }
+
         // A preset's card, all one button: its name, one line on what it is and what it does for each setting.
         recompui::Button* add_card(recompui::Element* parent, Profile p) {
             using namespace recompui;
@@ -331,9 +342,10 @@ namespace {
             card->set_align_items(AlignItems::FlexStart);
             card->set_justify_content(JustifyContent::FlexStart);
             card->set_width(560.0f);
-            card->set_height(280.0f);
-            card->set_min_height(280.0f);
-            card->set_max_height(280.0f);
+            float height = card_height();
+            card->set_height(height);
+            card->set_min_height(height);
+            card->set_max_height(height);
             card->set_padding(20.0f);
             card->set_padding_left(24.0f);
             card->set_padding_right(24.0f);
@@ -411,7 +423,8 @@ namespace {
                 "Both keep your controls and graphics settings. The other games' settings follow on the next page.",
                 theme::Typography::Body);
             kept->set_position(Position::Absolute);
-            kept->set_top(320.0f);
+            float below_cards = 24.0f + card_height();
+            kept->set_top(below_cards + 16.0f);
             kept->set_left(0.0f);
             kept->set_right(0.0f);
             kept->set_text_align(TextAlign::Center);
@@ -420,7 +433,7 @@ namespace {
             // The preset's settings, to turn on or off one by one.
             customize = context.create_element<Element>(page, 0, "div", false);
             customize->set_position(Position::Absolute);
-            customize->set_top(364.0f);
+            customize->set_top(below_cards + 60.0f);
             customize->set_left(0.0f);
             customize->set_right(0.0f);
             customize->set_bottom(0.0f);
