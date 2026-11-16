@@ -1299,7 +1299,7 @@ src/snowfall.cpp): none at FOG 1, heavier and faster at each step after.
   blue, RED 192 -> 64, WHITE 208 -> 56), while CLUT entry 7 (white, 248) stays: the light lenses keep full
   brightness. **[V]**
 - **Car lights** (`track_draw_chunks` after each car): `func_80041C58` draws a glow sprite at a point of the car (car
-  frame, 0.1 ft: x across, y down, z ahead) with a size. **[I]** (the sprite: `ART/LIGHT*.GFX`, loaded by
+  frame, 0.1 ft: x across, y down, z ahead) with a brightness (below: what this page called its size). **[V]** (the sprite: `ART/LIGHT*.GFX`, loaded by
   `func_8003CF20`.)
   - Tail lights, day and night, at (±x, y, z) of 0x800A8FA8 (12 bytes per car index: car +0x4C, 0-7 the SF Rush cars;
     8-15 the special cars **[I]**; BMW (26, -8, -82)), size car +0x90 (0x80101278): +32 a frame while car +0x3E0 is set
@@ -1308,6 +1308,41 @@ src/snowfall.cpp): none at FOG 1, heavier and faster at each step after.
     **[V]**
   - Each light goes out when its corner's damage (car +0x352, 3 bits per corner: rear bits 0-2 and 3-5, front right
     6-8, front left 9-11) reaches 3. **[I]** (which bits are which corner)
+  - The sprite (`func_80041C58`, its arguments: a0 the car index (x 0x408 into the car array), a1-a3 the point x, y, z, then the brightness and the
+    sprite at sp+0x10 / sp+0x14) is a square from (x - 16, y - 16) to (x + 16, y + 16) at the point's z in the car's
+    frame, 3.2 ft across and flat in the car's x-y plane (seen from behind and ahead, edge on from the side), 32 x 32
+    texels of its `ART/LIGHT*.GFX` (a star flare: a core and a ray across and up), drawn semi-transparent. The
+    "brightness" goes into the primitive's color bytes (+4-6, 0x80042124-0x80042164). The sprite argument picks the
+    CLUT (0x80042344-0x800423F0): 0 `ART/LIGHT.GFX` (red, uploaded at VRAM x 0x370), 1 `LIGHTB.GFX` (blue, 0x350), 2
+    `LIGHT2.GFX` (amber, 0x360); `LIGHTW.GFX` is white. **[V]**
+
+### Police lights
+
+With the police car (PIGGY, special car 7, 0x800B26F8) picked, the car lights pass draws two more sprites after the
+loop over the cars (0x80044C18-0x80044D14), when 0x80101234 (the player's car type: 2, the CAM PIGGY is built on) is 2,
+0x80101248 is 0 and 0x80101230 is 1 (not decoded: the same three tests guard the Jet Car's exhaust glow just before
+it, 0x80044B54-0x80044C14, with 3 and special car 3), at the player car's matrix (0x80101584): **[V]**
+
+- (-16, -38, -18) with sprite 0 (red), brightness (0x800B2818 & 31) x 8;
+- (16, -38, -18) with sprite 1 (blue), brightness ((0x800B2818 - 16) & 31) x 8.
+
+So 3.8 ft up and 1.8 ft back from the car's origin, 1.6 ft to each side. The lights' origin is about 1.1 ft over
+the PSV model's: every light table entry sits that far over the geometry it lights (y down: PIGGY's tail light
+0x800A8FA8 entry 14 at y -2 against its lamp faces' middle +9.2, STARSKY's -13 against -0.5, BBUS's -5 against 5.5;
+x and z match), so the flares' middles are 2.7 ft over the model's origin, on the roof bar's top edge (-26.2; the
+bar runs to -19.1) **[I]** (measured, the draw's offset not found in the code). The first port used -38 against the
+model and floated them 1.1 ft over the bar. They are drawn 0.4 ft lower again (`police_flare_lower`), their middles on
+the middle of the bar's lenses (-23): on its top edge they still read as a little high (the user's call). 0x800B2818 is gp+0x148,
+the race clock (61 counts to a second, [Car physics](#car-physics)): each light brightens from dark to full over 32 counts
+(0.52 s) and goes dark at once, the two half a cycle apart. The Jet Car's (special car 3) is one sprite at (0, -32,
+-78) in sprite 0, brightness 64 + 6 x (clock & 31) (its exhaust, not ported).
+
+The port: `police_flashers` (src/sfrush_ps1/ps1_cars.cpp) writes them into `PS1POLICE.json` as
+[flashers](car_mods.md#flashers) (`src/car_flashers.cpp` draws them), with each CLUT's brightest entry as the color
+and the converter's own transform of the car (`dump`: its size, the lift to Rush 2's axle height). The car frame's x is
+the glb's turned over, as the PSV models' -y: so mapped the red light sits over the red half of the roof bar's lens
+(glb x +10, texel (211, 28)) and the blue over the blue half. Every race car that is the police car shows them (the
+PS1 has only the player's).
 - **Snow physics** (`car_integrate`): every car's horizontal forces for the frame (thrust, tire friction; 0x800ED0FC
   and +8; the vertical one is kept) are halved at speed (car +0x30) 151 and up and halved again at 301 and up (a
   quarter). With the UFO picked (special car 8) every car's are halved instead. PIGGY's own taper and the other rule

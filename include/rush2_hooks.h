@@ -465,6 +465,8 @@ void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
 void rush2_track_traction(uint8_t* rdram, recomp_context* ctx);
 // Car Lights: each car's lamps on a night track, placed before each view (src/car_lights.cpp).
 void rush2_car_lights_view(uint8_t* rdram, recomp_context* ctx);
+// Roof flashers on mod cars (the PS1 police car's lights), placed before each view (src/car_flashers.cpp).
+void rush2_car_flashers_view(uint8_t* rdram, recomp_context* ctx);
 // Fancy UFO (src/sfrush_ps1/fancy_ufo.cpp): its hover glow before each view, its ENGINE and HORN picks in the player
 // records' getters and setters, the car select's HORN row and ENGINE reset, its horn, and the HORN row's text.
 void rush2_fancy_ufo_view(uint8_t* rdram, recomp_context* ctx);

@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -791,6 +792,9 @@ namespace {
         size_t triangles = 0;
         std::shared_ptr<ModelMod> hood; // a livery's hood camera hood (its .json's "hoods")
         std::shared_ptr<ModelMod> brake; // a livery's brake lights, drawn only while braking (its .json's "brakes")
+        // A livery's flipbook (its .json's "sirens": the arcade's light bars): the frames, shown in turn at siren_fps.
+        std::vector<std::shared_ptr<ModelMod>> siren_frames;
+        double siren_fps = 0.0;
         uint32_t color = 0x808080;       // a livery's look from afar, 0xRRGGBB (scheme_color): its track map dot
     };
     std::map<std::string, ModelMod> model_mods; // by model name (file name, upper case)
@@ -987,24 +991,32 @@ namespace {
 
     // loads: each stand-in's texture-load list, called (G_DL) in place of loading it in the list (a livery's, whose
     // loads car2049's add_damage_textures inlines per panel). brake: a livery's brake lights, blended, unlit and full
-    // bright (brake_render_mode; lit is ignored), its end setting the model's mode back.
+    // bright (brake_render_mode; lit is ignored), its end setting the model's mode back. siren: a frame of a livery's
+    // flipbook (the arcade's light bars): unlit, its vertex colors kept (they color the lenses), each texture drawn in
+    // the model's own render mode when it is opaque and blended as a brake light's when it has see-through texels (the
+    // glows round the lit lenses); its end setting the model's mode back.
     uint32_t emit_model(std::vector<uint8_t>& d, const ModelMod& mm, const std::vector<uint32_t>& texels,
                         const ListState& st, bool lit, float& radius, const std::vector<uint32_t>* loads = nullptr,
-                        bool brake = false) {
+                        bool brake = false, bool siren = false) {
         std::vector<uint8_t> vertices;
         std::vector<std::pair<uint32_t, uint32_t>> list;
         std::vector<size_t> vtx_commands;
         auto cmd = [&](uint32_t w0, uint32_t w1) { list.emplace_back(w0, w1); };
-        if (brake) lit = false;
+        if (brake || siren) lit = false;
         cmd(0xE3001001, 0x00000000);            // no TLUT: true color
         cmd(0xE3000F00, 0x00000000);            // no mipmaps
         // The model's own render mode (blending, z, fog) and textured combiner, always textured: its list may start on
         // an untextured part (ALCATRAZTRACK: G_TEXTURE off, a shade-only combiner) and switch further on. Without a
         // textured combiner: TEXEL0 x SHADE (color and alpha), the second cycle passing it on.
         const uint32_t combine[2] = { st.has_combine ? st.combine[0] : 0xFC1219FF, st.has_combine ? st.combine[1] : 0xFFFFFE38 };
+        const uint32_t model_mode = st.has_mode ? st.mode[1] : 0xC8112230;
         if (brake) {
             cmd(clear_lighting[0], clear_lighting[1]);
-            cmd(0xE200001C, brake_render_mode(st.has_mode ? st.mode[1] : 0xC8112230));
+            cmd(0xE200001C, brake_render_mode(model_mode));
+            cmd(brake_combine[0], brake_combine[1]);
+        }
+        else if (siren) {
+            cmd(clear_lighting[0], clear_lighting[1]);
             cmd(brake_combine[0], brake_combine[1]);
         }
         else {
@@ -1020,6 +1032,12 @@ namespace {
             for (const Part& part : model.parts) {
                 if (part.image != s.image) continue;
                 if (!loaded) {
+                    if (siren) {
+                        // Blended where the stand-in has see-through texels (alpha bit 0 of an RGBA5551 texel).
+                        bool clear = false;
+                        for (size_t t = 1; t < s.texels.size() && !clear; t += 2) clear = (s.texels[t] & 1) == 0;
+                        cmd(0xE200001C, clear ? brake_render_mode(model_mode) : model_mode);
+                    }
                     if (loads != nullptr) cmd(0xDE000000, (*loads)[si]);
                     else for (auto [w0, w1] : true_color_load(s, texels[si])) cmd(w0, w1);
                     loaded = true;
@@ -1044,7 +1062,7 @@ namespace {
                             for (int k = 0; k < 3; k++) rgba[k] = uint8_t(int8_t(std::clamp(std::lround(n3[k] * 127.0f), -127l, 127l)));
                             rgba[3] = 255;
                         }
-                        else if (brake) {
+                        else if (brake || (siren && part.col.empty())) {
                             rgba[0] = rgba[1] = rgba[2] = rgba[3] = 255;
                         }
                         else if (!part.col.empty()) {
@@ -1103,8 +1121,9 @@ namespace {
                 flush();
             }
         }
-        if (brake) { // the model's mode back for what its list draws after the call
+        if (brake || siren) { // the model's mode back for what its list draws after the call
             if (st.has_mode) cmd(st.mode[0], st.mode[1]);
+            else if (siren) cmd(0xE200001C, model_mode);
             cmd(combine[0], combine[1]);
         }
         cmd(0xE3001001, 0x00008000); // the TLUT mode Rush 2's lists leave set (RGBA16)
@@ -1221,6 +1240,41 @@ namespace {
     };
     std::map<std::pair<int, int>, LiveryBody> livery_bodies;
     std::map<int, std::string> livery_body_files;   // livery body id -> its livery's file (Car Lights' key)
+    // Each livery body's flipbook (rush2::car2049::siren_switch): the switches in its FRAME1 lists (file offsets, after
+    // add_livery_body rewrote them), the frame each calls, the frame count and rate. By livery body id.
+    constexpr int max_siren_frames = 32;
+    struct SirenSwitch {
+        uint32_t at, list;
+        int frame;
+    };
+    struct Sirens {
+        std::vector<SirenSwitch> switches;
+        int frames = 0;
+        double fps = 0.0;
+    };
+    std::map<int, Sirens> livery_sirens;
+
+    // The flipbook switches in model `model`'s lists (all its LODs) of container d.
+    std::vector<SirenSwitch> find_siren_switches(const std::vector<uint8_t>& d, const std::string& model) {
+        std::vector<SirenSwitch> out;
+        uint32_t models = be32(d, 0), names = be32(d, 4), count = be32(d, 16);
+        for (uint32_t m = 0; m < count && models + m * 0x34 + 0x34 <= d.size() && names + m * 0x18 + 0x18 <= d.size(); m++) {
+            if (strncmp(reinterpret_cast<const char*>(&d[names + m * 0x18]), model.c_str(), 15) != 0) continue;
+            uint32_t record = models + m * 0x34;
+            for (uint32_t lod = 0; lod < std::min(be32(d, record), 4u); lod++) {
+                uint32_t list = be32(d, record + 4 + lod * 12 + 8) & 0xFFFFFF;
+                for (uint32_t pc = list; list != 0 && pc + 16 <= d.size(); pc += 8) {
+                    uint32_t w0 = be32(d, pc), w1 = be32(d, pc + 4);
+                    if ((w0 >> 24) == 0xDF) break;
+                    if ((w0 >> 24) == 0 && w1 == rush2::car2049::siren_marker(1) && (be32(d, pc + 8) >> 24) == 0 &&
+                        be32(d, pc + 12) == rush2::car2049::siren_marker(2)) {
+                        out.push_back({ pc, be32(d, pc + 8) & 0xFFFFFF, int(w0 & 0xFFFFFF) });
+                    }
+                }
+            }
+        }
+        return out;
+    }
 
     std::string livery_prefix(int v) {
         char p[8];
@@ -1326,19 +1380,42 @@ namespace {
                 const bool brake_lit[1] = { false }; // white vertex colors, not normals
                 add_model(prefix + "BRK", 1, &brake_list, brake_lit, brake_radius / 16.0f);
             }
+            // Its flipbook's frames (the arcade's light bars): each a model of its own (<prefix>SRN<n>, rebased by
+            // the loader), which each body list calls through its switch while that frame shows
+            // (rush2::car2049::siren_switch, rush2::car_mods::animate).
+            std::vector<uint32_t> siren_lists;
+            for (size_t f = 0; f < mm.siren_frames.size(); f++) {
+                const ModelMod& frame = *mm.siren_frames[f];
+                std::vector<uint32_t> frame_texels;
+                for (const TrueColor& s : frame.stand_ins) frame_texels.push_back(place(s).first);
+                float frame_radius = 0.0f;
+                uint32_t list = emit_model(out, frame, frame_texels, st, false, frame_radius, nullptr, false, true);
+                const bool frame_lit[1] = { false }; // vertex colors, not normals
+                add_model(prefix + "SRN" + std::to_string(f + 1), 1, &list, frame_lit, frame_radius / 16.0f);
+                siren_lists.push_back(list);
+            }
             // Each LOD its own list: the loader rebases a list once per LOD that names it.
             float radius = 0.0f;
             uint32_t lists[4];
             for (uint32_t l = 0; l < lods; l++) {
                 lists[l] = emit_model(out, mm, texels, st, lod_lit[l], radius, &loads);
-                // The list is the last thing written: its G_ENDDL gives way to the brake light switch.
-                if (brake_list != 0 && out.size() >= 8 && be32(out, uint32_t(out.size() - 8)) == 0xDF000000u) {
+                // The list is the last thing written: its G_ENDDL gives way to the brake light switch and the flipbook's.
+                if ((brake_list != 0 || !siren_lists.empty()) && out.size() >= 8 &&
+                    be32(out, uint32_t(out.size() - 8)) == 0xDF000000u) {
                     out.resize(out.size() - 8);
-                    for (auto [w0, w1] : rush2::car2049::brake_switch(brake_list)) {
-                        add32(out, w0);
-                        add32(out, w1);
+                    if (brake_list != 0) {
+                        for (auto [w0, w1] : rush2::car2049::brake_switch(brake_list)) {
+                            add32(out, w0);
+                            add32(out, w1);
+                        }
                     }
-                    // The brake list draws unlit: a lit LOD's lighting back after it (a no-op while not braking).
+                    for (size_t f = 0; f < siren_lists.size(); f++) {
+                        for (auto [w0, w1] : rush2::car2049::siren_switch(siren_lists[f], int(f))) {
+                            add32(out, w0);
+                            add32(out, w1);
+                        }
+                    }
+                    // The brake and frame lists draw unlit: a lit LOD's lighting back after them (a no-op while off).
                     if (lod_lit[l]) {
                         add32(out, set_lighting[0]);
                         add32(out, set_lighting[1]);
@@ -1395,6 +1472,17 @@ namespace {
             LiveryBody& b = livery_bodies[{ index, int(v) + 1 }];
             b.id = rush2::car2049::add_livery_body(b.id, out, livery_prefix(int(v) + 1), scuffs, loads_start, loads_end);
             if (b.id >= 0) livery_body_files[b.id] = std::filesystem::path(it->second[v].file).stem().string();
+            if (b.id >= 0) {
+                const ModelMod& mm = it->second[v];
+                Sirens s;
+                if (!mm.siren_frames.empty()) {
+                    s.switches = find_siren_switches(out, livery_prefix(int(v) + 1) + "FRAME1");
+                    s.frames = int(mm.siren_frames.size());
+                    s.fps = mm.siren_fps;
+                }
+                if (s.switches.empty()) livery_sirens.erase(b.id);
+                else livery_sirens[b.id] = std::move(s);
+            }
         }
         return true;
     }
@@ -1439,6 +1527,9 @@ namespace {
         uint32_t list, w1;
     };
     std::map<uint32_t, Shown> shown;
+    // Flipbook switches turned on (address -> the call's w1 and the switch's frame), turned off for the mirror walk
+    // (sirens_lifted keeps them until its end). Guarded by style_mutex.
+    std::map<uint32_t, std::pair<uint32_t, int>> sirens_on, sirens_lifted;
 
     // The loaded copy of car `id` (a preview id or race car) when its container has liveries, else 0: its texture
     // bank's records (as func_8008582C finds them) less the container's texture table offset, which its header holds
@@ -1467,6 +1558,15 @@ namespace {
 extern "C" void rush2_livery_mirror_begin(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::brake_mirror(rdram, true);
     std::lock_guard lock{ style_mutex };
+    // The flipbook's frame shown: off for it, as each frame list is turned over through its own model.
+    sirens_lifted.clear();
+    for (const auto& [at, on] : sirens_on) {
+        if ((uint32_t)MEM_W(0, (int32_t)at) == 0xDE000000u && (uint32_t)MEM_W(4, (int32_t)at) == on.first) {
+            write_words(rdram, at, uint32_t(on.second), rush2::car2049::siren_marker(1));
+            sirens_lifted.insert({ at, on });
+        }
+    }
+    sirens_on.clear();
     lifted.clear();
     for (auto it = livery_words.begin(); it != livery_words.end();) {
         const uint32_t list = it->first;
@@ -1504,6 +1604,13 @@ extern "C" void rush2_inside_out_car_asset(uint8_t* rdram, recomp_context* ctx) 
 extern "C" void rush2_livery_mirror_end(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::brake_mirror(rdram, false);
     std::lock_guard lock{ style_mutex };
+    for (const auto& [at, on] : sirens_lifted) {
+        if ((uint32_t)MEM_W(0, (int32_t)at) == uint32_t(on.second) && (uint32_t)MEM_W(4, (int32_t)at) == rush2::car2049::siren_marker(1)) {
+            write_words(rdram, at, 0xDE000000u, on.first);
+            sirens_on.insert({ at, on });
+        }
+    }
+    sirens_lifted.clear();
     for (uint32_t list : lifted) {
         auto w = livery_words.find(list);
         auto o = originals.find(list);
@@ -1565,6 +1672,41 @@ int rush2::car_mods::livery_body(uint8_t* rdram, int id, uint32_t& base) {
     }
     base = copy;
     return s->second.body;
+}
+
+// Once a frame (the main loop's top, src/cheats.cpp): each copy showing a livery with a flipbook shows its frame for
+// the time now, its other frames' switches off. A switch whose words are neither its off nor its on state was loaded
+// over (the copy freed and something else there) and is left alone.
+void rush2::car_mods::animate(uint8_t* rdram) {
+    using clock = std::chrono::steady_clock;
+    static const clock::time_point start = clock::now();
+    const double now = std::chrono::duration<double>(clock::now() - start).count();
+    std::lock_guard lock{ style_mutex };
+    if (shown.empty() && sirens_on.empty()) return;
+    std::lock_guard tables{ livery_tables_mutex };
+    for (const auto& [copy, s] : shown) {
+        auto sirens = livery_sirens.find(s.body);
+        if (sirens == livery_sirens.end() || sirens->second.frames <= 0) continue;
+        // The branch to the livery still in place (as livery_body checks).
+        if ((uint32_t)MEM_W(0, (int32_t)s.list) != 0xDE010000u || (uint32_t)MEM_W(4, (int32_t)s.list) != s.w1) continue;
+        const int frame = int(std::fmod(now * sirens->second.fps, double(sirens->second.frames)));
+        for (const SirenSwitch& sw : sirens->second.switches) {
+            const uint32_t at = copy + sw.at;
+            const uint32_t on_w1 = (copy + sw.list) & 0xFFFFFF;
+            const uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)at), w1 = (uint32_t)MEM_W(4, (int32_t)at);
+            const bool is_off = w0 == uint32_t(sw.frame) && w1 == rush2::car2049::siren_marker(1);
+            const bool is_on = w0 == 0xDE000000u && w1 == on_w1;
+            if (!is_off && !is_on) continue;
+            if (sw.frame == frame) {
+                if (is_off) write_words(rdram, at, 0xDE000000u, on_w1);
+                sirens_on[at] = { on_w1, sw.frame };
+            }
+            else {
+                if (is_on) write_words(rdram, at, uint32_t(sw.frame), rush2::car2049::siren_marker(1));
+                sirens_on.erase(at);
+            }
+        }
+    }
 }
 
 std::string rush2::car_mods::livery_name(uint8_t* rdram, int id) {
@@ -2015,6 +2157,7 @@ namespace {
                 all.push_back(&mm);
                 if (mm.hood) all.push_back(mm.hood.get());
                 if (mm.brake) all.push_back(mm.brake.get());
+                for (const auto& f : mm.siren_frames) all.push_back(f.get());
             }
             for (const ModelMod* m : all) {
                 const ModelMod& mm = *m;
@@ -2121,6 +2264,9 @@ namespace {
             const nlohmann::json hoods = j.contains("hoods") && j["hoods"].is_array() ? j["hoods"] : nlohmann::json::array();
             // Each style's brake lights (rush2::car2049::brake_switch): "brakes", by style.
             const nlohmann::json brakes = j.contains("brakes") && j["brakes"].is_array() ? j["brakes"] : nlohmann::json::array();
+            // Each style's flipbook (rush2::car2049::siren_switch): "sirens", by style, {"frames": [glb, ...], "fps": n}
+            // or null.
+            const nlohmann::json sirens = j.contains("sirens") && j["sirens"].is_array() ? j["sirens"] : nlohmann::json::array();
             for (size_t si = 0; si < j["styles"].size(); si++) {
                 const auto& f = j["styles"][si];
                 std::string file = f.is_string() ? f.get<std::string>() : std::string();
@@ -2170,6 +2316,32 @@ namespace {
                     else {
                         fprintf(stderr, "[livery] %s in %s: %s\n", brake->file.c_str(), m.mod_id.c_str(),
                                 error.empty() ? "unreadable" : error.c_str());
+                    }
+                }
+                const nlohmann::json siren = si < sirens.size() && sirens[si].is_object() ? sirens[si] : nlohmann::json();
+                if (siren.is_object() && siren.contains("frames") && siren["frames"].is_array() && siren.contains("fps") &&
+                    siren["fps"].is_number() && siren["fps"].get<double>() > 0.0) {
+                    std::vector<std::shared_ptr<ModelMod>> frames;
+                    for (const auto& f : siren["frames"]) {
+                        std::string frame_file = f.is_string() ? f.get<std::string>() : std::string();
+                        auto frame = std::make_shared<ModelMod>();
+                        frame->mod_id = m.mod_id;
+                        frame->file = prefix + frame_file;
+                        std::vector<uint8_t> fglb;
+                        error.clear();
+                        if (frame_file.empty() || frame_file.find_first_of("/\\") != std::string::npos ||
+                            !read_mod_file(m, frame->file, fglb) || !load_model_mod(fglb, *frame, error, true)) {
+                            fprintf(stderr, "[livery] %s in %s: %s\n", frame->file.c_str(), m.mod_id.c_str(),
+                                    error.empty() ? "unreadable" : error.c_str());
+                            frames.clear();
+                            break;
+                        }
+                        frames.push_back(frame);
+                    }
+                    if (frames.size() > size_t(max_siren_frames)) frames.resize(size_t(max_siren_frames));
+                    if (frames.size() >= 2) {
+                        mm.siren_frames = std::move(frames);
+                        mm.siren_fps = std::clamp(siren["fps"].get<double>(), 0.5, 120.0);
                     }
                 }
                 loaded[index].push_back(std::move(mm));
@@ -2341,6 +2513,40 @@ namespace {
                     for (int k = 0; k < 3; k++) lamp.color[k] = e["color"][k].is_number() ? e["color"][k].get<float>() : 0.0f;
                 }
                 spec.lamps.push_back(lamp);
+            }
+        }
+        // Roof flashers (src/car_flashers.cpp): {"flashers": [{"at": [x, y, z], "color": [r, g, b], "phase": 0-1,
+        // "size": radius}], "flash_period": seconds}, at and size in the glb's space as "lights".
+        spec.flashers = rush2::car_flashers::Spec{};
+        if (j.contains("flashers")) {
+            const char* flashers_error = "\"flashers\" is a list of up to 4 {\"at\": [x, y, z], \"color\": [r, g, b], \"phase\": 0-1, "
+                                         "\"size\": radius} in the glb's space";
+            if (!j["flashers"].is_array() || j["flashers"].size() > size_t(rush2::car_flashers::max_flashers)) {
+                error = flashers_error;
+                return false;
+            }
+            for (const auto& e : j["flashers"]) {
+                float at[3], rgb[3] = { 255.0f, 255.0f, 255.0f };
+                if (!e.is_object() || !e.contains("at") || !vec(e["at"], at, 3) || (e.contains("color") && !vec(e["color"], rgb, 3)) ||
+                    (e.contains("phase") && !e["phase"].is_number()) || (e.contains("size") && !e["size"].is_number())) {
+                    error = flashers_error;
+                    return false;
+                }
+                rush2::car_flashers::Flasher f;
+                f.at[0] = -at[0] / 16.0f;
+                f.at[1] = at[1] / 16.0f;
+                f.at[2] = at[2] / 16.0f;
+                for (int k = 0; k < 3; k++) f.rgb[k] = std::clamp(rgb[k], 0.0f, 255.0f);
+                f.phase = e.contains("phase") ? e["phase"].get<float>() - std::floor(e["phase"].get<float>()) : 0.0f;
+                f.radius = e.contains("size") ? std::clamp(e["size"].get<float>() / 16.0f, 0.05f, 4.0f) : 1.0f;
+                spec.flashers.flashers.push_back(f);
+            }
+            if (j.contains("flash_period")) {
+                if (!j["flash_period"].is_number() || j["flash_period"].get<double>() <= 0.0) {
+                    error = "\"flash_period\" is a time in seconds";
+                    return false;
+                }
+                spec.flashers.period = std::clamp(j["flash_period"].get<float>(), 0.05f, 10.0f);
             }
         }
         // The car select's name logo: a 128 x 32 image in rush2/new_cars/ (read by load_new_cars into spec.logo).

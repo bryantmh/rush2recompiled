@@ -349,7 +349,9 @@ The other arcade cars are the N64 cars' models; their arcade-only color schemes 
 [liveries](#liveries) of the N64 cars (`LIVERIES` in the tool): GX-2 gets CAR2 COL6, Magnum CAR4 COL4, 6 and 7,
 Super GT CAR5 COL5 and 7, 8-Ball CAR6 COL1 and 3, and Bruiser the Cuda's (CAR7) COL1, 2, 3, 5, 6, 7 and 8. A livery
 body is moved forward by the N64 car's wheel center offset (Bruiser 0.5 ft, the others 0), which a side silhouette
-fit against the N64 body confirmed. Each livery has its scheme's HOOD as its hood and its BRAKE as its brake lights.
+fit against the N64 body confirmed. Each livery has its scheme's HOOD as its hood and its BRAKE as its brake lights,
+and a scheme whose `dobs.rom` has a flipbook (the police light bars and the Bruiser's beacon) its frames as
+[sirens](#sirens) (`<LIVERY>_COLn_SIRENk.glb`).
 The installed mod is keyed on the build, so a new build rebuilds it in the background at launch (an older install
 gets its brake lights that way).
 
@@ -606,6 +608,34 @@ dump, `sheet` draws it from the front and back with the lamps found, and `pick` 
 box you give (docs/graphics_effects.md#reviewing-the-lamps). [Liveries](#liveries) have no `lights`: theirs are found
 on the livery's body and brake lights.
 
+## Flashers
+
+A [new car](#new-cars)'s `.json` can give it roof lights that pulse while it races, day or night (no option: the
+PlayStation SF Rush police car's lights, docs/sfrush_ps1.md#police-lights, which the PS1 mod's `PS1POLICE.json`
+lists):
+
+```json
+"flashers": [
+    { "at": [ 20.0, 60.8, -22.3], "color": [255, 0, 0], "phase": 0.0, "size": 19.8 },
+    { "at": [-20.0, 60.8, -22.3], "color": [0, 0, 255], "phase": 0.5, "size": 19.8 }
+],
+"flash_period": 0.5246
+```
+
+| Field | Meaning |
+| --- | --- |
+| `at` | The flare's middle, in the glb's space (1/16 ft, as `wheels`). |
+| `color` | Its color, 0-255 (default white). |
+| `phase` | Where in the cycle it starts, 0-1 (default 0): 0.5 flashes half a cycle after 0. |
+| `size` | Half its width, same units (default 16, a foot). |
+| `flash_period` | Seconds a cycle takes (default 0.5): each flasher brightens from dark to full over it and goes dark at once. |
+
+At most 4 per car. Each is a flare (a bright core with a ray across and a ray up, `FLASH_GLOW`) flat in the car's
+x-y plane, seen from behind and ahead as the PlayStation's sprite is, drawn by `src/car_flashers.cpp` as a
+`rush2::battle_render` model placed with the car's body pose before each view (slots 420-451, its model at RDRAM
+0x80E1F480-0x80E1F800), pulled 0.6 ft toward the camera so the roof under it doesn't cut it, and hidden for a
+wrecked car, a ghost and a car out of the race. A bad entry fails the car's `.json` as other fields do.
+
 ## Liveries
 
 A mod's `rush2/liveries/<ID>.json` gives an existing car more looks, each a whole mesh:
@@ -626,8 +656,32 @@ A mod's `rush2/liveries/<ID>.json` gives an existing car more looks, each a whol
 - `hoods`: optional. The [hood camera hood](#the-hood-camera-hood) of each style, by position in `styles`: a glb file
   in `rush2/liveries/`, or `""` (or a shorter list) for none. A style without one shows no hood in the hood camera.
 - `brakes`: optional. The [brake lights](#brake-lights) of each style, by position in `styles`, as `hoods`.
+- `sirens`: optional. Each style's [flipbook](#sirens), by position in `styles`: `{"frames": ["A_SIREN1.glb", ...],
+  "fps": 24}` or `null`.
 
 A file that can't be read is skipped and the log says why (`[livery] <file> in <mod>: ...`).
+
+### Sirens
+
+A livery's `sirens` entry is a flipbook drawn on the body, its frames shown one after another at `fps` frames a
+second, looping, all the time (the car select's preview too): the arcade's light bars (docs/arcade2049.md#light-bars),
+which the `rush2049_arcade_cars` mod gives the Magnum's NYC police livery (CAR4 COL7, 16 frames at 24), the
+Bruiser's police livery (CAR7 COL8, 8 at 16) and its roof beacon (COL6, 3 at 20). Each frame is a glb in the car's
+space like the style; its vertex colors (`COLOR_0`) are kept, unlit (they color the lenses), and each texture is
+drawn in the body's render mode when it is opaque, blended as a brake light when it has see-through texels (the glow
+cards round the lit lenses). 2 to 32 frames; a frame that can't be read drops the flipbook.
+
+How it works (`src/car_mods.cpp`): `append_liveries` writes each frame as a model of its own, `~Lnn` + `SRN<n>`
+(one LOD, loading its textures inline, rebased by the loader as the brake lights' `~LnnBRK` is), and ends each of the
+livery's FRAME1 lists, after the brake light switch, with one switch per frame (`rush2::car2049::siren_switch`): a
+`G_NOOP` holding the frame's number with `siren_marker(1)` (0x5C500001), then a `G_NOOP` holding the frame list's file
+offset with `siren_marker(2)`. After `add_livery_body` rewrote the lists, `find_siren_switches` records where the
+switches ended up (by livery body id). `rush2::car_mods::animate`, from the main loop's top (src/cheats.cpp), turns
+on each copy showing the livery (the `shown` map `paint_livery` keeps, its branch checked still in place) the switch
+of the frame for the time now into a `G_DL` call to the frame's list in that copy, and the others back to their
+`G_NOOP`; a switch holding neither was loaded over and is left alone. `rush2_livery_mirror_begin` / `_end` turn the
+shown frame off and on again around the mirror walk, as a frame list is turned over through its own model. The frame
+lists' vertices follow the body's dents as brake lights do (`Paint::siren_lists` in `collect_brake_vertices`).
 
 The car select gets a STYLE row under CAR: STYLE 1 is the car as it is, STYLE 2 and up the liveries. While a livery is
 picked, the MAIN COLOR, ACCENT COLOR, STRIPE and STRIPE COLOR rows are hidden. The choice is per player profile and

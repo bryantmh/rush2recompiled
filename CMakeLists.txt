@@ -298,6 +298,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/track_cache.cpp
     ${CMAKE_SOURCE_DIR}/src/track_traction.cpp
     ${CMAKE_SOURCE_DIR}/src/car_lights.cpp
+    ${CMAKE_SOURCE_DIR}/src/car_flashers.cpp
     ${CMAKE_SOURCE_DIR}/src/car_stripes.cpp
     ${CMAKE_SOURCE_DIR}/src/snowfall.cpp
     ${CMAKE_SOURCE_DIR}/src/race_time_model.cpp

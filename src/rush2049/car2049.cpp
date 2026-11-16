@@ -291,6 +291,9 @@ namespace {
             uint32_t at, list;
         };
         std::vector<BrakeBlock> brake_blocks;
+        // A livery's flipbook frame lists (rush2::car2049::siren_switch, file offsets), whose vertices follow the body's
+        // dents as the brake lights' do (collect_brake_vertices).
+        std::vector<uint32_t> siren_lists;
         // Rush 2's STRIPE values (include/car_stripes.h, docs/car_mods.md#stripes-on-one-body-cars), on an N64 2049
         // car and a car mod painted through a paint mask: add_damage_textures ends each body list with one block per
         // STRIPE value, the body's painted triangles in that value's bands drawn again over the body (decal, cut at
@@ -2177,6 +2180,7 @@ void rush2::car2049::set_mod_car(uint8_t* rdram, int n, std::vector<uint8_t> car
     mod_no_wheels[n] = spec.wheels_hidden;
     mod_shadow_radius[n] = spec.shadow_radius;
     rush2::car_lights::set_mod_lamps(rush2::car_types::first_mod + n, spec.lamps);
+    rush2::car_flashers::set_mod_flashers(rush2::car_types::first_mod + n, spec.flashers);
     mod_no_wings[n] = spec.wings_hidden;
     mod_no_marks[n] = spec.marks_hidden;
     mod_no_dust[n] = spec.dust_hidden;
@@ -2204,6 +2208,7 @@ void rush2::car2049::clear_mod_car(uint8_t* rdram, int n) {
     mod_no_wheels[n] = false;
     mod_shadow_radius[n] = 0.0f;
     rush2::car_lights::set_mod_lamps(type, {});
+    rush2::car_flashers::set_mod_flashers(type, {});
     mod_no_wings[n] = false;
     mod_no_marks[n] = false;
     mod_no_dust[n] = false;
@@ -2561,18 +2566,24 @@ static void find_brake_switches(const std::vector<uint8_t>& car, const std::stri
                     be32(car, pc + 12) == rush2::car2049::brake_marker(2)) {
                     p.brake_blocks.push_back({ pc, be32(car, pc + 8) & 0xFFFFFF });
                 }
+                if (w1 == rush2::car2049::siren_marker(1) && (w0 >> 24) == 0 && (be32(car, pc + 8) >> 24) == 0 &&
+                    be32(car, pc + 12) == rush2::car2049::siren_marker(2)) {
+                    p.siren_lists.push_back(be32(car, pc + 8) & 0xFFFFFF);
+                }
             }
         }
     }
 }
 
-// The vertices of the brake light lists p's switches call (after its body vertices and brake blocks are known), each
-// made to follow the body vertex nearest it when the body dents (Paint::followers).
+// The vertices of the brake light lists p's switches call (after its body vertices and brake blocks are known), and of
+// a livery's flipbook frames (Paint::siren_lists), each made to follow the body vertex nearest it when the body dents
+// (Paint::followers).
 static void collect_brake_vertices(const std::vector<uint8_t>& car, Paint& p) {
     p.followers.clear();
     if (p.vertices.empty()) return;
     std::set<uint32_t> lists, seen;
     for (const Paint::BrakeBlock& b : p.brake_blocks) lists.insert(b.list);
+    lists.insert(p.siren_lists.begin(), p.siren_lists.end());
     for (uint32_t list : lists) {
         for (uint32_t pc = list; pc + 8 <= car.size(); pc += 8) {
             uint32_t w0 = be32(car, pc), w1 = be32(car, pc + 4) & 0xFFFFFF;

@@ -186,6 +186,45 @@ namespace {
         return top;
     }
 
+    // The police car's roof lights (docs/sfrush_ps1.md#police-lights): with PIGGY picked (special car 7) the car
+    // lights pass (0x80044C18-0x80044D14, after the cars' tail and head lights) draws two glow sprites
+    // (func_80041C58) at (-16, -38, -18) and (16, -38, -18), 0.1 ft in its car frame (x across, y down, z ahead): the
+    // first with ART/LIGHT.GFX's CLUT (red), the second with ART/LIGHTB.GFX's (blue), each a 3.2 ft square flat in the
+    // car's x-y plane. Their brightness (the sprite's color) is (frame & 31) x 8 and ((frame - 16) & 31) x 8, frame the
+    // race clock at 0x800B2818 (gp+0x148, 61 counts a second): each brightens over 32 counts and goes dark, half a
+    // cycle apart. As the car's .json "flashers" (src/car_flashers.cpp), in the glb's space: the car frame's x is the
+    // glb's turned over (the red sprite sits over the red half of the roof bar's lens, glb x +10, as the PSV models'
+    // own -y; the blue over the blue half), y up from the model's origin and lifted with it, z ahead; the color each
+    // CLUT's brightest entry.
+    // The lights' frame isn't the model's: its origin is about 1.1 ft over the PSV model's (the model is drawn that much
+    // lower). Measured against the cars' own tail lights (0x800A8FA8, y down): PIGGY's entry y -2 against its lamp
+    // faces' middle +9.2 (11.2), STARSKY -13 against -0.5 (12.5), BBUS -5 against 5.5 (10.5). Taken as PIGGY's own,
+    // 11 tenths, the flares' middles then sit on the roof bar's top edge (-26.2) as the PS1 draws them. Without it they
+    // floated 1.1 ft over the bar.
+    constexpr int light_frame_drop = 11;
+    // And 4 tenths lower still (the user's call, 2026-11-15: on the top edge they read as a little too high): the flares'
+    // middles on the middle of the bar's lenses (y -23; the bar runs -26.2 to -19.1).
+    constexpr int police_flare_lower = 4;
+    constexpr int special_police = 7;
+    constexpr double police_flash_period = 32.0 / 61.0;
+    nlohmann::json police_flashers(const ps1::Disc& disc, double size, double lift) {
+        const double to16 = 1.6 * size;   // 0.1 ft to 1/16 ft
+        nlohmann::json out = nlohmann::json::array();
+        const struct { const char* file; int x; double phase; } lights[2] = { { "ART/LIGHT.GFX", -16, 0.0 },
+                                                                              { "ART/LIGHTB.GFX", 16, 0.5 } };
+        for (const auto& l : lights) {
+            std::vector<uint8_t> d;
+            if (!disc.read(l.file, d) || d.size() < 40) return nullptr;
+            uint16_t c = uint16_t(d[8 + 30] | d[8 + 31] << 8);   // CLUT entry 15
+            auto five = [](int v) { return (v << 3) | (v >> 2); };
+            out.push_back({ { "at", { -l.x * to16, (38 - light_frame_drop - police_flare_lower) * to16 + lift, -18 * to16 } },
+                            { "color", { five(c & 31), five((c >> 5) & 31), five((c >> 10) & 31) } },
+                            { "phase", l.phase },
+                            { "size", 16 * to16 } });
+        }
+        return out;
+    }
+
     // The car as a glb: one material per texture, smooth normals (Rush 2 bakes its light into vertex colors from them).
     // body: the car's own texture as drawn (RGBA, body_w x body_h), for its brake lights.
     std::vector<uint8_t> convert(const ps1::Disc& disc, const Car& car, const std::vector<V3>& V, const std::vector<Face>& F,
@@ -575,6 +614,13 @@ bool ps1::build_cars(const Disc& disc, const std::filesystem::path& assets_dir, 
             spec["stripes_above_widest"] = true;
         }
         if (car.paintable) spec["main_color"] = default_main_color;
+        if (car.special == special_police) {
+            nlohmann::json flashers = police_flashers(disc, size, lift);
+            if (!flashers.is_null()) {
+                spec["flashers"] = flashers;
+                spec["flash_period"] = police_flash_period;
+            }
+        }
         std::vector<uint8_t> brake = brake_lights(car, V, F, size, lift, body, body_w, body_h, brake_tris);
         if (!brake.empty()) {
             out[std::string("rush2/new_cars/") + car.id + "_BRAKE.glb"] = std::move(brake);

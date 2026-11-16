@@ -11,6 +11,7 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <sstream>
 
 #include "arcade2049.h"
 #include "texture_upscale.h"
@@ -87,15 +88,11 @@ namespace {
         return out;
     }
 
-    // Color scheme `col` of the car (object `obj`: CARBODY, HOOD, the hood camera's hood, or BRAKE) as a glb in the model
-    // dump's space, moved dz ft forward; empty without that object.
-    std::vector<uint8_t> convert(const std::filesystem::path& data, const std::string& folder, const std::string& col,
-                                 double dz, const std::string& obj, size_t& tri_count, std::string& error) {
+    // Object `o` of color scheme `t` as a glb in the model dump's space, moved by `offset` (ft, the arcade's car axes)
+    // and dz ft forward. colors: its vertex colors as COLOR_0 (the light bars' lenses are colored by them).
+    std::vector<uint8_t> convert_object(Track& t, const Object* o, const std::string& name, const V3& offset, double dz,
+                                        bool colors, size_t& tri_count) {
         tri_count = 0;
-        Track t;
-        if (!t.open(data / "CARS" / folder / col, error)) return {};
-        const Object* o = t.find(obj);
-        if (!o) return {};
         const Lod& lod = o->lod0;
         std::set<int> used;
         for (const auto& tr : lod.tris) if (tr[3] < t.textures.size()) used.insert(tr[3]);
@@ -113,8 +110,9 @@ namespace {
                 for (int k : { tr[0], tr[2], tr[1] }) {   // mirroring x flips the winding
                     if (k >= int(lod.verts.size())) continue;
                     const Vertex& v = lod.verts[k];
-                    G.push_back({ -v.pos[0] * units, v.pos[1] * units, (v.pos[2] + dz) * units });
+                    G.push_back({ -(v.pos[0] + offset[0]) * units, (v.pos[1] + offset[1]) * units, (v.pos[2] + offset[2] + dz) * units });
                     p.uvs.push_back({ v.st[0] / s[0], v.st[1] / s[1] });
+                    if (colors) p.colors.push_back({ v.rgba[0] / 255.0, v.rgba[1] / 255.0, v.rgba[2] / 255.0, v.rgba[3] / 255.0 });
                 }
             }
             if (G.empty() || G.size() % 3) continue;
@@ -140,8 +138,63 @@ namespace {
             tri_count += p.tris.size();
             prims.push_back(std::move(p));
         }
-        g.textured_mesh(folder + "_" + col + "_" + obj, prims);
+        g.textured_mesh(name, prims);
         return g.bytes();
+    }
+
+    // Color scheme `col` of the car (object `obj`: CARBODY, HOOD, the hood camera's hood, or BRAKE) as a glb in the model
+    // dump's space, moved dz ft forward; empty without that object.
+    std::vector<uint8_t> convert(const std::filesystem::path& data, const std::string& folder, const std::string& col,
+                                 double dz, const std::string& obj, size_t& tri_count, std::string& error) {
+        tri_count = 0;
+        Track t;
+        if (!t.open(data / "CARS" / folder / col, error)) return {};
+        const Object* o = t.find(obj);
+        if (!o) return {};
+        return convert_object(t, o, folder + "_" + col + "_" + obj, V3{ 0.0, 0.0, 0.0 }, dz, false, tri_count);
+    }
+
+    // The scheme's flipbook (its dobs.rom, docs/arcade2049.md#light-bars): the police liveries' light bars (NYCSIREN,
+    // COPSIREN) and the Bruiser's roof beacon (REDSIREN), "flipbook <frames a second>" over objects <name>_1..n, placed
+    // at the entry's position in the car's axes (x, y, z as the vertices: REDSIREN's (-2.78, -0.28, 0) puts its glow on
+    // the body's R_SIREN lamp, while the tracks' (x, z, y) order put it 0.3 ft high and back). Each frame becomes
+    // <name>_SIRENn.glb (the vertex colors kept: they color the lenses); the .json's "sirens" entry for the scheme, or
+    // null without one. The arcade's matrices here are all the identity, so they aren't applied.
+    nlohmann::json convert_sirens(const std::filesystem::path& data, const std::string& folder, const std::string& col,
+                                  double dz, const std::string& name, ModFiles& out, const std::string& dir, std::string& log) {
+        Track t;
+        std::string error;
+        std::vector<DobsEntry> entries;
+        if (!t.open(data / "CARS" / folder / col, error) || !t.dobs(entries, error)) return nullptr;
+        for (const DobsEntry& e : entries) {
+            double fps = 0.0;
+            for (const std::string& line : e.script) {
+                std::istringstream words(line);
+                std::string word;
+                words >> word;
+                for (char& c : word) c = char(std::tolower((unsigned char)c));
+                if (word == "flipbook") words >> fps;
+            }
+            if (!(fps > 0.0)) continue;   // a negative rate plays once on an event: no car has one
+            std::vector<const Object*> frames;
+            while (const Object* f = t.find(e.name + "_" + std::to_string(frames.size() + 1))) frames.push_back(f);
+            if (frames.size() < 2) continue;
+            nlohmann::json files = nlohmann::json::array();
+            size_t tris = 0;
+            for (size_t k = 0; k < frames.size(); k++) {
+                size_t n = 0;
+                std::string file = name + "_SIREN" + std::to_string(k + 1) + ".glb";
+                out[dir + file] = convert_object(t, frames[k], name + "_SIREN" + std::to_string(k + 1), e.pos, dz, true, n);
+                files.push_back(file);
+                tris += n;
+            }
+            char line[200];
+            snprintf(line, sizeof(line), "%s/%s: %s, %zu frames at %g a second, %zu triangles\n", folder.c_str(), col.c_str(),
+                     e.name.c_str(), frames.size(), fps, tris);
+            log += line;
+            return nlohmann::json{ { "frames", files }, { "fps", fps } };   // one flipbook a scheme (each car has one)
+        }
+        return nullptr;
     }
 }
 
@@ -192,6 +245,7 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
         std::string lid;
         for (const char* c = l.car; *c; c++) if (*c != ' ' && *c != '-') lid += *c;
         nlohmann::json files = nlohmann::json::array(), hoods = nlohmann::json::array(), brakes = nlohmann::json::array();
+        nlohmann::json sirens = nlohmann::json::array();
         for (int c : l.cols) {
             if (cancelled && cancelled()) return false;
             std::string col = "COL" + std::to_string(c);
@@ -214,9 +268,10 @@ bool a49::build_car_mod(const std::filesystem::path& data_dir, ModFiles& out, st
             std::string brake_name = brake.empty() ? "" : lid + "_" + col + "_BRAKE.glb";
             if (!brake.empty()) out["rush2/liveries/" + brake_name] = std::move(brake);
             brakes.push_back(brake_name);
+            sirens.push_back(convert_sirens(data_dir, l.folder, col, l.dz, lid + "_" + col, out, "rush2/liveries/", log));
         }
         out["rush2/liveries/" + lid + ".json"] = text_bytes(nlohmann::json{
-            { "car", l.car }, { "styles", files }, { "hoods", hoods }, { "brakes", brakes },
+            { "car", l.car }, { "styles", files }, { "hoods", hoods }, { "brakes", brakes }, { "sirens", sirens },
             { "source", std::string("San Francisco Rush 2049 SE (arcade) ") + l.folder + ", built by the Games tab" } }.dump(4));
     }
     out["mod.json"] = text_bytes(nlohmann::json{

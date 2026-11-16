@@ -1,6 +1,7 @@
 #ifndef __CAR2049_H__
 #define __CAR2049_H__
 
+#include "car_flashers.h"
 #include "car_lights.h"
 #include <array>
 #include <cstdint>
@@ -144,6 +145,16 @@ namespace rush2::car2049 {
     }
     // Opens the brake light blocks branched past for the mirror walk (begin), closes them again after.
     void brake_mirror(uint8_t* rdram, bool begin);
+    // A livery's flipbook frames (its .json's "sirens": the arcade's light bars, docs/car_mods.md#sirens): each frame a
+    // list of its own, named as a model, and in each body list a switch per frame after the brake light switch: a
+    // G_NOOP holding the frame's number in its low 24 bits (siren_marker(1)), which rush2::car_mods turns into a G_DL
+    // call to the frame's list while that frame shows, then a G_NOOP holding the list's file offset (siren_marker(2)).
+    constexpr uint32_t siren_marker(int which) {
+        return 0x5C500000u | uint32_t(which);
+    }
+    inline std::array<std::pair<uint32_t, uint32_t>, 2> siren_switch(uint32_t list, int frame) {
+        return { { { uint32_t(frame) & 0xFFFFFFu, siren_marker(1) }, { list & 0xFFFFFFu, siren_marker(2) } } };
+    }
     struct ModCar {
         std::string name;              // the car select logo's text
         int base = 0;                  // Rush 2 type 0-21
@@ -173,6 +184,8 @@ namespace rush2::car2049 {
         std::vector<uint8_t> logo;     // "logo": the car select name logo, an encoded 128 x 32 image; empty: lettered
         // "lights": its headlamps and tail lamps for Car Lights (src/car_lights.cpp); empty: found on the body.
         std::vector<rush2::car_lights::LampSpec> lamps;
+        // "flashers": roof lights that pulse while it races (src/car_flashers.cpp); empty: none.
+        rush2::car_flashers::Spec flashers;
     };
     // What race car `car`'s brake lights are drawn from while it brakes (src/car_lights.cpp): its textures' lit copies
     // (texels -> the lit copy, both RDRAM; the texels whose bytes differ are the lights), lit copies kept outside RDRAM

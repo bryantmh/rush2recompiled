@@ -876,6 +876,7 @@ extern "C" void rush2_cheats_frame(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::check_source(rdram);
     rush2::calspeed::check_cars(rdram);
     rush2::car_mods::check(rdram);
+    rush2::car_mods::animate(rdram);
     rush2::car2049::prepare_bars(rdram, ctx);
     rush2::prewarm::frame(rdram);
 }

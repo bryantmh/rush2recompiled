@@ -45,6 +45,8 @@ namespace rush2::car_mods {
     // Shows the picked livery on car `id`'s loaded copy (a car select preview id, or a race car 0-7), or the car's own
     // body for STYLE 1: from the end of func_8008582C (rush2_car49_paint), and when STYLE changes.
     void paint_livery(uint8_t* rdram, int id);
+    // Steps the liveries' flipbooks (the arcade's light bars) on every car copy showing one; once a frame, game thread.
+    void animate(uint8_t* rdram);
     // The livery body (rush2::car2049::add_livery_body id) car `id`'s copy shows, and the copy's base; -1 for none.
     int livery_body(uint8_t* rdram, int id, uint32_t& base);
     // The file name (no folder or extension) of the livery car `id`'s copy shows, "" for none (Car Lights' key).
