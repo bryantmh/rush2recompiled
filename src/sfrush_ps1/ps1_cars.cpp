@@ -18,6 +18,7 @@
 #include <iterator>
 #include <map>
 
+#include "fancy_ufo.h"
 #include "sfrush_ps1.h"
 #include "../arcade2049/arcade_internal.h"
 
@@ -64,7 +65,8 @@ namespace {
     constexpr double car_size = 0.8184;
     // Rush 2's range across and up: the widest of its cars (all but the secret ROCKET, as ps1_physics's roster), the
     // CADDY at 6.62 ft, and the tallest, the DEW at 5.12 (each intact model's extent, tools/car_mod.py rush2_car). At
-    // car_size the Starsky and Police are 7.0 ft wide and the UFO 10.2 ft across, so each car is shrunk further,
+    // car_size the Starsky and Police are 7.0 ft wide and the UFO 10.2 ft across, so each car is shrunk further (not the UFO:
+    // rush2::fancy_ufo::ps1_fit, it stays 10.2 ft),
     // wheels with it, by as much as its width or height needs to fit; the others keep car_size. Length is free: the
     // City Bus keeps its 18.7 ft (a bus is long; the user's call, against fitting it to the CADDY's 15.0).
     constexpr double rush2_max_width = 6.625, rush2_max_height = 5.125;
@@ -374,6 +376,10 @@ bool ps1::build_cars(const Disc& disc, const std::filesystem::path& assets_dir, 
             for (int i = 0; i < 2; i++) {
                 if (hi[i] > lo[i]) fit = std::min(fit, max16[i] / (hi[i] - lo[i]));
             }
+            // The UFO: not shrunk (rush2::fancy_ufo::ps1_fit), 10.2 ft across, wheel points with it. At the cap its
+            // wheel points stood two thirds as far apart as Rush 2's cars' and it tipped over too easily. Its box
+            // (the one it hits cars with) is its mesh's (car_mods.cpp box_from_model), so it grows with it.
+            if (car.special == special_ufo) fit = rush2::fancy_ufo::ps1_fit;
             half_width_ft = (hi[0] - lo[0]) * fit / 32.0;
         }
         const double size = car_size * fit, car_wheel_scale = wheel_scale * fit;

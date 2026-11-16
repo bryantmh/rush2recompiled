@@ -43,6 +43,8 @@ namespace rush2::wings {
         float tilt;           // Rotation about the car's X axis, radians.
         bool flames;
         float flame_scale[2]; // Flame stretch along Y, left and right.
+        float stick_x, stick_y; // The stick steering the car in the air (-1..1): pitch torque -= y, roll += x x mirror.
+        float mirror;           // -1 on a mirrored track, else 1.
     };
     // The wing pose of car index (0-7), or false if its wings are away.
     bool get_pose(uint8_t* rdram, int index, Pose& out);

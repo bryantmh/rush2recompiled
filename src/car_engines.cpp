@@ -43,6 +43,7 @@
 #include "calspeed.h"
 #include "car_engines.h"
 #include "engine2049.h"
+#include "fancy_ufo.h"
 #include "online.h"
 #include "track2049.h"
 
@@ -166,6 +167,10 @@ namespace {
         }
         s->level = MEM_BU(0, (int32_t)(sound + 0xD)) / 127.0f * MEM_BU(0, (int32_t)(env + 0xD)) / 127.0f;
         s->rate = std::exp2((int8_t)MEM_B(0, (int32_t)(keymap + 5)) / 1200.0f);
+        double sum = 0.0;
+        for (int16_t v : s->pcm) sum += double(v) * double(v);
+        fprintf(stderr, "[engines] Sound 0x%02X: rms %.3f of full scale, level %.2f\n", id,
+                std::sqrt(sum / double(s->pcm.size())) / 32768.0, s->level);
         return s;
     }
 
@@ -174,6 +179,7 @@ namespace {
         std::shared_ptr<Sample> sample;
         double pos = 0.0;
         float step = 1.0f;          // samples per output frame
+        float pitch = 1.0f;         // for a sample with its own rate (Sample::hz): the step is pitch x hz / output rate
         float gain[2] = { 0, 0 };   // current, ramped to target
         float target[2] = { 0, 0 };
     };
@@ -182,6 +188,31 @@ namespace {
     std::map<int, std::shared_ptr<Sample>> samples; // by sound id (null: unreadable)
     Voice voices[max_cars][2];
     Voice one_shot;                                 // play_calspeed_sound's (not looped, not held by a pause)
+    Voice horn;                                     // play_horn's
+    float horn_hold = 0.0f;                         // seconds the horn sounds on for; then it fades (horn_fade)
+    constexpr float horn_fade = 0.12f;              // seconds
+    Voice previews[2][2];                           // the car select's WARP CORE rev, per player slot
+    bool slot_warps[2] = {};                        // the race's engine slot was left to WARP CORE (set_slot_warp)
+
+    // The Fancy UFO's WARP CORE layers (src/sfrush_ps1/fancy_ufo.cpp), looped whole at their own rate; null until its
+    // worker has made them (moments after launch).
+    std::shared_ptr<Sample> warp_layer(int layer) {
+        static std::shared_ptr<Sample> made[2];
+        if (made[layer] == nullptr) {
+            const std::vector<int16_t>& pcm = layer == 0 ? rush2::fancy_ufo::engine_hum() : rush2::fancy_ufo::engine_whine();
+            if (pcm.size() < 2) return nullptr;
+            auto s = std::make_shared<Sample>();
+            s->pcm = pcm;
+            s->loop_start = 0;
+            s->loop_end = (uint32_t)s->pcm.size();
+            s->hz = float(rush2::fancy_ufo::sound_rate);
+            made[layer] = s;
+        }
+        return made[layer];
+    }
+    // The WARP CORE's loudness against Rush 2's engines: at 0.85 the UFO's own engine at speed measures as loud as the
+    // PICKUP's in the same race (RUSH2_AUDIO_LEVELS: about -26 dBFS each in stunt arena 25, gas held).
+    constexpr float warp_gain = 0.85f;
     std::map<std::string, std::shared_ptr<Sample>> named_samples;   // play_sample's, by key
     int handles49[max_cars][2];                     // 2049 cars' sound handles
     int levels49[max_cars];
@@ -332,6 +363,63 @@ namespace {
             v.target[0] = gain * std::cos(angle);
             v.target[1] = gain * std::sin(angle);
         }
+    }
+
+    // The Fancy UFO's WARP CORE for one car: its two layers retuned by the car's speed (state +0xE0 >> 2, the mph the
+    // contrails read; flat out at 170), at the ENGINE volume.
+    void play_warp(uint8_t* rdram, int car, const float pos[3], const std::vector<Listener>& listeners, bool own) {
+        if (levels49[car] >= 0) stop_car(car);
+        int speed = std::abs((int)(int16_t)((int16_t)MEM_H(0, (int32_t)(car_states + car * car_state_size + 0xE0)) >> 2));
+        rush2::fancy_ufo::Layer mix[2];
+        rush2::fancy_ufo::engine_mix(float(speed) / 170.0f, mix);
+        float option_volume = std::clamp((int8_t)MEM_B(0, (int32_t)engine_volume) / 40.0f, 0.0f, 1.0f);
+        audio::EmitterParams e = own ? own_engine(1.0f) : hear(pos, listeners, other_car_volume);
+        float angle = (std::clamp(e.pan, -1.0f, 1.0f) + 1.0f) * 0.25f * 3.14159265f;
+        for (int layer = 0; layer < 2; layer++) {
+            Voice& v = voices[car][layer];
+            std::shared_ptr<Sample> sample = warp_layer(layer);
+            if (v.sample != sample) {
+                v = Voice{};
+                v.sample = sample;
+            }
+            float gain = warp_gain * mix[layer].volume * option_volume * e.volume;
+            v.pitch = mix[layer].pitch;
+            v.target[0] = gain * std::cos(angle);
+            v.target[1] = gain * std::sin(angle);
+        }
+    }
+
+    // Mixes one looping or one-shot voice (false once a one-shot ended).
+    bool mix_voice(Voice& v, float* out, size_t frames, uint32_t sample_rate, float scale, bool ramp) {
+        if (v.sample == nullptr) return false;
+        const std::vector<int16_t>& pcm = v.sample->pcm;
+        if (pcm.size() < 2) return false;
+        if (v.sample->hz > 0.0f && sample_rate != 0) v.step = v.pitch * v.sample->hz / float(sample_rate);
+        const uint32_t loop_start = v.sample->loop_start, loop_end = v.sample->loop_end;
+        const double loop_len = double(loop_end) - double(loop_start);
+        constexpr float ramp_rate = 1.0f / 256.0f; // about 5 ms
+        for (size_t f = 0; f < frames; f++) {
+            if (ramp) {
+                for (int ch = 0; ch < 2; ch++) v.gain[ch] += (v.target[ch] - v.gain[ch]) * ramp_rate;
+            }
+            if (loop_end != 0) {
+                while (v.pos >= double(loop_end)) v.pos -= loop_len;
+            }
+            else if (v.pos >= double(pcm.size() - 1)) {
+                return false;
+            }
+            size_t i = std::min((size_t)v.pos, pcm.size() - 1);
+            // A loop's last sample leads into its first.
+            size_t j = i + 1;
+            if (loop_end != 0 && j >= loop_end) j = loop_start;
+            j = std::min(j, pcm.size() - 1);
+            float t = float(v.pos - (double)i);
+            float s = pcm[i] + (pcm[j] - pcm[i]) * t;
+            out[f * 2] += s * v.gain[0] * scale;
+            out[f * 2 + 1] += s * v.gain[1] * scale;
+            v.pos += v.step;
+        }
+        return true;
     }
 }
 
@@ -525,6 +613,71 @@ bool rush2::car_engines::play_sample(uint8_t* rdram, const std::string& key, con
     return true;
 }
 
+bool rush2::car_engines::play_horn(uint8_t* rdram, const std::vector<int16_t>& pcm, uint32_t hz, float volume,
+                                   uint32_t loop_start, float hold) {
+    if (pcm.size() < 2 || hz == 0) return false;
+    constexpr uint32_t effects_volume = 0x800D5774;   // s8: 0-40, as play_calspeed_sound
+    float gain = std::clamp((int8_t)MEM_B(0, (int32_t)effects_volume) / 40.0f, 0.0f, 1.0f) * volume *
+                 std::cos(0.25f * 3.14159265f);
+    std::lock_guard lock{ mutex };
+    horn_hold = std::max(horn_hold, hold);
+    // Still sounding (or fading): held on at full volume, not started over.
+    if (horn.sample != nullptr && horn.sample->pcm.size() == pcm.size()) {
+        horn.target[0] = horn.target[1] = gain;
+        horn.gain[0] = horn.gain[1] = gain;
+        return true;
+    }
+    static std::shared_ptr<Sample> sample;
+    if (sample == nullptr || sample->pcm.size() != pcm.size()) {
+        sample = std::make_shared<Sample>();
+        sample->pcm = pcm;
+        sample->hz = float(hz);
+        sample->loop_start = std::min<uint32_t>(loop_start, uint32_t(pcm.size() - 2));
+        sample->loop_end = uint32_t(pcm.size());
+    }
+    horn = Voice{};
+    horn.sample = sample;
+    horn_hold = hold;
+    horn.gain[0] = horn.gain[1] = horn.target[0] = horn.target[1] = gain;
+    return true;
+}
+
+void rush2::car_engines::set_slot_warp(int slot, bool warp) {
+    if (slot < 0 || slot > 1) return;
+    std::lock_guard lock{ mutex };
+    slot_warps[slot] = warp;
+}
+
+bool rush2::car_engines::slot_warp(int slot) {
+    if (slot < 0 || slot > 1) return false;
+    std::lock_guard lock{ mutex };
+    return slot_warps[slot];
+}
+
+void rush2::car_engines::preview_warp(uint8_t* rdram, int slot, bool on, float drive) {
+    if (slot < 0 || slot > 1) return;
+    // At the ENGINE volume, centered, as the car select revs Rush 2's engines.
+    float option_volume = std::clamp((int8_t)MEM_B(0, (int32_t)engine_volume) / 40.0f, 0.0f, 1.0f);
+    std::lock_guard lock{ mutex };
+    for (int layer = 0; layer < 2; layer++) {
+        Voice& v = previews[slot][layer];
+        if (!on) {
+            v = Voice{};
+            continue;
+        }
+        rush2::fancy_ufo::Layer mix[2];
+        rush2::fancy_ufo::engine_mix(drive, mix);
+        std::shared_ptr<Sample> sample = warp_layer(layer);
+        if (v.sample != sample) {
+            v = Voice{};
+            v.sample = sample;
+        }
+        v.pitch = mix[layer].pitch;
+        float gain = warp_gain * mix[layer].volume * option_volume * std::cos(0.25f * 3.14159265f);
+        v.target[0] = v.target[1] = gain;
+    }
+}
+
 void rush2::car_engines::set_enabled(bool enabled) {
     option = enabled;
     if (!enabled) stop();
@@ -557,11 +710,14 @@ void rush2::car_engines::update(uint8_t* rdram) {
     bool extra_player[max_cars] = {};
     bool slot_player[max_cars] = {};
     int player_slot[max_cars] = {};
+    int player_of[max_cars];
+    for (int& p : player_of) p = -1;
     for (int s = 0; s < local; s++) {
         int car = local_car(s);
         if (car >= 0 && car < max_cars) {
             (s < 2 ? slot_player : extra_player)[car] = true;
             player_slot[car] = s & 1;
+            player_of[car] = s;
         }
     }
     std::lock_guard lock{ mutex };
@@ -572,7 +728,22 @@ void rush2::car_engines::update(uint8_t* rdram) {
         // cars' (a ghost's) not at all, but for the other machines' players' online.
         std::shared_ptr<const cs::Bank> cs_bank;
         int cs_engine = cs::engine_of(rdram, c, cs_bank);
-        bool own = extra_player[car] || (slot_player[car] && cs_engine >= 0);
+        // The Fancy UFO's WARP CORE (src/sfrush_ps1/fancy_ufo.cpp): a local player's car plays it when its race ENGINE
+        // value is WARP CORE (players 1 and 2: their slot's start left it here, rush2_engine49_start); any other car
+        // that is the UFO while the option is on (its default engine).
+        int type = MEM_BU(0, (int32_t)(c + car_type));
+        bool warp;
+        if (slot_player[car]) {
+            warp = slot_warps[player_slot[car]];
+        }
+        else if (extra_player[car]) {
+            uint32_t row = rush2::car_types::table(rush2::car_types::engine) + uint32_t((player_of[car] + 1) * rush2::car_types::types + type);
+            warp = (int8_t)MEM_B(0, (int32_t)row) >= rush2::fancy_ufo::engine_value;
+        }
+        else {
+            warp = rush2::fancy_ufo::enabled() && rush2::fancy_ufo::is_ufo(type);
+        }
+        bool own = extra_player[car] || (slot_player[car] && (cs_engine >= 0 || warp));
         bool other_human = online <= 0 && (int8_t)MEM_B(0, (int32_t)(c + car_driver)) == 2;
         bool skipped = own ? false : slot_player[car] || other_human || !option;
         bool off = (int16_t)MEM_H(0, (int32_t)(c + car_active)) == 0 || skipped || muted || (int8_t)MEM_B(0, (int32_t)(c + car_engine_off)) != 0 ||
@@ -583,6 +754,10 @@ void rush2::car_engines::update(uint8_t* rdram) {
         }
         float pos[3];
         for (int i = 0; i < 3; i++) pos[i] = f32_at(rdram, c + car_position + i * 4);
+        if (warp) {
+            play_warp(rdram, car, pos, listeners, own);
+            continue;
+        }
         int level = rush2::car2049::engine_level(rdram, c);
         if (level >= 0) {
             float load = f32_at(rdram, c + car_load);
@@ -594,7 +769,6 @@ void rush2::car_engines::update(uint8_t* rdram) {
             play(rdram, car, cs_bank->law[cs_engine + cs::engines * (own ? player_slot[car] : 0)], c, pos, listeners, own);
             continue;
         }
-        int type = MEM_BU(0, (int32_t)(c + car_type));
         int engine = type < rush2::car2049::types ? (int8_t)MEM_B(0, (int32_t)(default_engines + type)) : -1;
         if (engine < 0 || engine >= 10) {
             stop_car(car);
@@ -631,30 +805,30 @@ void rush2::car_engines::mix(float* out, size_t sample_count, uint32_t sample_ra
             one_shot.pos += one_shot.step;
         }
     }
-    // Silent while nothing updates them (paused).
-    if (rush2::track2049::sounds_paused(updated_rdram.load(), updated_ms.load())) return;
-    constexpr float ramp = 1.0f / 256.0f; // about 5 ms
-    for (auto& car : voices) {
-        for (Voice& v : car) {
-            if (v.sample == nullptr) continue;
-            const std::vector<int16_t>& pcm = v.sample->pcm;
-            double size = (double)pcm.size();
-            for (size_t f = 0; f < frames; f++) {
-                for (int ch = 0; ch < 2; ch++) v.gain[ch] += (v.target[ch] - v.gain[ch]) * ramp;
-                if (v.pos >= size - 1) {
-                    if (v.sample->loop_end == 0) break;
-                    v.pos -= double(v.sample->loop_end - v.sample->loop_start);
-                }
-                size_t i = (size_t)v.pos;
-                float t = float(v.pos - (double)i);
-                float s = pcm[i] + (pcm[std::min(i + 1, pcm.size() - 1)] - pcm[i]) * t;
-                out[f * 2] += s * v.gain[0] * scale;
-                out[f * 2 + 1] += s * v.gain[1] * scale;
-                v.pos += v.step;
-                if (v.sample->loop_end != 0 && v.pos >= v.sample->loop_end) {
-                    v.pos -= double(v.sample->loop_end - v.sample->loop_start);
-                }
+    // The Fancy UFO's horn, and the car select's WARP CORE revs (the race's engines don't run there).
+    // The horn loops while held (play_horn), then fades out over horn_fade.
+    // In chunks of 64 frames (2 ms), so the fade has no steps to hear.
+    for (size_t at = 0; at < frames && horn.sample != nullptr && sample_rate != 0; at += 64) {
+        size_t n = std::min<size_t>(64, frames - at);
+        float seconds = float(n) / float(sample_rate);
+        horn_hold -= seconds;
+        if (horn_hold < 0.0f) {
+            float drop = horn.target[0] * seconds / horn_fade;
+            horn.gain[0] = std::max(0.0f, horn.gain[0] - drop);
+            horn.gain[1] = std::max(0.0f, horn.gain[1] - drop);
+            if (horn.gain[0] <= 0.0f) {
+                horn = Voice{};
+                break;
             }
         }
+        if (!mix_voice(horn, out + at * 2, n, sample_rate, scale, false)) horn = Voice{};
+    }
+    for (auto& slot : previews) {
+        for (Voice& v : slot) mix_voice(v, out, frames, sample_rate, scale, true);
+    }
+    // Silent while nothing updates them (paused).
+    if (rush2::track2049::sounds_paused(updated_rdram.load(), updated_ms.load())) return;
+    for (auto& car : voices) {
+        for (Voice& v : car) mix_voice(v, out, frames, sample_rate, scale, true);
     }
 }

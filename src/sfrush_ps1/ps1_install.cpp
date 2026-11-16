@@ -20,6 +20,7 @@
 
 #include "sfrush_ps1.h"
 #include "car_mods.h"
+#include "fancy_ufo.h"
 #include "options_page.h"
 #include "texture_upscale.h"
 #include "track1.h"
@@ -304,6 +305,7 @@ void ps1::init_config() {
             // The custom tracks' scan keys on it (src/track_mod/track_mod.cpp): the next track select lists them or not.
             night_option = std::get<bool>(cur_value);
         });
+    rush2::fancy_ufo::init_config();
 }
 
 bool ps1::n64_night_versions() {
@@ -344,7 +346,8 @@ void ps1::add_games_section(rush2::ui::OptionsPage* page, std::function<void()>&
         start(disc);
     });
     page->add_option(rush2::wings::games_config(), night_option_id);
-    refresh = [note = heading.note, seen = generation.load()]() mutable {
+    rush2::fancy_ufo::add_option(page);
+    refresh =[note = heading.note, seen = generation.load()]() mutable {
         int now = generation.load();
         if (now == seen) return;
         seen = now;

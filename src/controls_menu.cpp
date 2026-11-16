@@ -147,6 +147,7 @@ namespace {
     // src/hud.cpp 0x80C9F000-0x80C9F320, src/rush2049/car2049.cpp 0x80CA0000-0x80CB0000, src/widescreen.cpp
     // 0x80CF0000-0x80D00000, src/rush2049/wings_render.cpp 0x80D00000-0x80E10000, src/online/online_game.cpp
     // 0x80E10000-0x80E14040 and 0x80E15600-0x80E15660, src/time_sprint.cpp 0x80E14040-0x80E14FA0,
+    // src/sfrush_ps1/fancy_ufo.cpp 0x80E14FC0-0x80E15600 and 0x80E15680-0x80E16000 (its thruster jet in the spare ends of both),
     // src/arcade2049/arcade_checkpoints.cpp
     // 0x80E1E000-0x80E1EA00, include/collision_polys.h (leaf_lists) 0x80E1EA00-0x80E1F200, src/car_lights.cpp
     // 0x80E1F200-0x80E1F300 and 0x80E1F380-0x80E1F480, src/snowfall.cpp 0x80E1F300-0x80E1F380,

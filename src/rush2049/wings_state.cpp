@@ -256,6 +256,9 @@ bool rush2::wings::get_pose(uint8_t* rdram, int index, Pose& out) {
     out.flames = true;
     out.flame_scale[0] = std::max(-flame_scale * w.stick_x, min_flame_scale);
     out.flame_scale[1] = std::max(flame_scale * w.stick_x, min_flame_scale);
+    out.stick_x = w.stick_x;
+    out.stick_y = w.stick_y;
+    out.mirror = MEM_B(0, (int32_t)mirror_flag) == 1 ? -1.0f : 1.0f;
     return true;
 }
 

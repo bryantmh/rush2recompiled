@@ -236,6 +236,7 @@ void rush2_engine_preview_frame(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine_preview_stop(uint8_t* rdram, recomp_context* ctx);
 // Rush 2049 engine sounds for the 2049 cars (src/rush2049/engine2049.cpp).
 int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx);
+void rush2_engine49_slot_engine(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine49_stop(uint8_t* rdram, recomp_context* ctx);
 void rush2_engine49_tick(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_record(uint8_t* rdram, recomp_context* ctx);
@@ -464,6 +465,18 @@ void rush2_calspeed_wheel_support(uint8_t* rdram, recomp_context* ctx);
 void rush2_track_traction(uint8_t* rdram, recomp_context* ctx);
 // Car Lights: each car's lamps on a night track, placed before each view (src/car_lights.cpp).
 void rush2_car_lights_view(uint8_t* rdram, recomp_context* ctx);
+// Fancy UFO (src/sfrush_ps1/fancy_ufo.cpp): its hover glow before each view, its ENGINE and HORN picks in the player
+// records' getters and setters, the car select's HORN row and ENGINE reset, its horn, and the HORN row's text.
+void rush2_fancy_ufo_view(uint8_t* rdram, recomp_context* ctx);
+void rush2_fancy_ufo_get(uint8_t* rdram, recomp_context* ctx, uint32_t at, int type, int field, uint64_t* value);
+void rush2_fancy_ufo_set(uint8_t* rdram, recomp_context* ctx, uint32_t at, int type, int field);
+void rush2_fancy_ufo_horn_before(uint8_t* rdram, recomp_context* ctx);
+void rush2_fancy_ufo_horn_value(uint8_t* rdram, recomp_context* ctx);
+void rush2_fancy_ufo_race_horn(uint8_t* rdram, recomp_context* ctx);
+void rush2_fancy_ufo_horn_held(uint8_t* rdram, recomp_context* ctx);
+int rush2_fancy_ufo_sound_skip(uint8_t* rdram, recomp_context* ctx);
+void rush2_fancy_ufo_engine_reset(uint8_t* rdram, recomp_context* ctx);
+void rush2_car49_horn_text(uint8_t* rdram, recomp_context* ctx);
 void rush2_snowfall_view(uint8_t* rdram, recomp_context* ctx);
 // California Speed's walls and missed wheels (src/calspeed/calspeed_walls.cpp) and physics (calspeed_physics.cpp),
 // with the CS Physics option.

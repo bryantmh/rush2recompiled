@@ -17,7 +17,8 @@
 // skipped, and each func_80064F70 call updates the 2049 layers from the car's +0x7F0 (Rush 2 keeps 2049's rpm x 0.9
 // there) and +0x3F4 (the torque, 2049's +0x404), as 2049 plays the local player's car. Rush 2's computer cars have no
 // engine sound; src/car_engines.cpp gives the other cars theirs (an option). A slot whose car is a California Speed car
-// skips Rush 2's start too: src/car_engines.cpp plays California Speed's engine for it.
+// skips Rush 2's start too: src/car_engines.cpp plays California Speed's engine for it. So does a slot whose ENGINE is
+// the Fancy UFO's WARP CORE (10, past Rush 2's engines: src/sfrush_ps1/fancy_ufo.cpp).
 
 #include <algorithm>
 #include <atomic>
@@ -31,6 +32,7 @@
 #include "car2049.h"
 #include "car_engines.h"
 #include "engine2049.h"
+#include "fancy_ufo.h"
 #include "online.h"
 #include "track2049.h"
 
@@ -125,6 +127,9 @@ extern "C" int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx) {
     }
     int index;
     uint32_t car = slot_car(rdram, slot, index);
+    // The Fancy UFO's WARP CORE (ENGINE 10, src/sfrush_ps1/fancy_ufo.cpp) has no entry in Rush 2's engine tables:
+    // src/car_engines.cpp plays it for the slot's car (rush2_engine49_slot_engine marked the slot).
+    bool warp = rush2::car_engines::slot_warp(slot);
     {
         std::lock_guard lock{ engines_mutex };
         bool rush2049 = index < 8 && rush2::car2049::engine_level(rdram, car) >= 0;
@@ -132,10 +137,15 @@ extern "C" int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx) {
         if (!rush2049) {
             stop(race[slot]);
             int calspeed = index < 8 ? rush2::car_engines::calspeed_engine(rdram, car) : -1;
-            if (calspeed < 0) {
+            if (warp) {
+                fprintf(stderr, "[engines] Slot %d: WARP CORE\n", slot);
+            }
+            else if (calspeed < 0) {
                 return 0;
             }
-            fprintf(stderr, "[engines] Slot %d: California Speed engine %d\n", slot, calspeed);
+            else {
+                fprintf(stderr, "[engines] Slot %d: California Speed engine %d\n", slot, calspeed);
+            }
         }
     }
     recomp_context saved = *ctx;
@@ -146,6 +156,18 @@ extern "C" int rush2_engine49_start(uint8_t* rdram, recomp_context* ctx) {
     *ctx = saved;
     ctx->r29 = (uint64_t)(int64_t)(int32_t)(sp + 0x30);
     return 1;
+}
+
+// race_start_engine_sounds (func_8008C6E8) at 0x8008C718, the race's start of slot $t8's engine ($t0, the s16 at
+// 0x800E7BBC [slot] that func_8009E664 hands it, at race start and after a pause): it zeroes an engine of 10 or more
+// in the array and starts engine 0. The Fancy UFO's WARP CORE (10) marks the slot instead and goes on as 0 (the array
+// keeps 10 for the next start), so rush2_engine49_start skips Rush 2's engine and src/car_engines.cpp plays the slot's.
+extern "C" void rush2_engine49_slot_engine(uint8_t* rdram, recomp_context* ctx) {
+    int slot = (int)(ctx->r24 & 0xFFFF);
+    int engine = (int)(int16_t)ctx->r8;
+    bool warp = engine >= rush2::fancy_ufo::engine_value;
+    rush2::car_engines::set_slot_warp(slot, warp);
+    if (warp) ctx->r8 = 0;
 }
 
 // func_8008C49C entry: Rush 2 stops the engines (pause, race end); a pause's end starts them again.

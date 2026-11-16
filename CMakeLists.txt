@@ -207,6 +207,7 @@ target_sources(Rush2Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_diorama.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_cars.cpp
     ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/ps1_install.cpp
+    ${CMAKE_SOURCE_DIR}/src/sfrush_ps1/fancy_ufo.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.engine.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.offset.cpp
     ${CMAKE_SOURCE_DIR}/lib/Clipper2/CPP/Clipper2Lib/src/clipper.rectclip.cpp

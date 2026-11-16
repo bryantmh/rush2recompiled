@@ -2809,6 +2809,15 @@ status = "inferred"
 ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
+vram = 0x800C1000
+name = "horn_sound_ids"
+type = "u8[9]"
+desc = "Each HORN row value's sound id (0-8), which menu_play_sound plays: the car select's HORN row (0x803B9DD8) and a race's horn (car_sound_update_all 0x80067558)."
+area = "audio"
+status = "inferred"
+ref = "docs/sfrush_ps1.md#fancy-ufo"
+
+[[var]]
 vram = 0x800C1014
 name = "car_collision_f32"
 type = "f32"
@@ -4103,6 +4112,24 @@ desc = "Track select option labels, 11 per language (index language * 11 + optio
 area = "menu"
 status = "verified"
 ref = "docs/rush2049_research/battle.md#71-battle-rules-the-battle-selects-points-and-time-limit-rows"
+
+[[var]]
+vram = 0x800C49D4
+name = "horn_names"
+type = "char *[3][9]"
+desc = "The HORN row's value names per language (36 bytes a language), read by carselect_text_cb_car_title case 6 (0x803BC49C)."
+area = "menu"
+status = "inferred"
+ref = "docs/sfrush_ps1.md#fancy-ufo"
+
+[[var]]
+vram = 0x800C49F8
+name = "engine_names"
+type = "char *[3][10]"
+desc = "The ENGINE row's value names per language (40 bytes a language), read by carselect_text_cb_car_title case 7 (0x803BC4F0)."
+area = "menu"
+status = "inferred"
+ref = "docs/sfrush_ps1.md#fancy-ufo"
 
 [[var]]
 vram = 0x800C4A90
@@ -8099,6 +8126,15 @@ desc = "The player count the race was set up with: race_setup_800A5ADC stores 0x
 area = "menu"
 status = "verified"
 ref = "docs/online.md#race-end"
+
+[[var]]
+vram = 0x800E7BBC
+name = "slot_engines"
+type = "s16[2]"
+desc = "Each local player slot's ENGINE value, which func_8009E664 hands race_start_engine_sounds (race start and after a pause); a value of 10 or more is zeroed there before engine 0 starts."
+area = "audio"
+status = "inferred"
+ref = "docs/sfrush_ps1.md#fancy-ufo"
 
 [[var]]
 vram = 0x800E7BC0

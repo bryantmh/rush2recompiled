@@ -27,6 +27,17 @@ namespace rush2::car_engines {
     // PlayStation SF Rush's sounds (src/time_sprint.cpp). `key` names it, so a sample played again isn't copied again.
     // Replaces the one-shot sound playing.
     bool play_sample(uint8_t* rdram, const std::string& key, const std::vector<int16_t>& pcm, uint32_t hz, float volume = 1.0f);
+    // The Fancy UFO (src/sfrush_ps1/fancy_ufo.cpp). play_horn sounds its horn, centered, at Rush 2's effects volume x
+    // `volume`, on a voice of its own, for `hold` seconds: samples from `loop_start` to the end loop until then, and
+    // it fades out after. Called again while it sounds (a held horn button, every tick), it holds on without starting
+    // over. set_slot_warp: race engine slot 0 or 1 (players 1 and 2) was left to the WARP CORE, which is played here
+    // for its car (src/rush2049/engine2049.cpp). preview_warp: the car select's WARP CORE rev on a player's slot, at
+    // `drive` (0 idle .. 1 flat out); on false stops it.
+    bool play_horn(uint8_t* rdram, const std::vector<int16_t>& pcm, uint32_t hz, float volume, uint32_t loop_start,
+                   float hold);
+    void set_slot_warp(int slot, bool warp);
+    bool slot_warp(int slot);
+    void preview_warp(uint8_t* rdram, int slot, bool on, float drive);
     // Adds the Rush 2 cars' engines to the game's output (audio thread): interleaved stereo at the game's rate, N64
     // sample units times `scale`.
     void mix(float* samples, size_t sample_count, uint32_t sample_rate, float scale);

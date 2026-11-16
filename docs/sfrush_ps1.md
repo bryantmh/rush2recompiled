@@ -34,6 +34,8 @@ Tools (`tools/sfrush_ps1/`, research aids; the converter is C++):
 - [Cars](#cars)
 - [Wheels](#wheels)
 - [Car physics](#car-physics)
+- [Engine sounds](#engine-sounds)
+- [Fancy UFO](#fancy-ufo)
 - [Sky](#sky)
 - [Sea](#sea)
 - [Props](#props)
@@ -673,8 +675,12 @@ the loop at point 29; its end (point 174) comes back beside point 29 (60 ft) ins
   (`car_size`, ps1_cars.cpp). At that scale some of the PS1's own cars outgrow Rush 2's range across and up (its
   widest car, all but the secret ROCKET, the CADDY at 6.62 ft; its tallest, the DEW at 5.12): the Starsky and Police
   are 7.0 ft wide, the UFO 10.2 ft across. Each car is shrunk further, wheels with it, by as much as its width or
-  height needs to fit (`rush2_max_width`): the Starsky and Police to 0.770 of the PS1's size, the UFO to 0.531; the
-  others fit at 0.818. Length is free, so the City Bus keeps its 18.7 ft (fitting it to the CADDY's 15.0 made it
+  height needs to fit (`rush2_max_width`): the Starsky and Police to 0.770 of the PS1's size; the others fit at
+  0.818. The UFO is the exception: not shrunk (`rush2::fancy_ufo::ps1_fit` 1.0, so 0.818 of the PS1's as the cars that
+  fit), 10.2 ft across, half again the CADDY's width; its box (the one it hits cars with) comes from its mesh, so it
+  meets other cars at its rim. Fitted to the cap (0.531, 6.62 ft) its wheel points, which carry it though none are drawn, stood 1.81 ft
+  out and +2.34 / -2.87 ft along, two thirds of Rush 2's cars' 2.75 and +-3.92, and it tipped over too easily (0.8 of car_size, 2.23 and +2.88 /
+  -3.53, was tried); unshrunk they are 2.79 and +3.60 / -4.42. Length is free, so the City Bus keeps its 18.7 ft (fitting it to the CADDY's 15.0 made it
   too small).
 - **Ride height:** the PS1's physics doesn't know the model, so it carries every car's origin at the same height
   over the ground. The wheeled cars' arches put it at 2.8 ft on average (at car_size); the UFO, with no arches, gets
@@ -787,6 +793,105 @@ divisor -> yaw inertia (387619). SF Rush and Rush 2 are close relatives, so the 
 roll cap or per-car fix-ups (STARSKY's and the UFO's torque above Rush 2's range is the PS1's). Not carried: PIGGY's
 taper, the per-car gravity in the air, the low-speed steering bonus, the slide friction and the damping shifts
 (Rush 2 has no per-car values for them).
+
+## Engine sounds
+
+The race's sound bank `BANKS/GAMESND.BNK` (29 sounds, ids in name order: 8 ENG1, 9 ENG2, 10 ENG3, 13 JET, 15
+MYSTERY; the table loaded at 0x800F78E0, 16 bytes per sound, offset at +8) holds three engine loops and no car-specific
+one beyond JET. The race-start code at 0x80020C00-0x80021200 keys them on: **[V]**
+
+- Special car 3 (JETCAR, 0x800B26F8) adds the JET loop (entry 0x800F79B0) on its own voice, on top of its engine.
+- Player 1's engine (car type 0x800B2BEC; player 2's 0x800B2BF0 when 0x800B3160 is 2): type 0 or 2-4 (BMW, CAM,
+  VIPER, SUPRA) ENG1, 1 or 5 (BUS, BUG) ENG2, anything else (6 BUGETTI, 7 CONCEPT) ENG3.
+- MYSTERY (0x80021278) is a one-shot at the same start, gated by gp+0x71c != 1 and 0x800B2774 == 0; no car check.
+- The pitch follows speed and gear (0x800B3230/1 is each player's gear, also drawn by the HUD at 0x8002F0F0) at
+  0x80016E10, via func_80020674(voice 1 or 2, pitch).
+
+So the UFO (special car 8, built on type 7) has no sound of its own: it plays ENG3 like the CONCEPT and BUGETTI.
+The port's PS1 cars all take the PICKUP's Rush 2 engine (`"base"` in [ps1_cars.cpp](../src/sfrush_ps1/ps1_cars.cpp)),
+and the Jet Car's extra JET loop isn't carried over. The Fancy UFO option below gives the UFO sounds of its own.
+
+## Fancy UFO
+
+Games tab, SF Rush PlayStation section, **Fancy UFO** (games.json `sfrush_ps1_fancy_ufo`, default on;
+[fancy_ufo.cpp](../src/sfrush_ps1/fancy_ufo.cpp), [fancy_ufo.h](../include/fancy_ufo.h)). None of it is the PS1's:
+it dresses up the port's UFO (mod car `PS1UFO`, named UFO, from the SF Rush PlayStation mod). The lights and jets
+change at once; the sounds from the next race (a race keeps the engine and horn it started with).
+
+**Engine and horn.** The UFO's ENGINE row gets WARP CORE (value 10) and its HORN row HAILING (value 9), past Rush 2's
+ten engines and nine horns, and it starts on both. Other cars' rows are unchanged. **[V]** in game: the rows show them
+on a new record, step through them both ways (HAILING → SEVENTIES → HAILING → KRUSTY'S; WARP CORE → 440 V8 → WARP CORE)
+and the race starts WARP CORE and plays HAILING (or the stock pick).
+
+- The car select (`menu_screen_car_select_frame_803B9478`, row switch at 0x803B98BC): case 7 is HORN (0x803B9D20: the
+  row byte at 0x80205AA0 + (player + 1) x 121 + type, wrapped at 9, then menu_play_sound(0x800C1000 [value]) at
+  0x803B9DD8 and save_set_field_589), case 8 ENGINE (0x803B9E08: 0x802040F0 rows, wrapped at 10, skipping the engine in
+  $s2, then save_set_field_58a at 0x803B9EC0). A step of 0 ($a1) resets the row to the type's default (row 0).
+  Hooks: 0x803B9D5C (the HORN byte before the step, $t7) and 0x803B9DD0 (after the wrap; HAILING plays there and the
+  menu_play_sound that follows is skipped); ENGINE steps in `rush2_car49_engine_value` (0x803B9E78) and a reset at
+  0x803B9EBC.
+- Value text (`carselect_text_cb_car_title_803BC048`): case 6 HORN (0x803BC49C: 0x800C49D4 + language x 36 + value x
+  4), case 7 ENGINE (0x803BC4F0: 0x800C49F8 + language x 40 + value x 4); at 0x803BC63C the text pointer ($s0) becomes
+  the labels written at 0x802259C0 (WARP CORE) and 0x802259D0 (HAILING).
+- The player record keeps one byte per row in the type's 13-byte block (+0x589 HORN, +0x58A ENGINE): getters
+  `carselect_lookup_value_e_800B2578` / `carselect_lookup_value_d_800B2554` (hooked at their `jr`, 0x800B2594 /
+  0x800B2570), setters `save_set_field_589_800977D0` / `save_set_field_58a_80097784` (at the `sb`, 0x800977F8 /
+  0x800977AC). As with the extra paint colors (src/paint_colors.cpp), the record only ever holds Rush 2's values: a pick
+  of the UFO's own sound stores the type's default and the saves' `fancy_ufo` section (`"picks"`, key `ADDR:field`,
+  field 0 ENGINE / 1 HORN, value 1 own sound / 0 a stock pick) remembers it; with the option on, the getter gives the own
+  value back while the record holds the default, or when nothing was picked yet.
+- The race: `race_start_engine_sounds_8008C6E8` takes the slot's engine from the s16 array 0x800E7BBC [slot] (which
+  func_8009E664 hands it at race start and after a pause) and zeroes one of 10 or more in the array before starting
+  engine 0. A hook at 0x8008C718 marks the slot WARP CORE instead and lets it go on as 0 (the array keeps 10), the
+  engine start (func_8008C61C) is skipped for a marked slot (src/rush2049/engine2049.cpp) and
+  [car_engines.cpp](../src/car_engines.cpp) plays the car's WARP CORE. Computer cars that are the UFO play it while
+  the option is on; players 3 and 4 by their own ENGINE row.
+- The horn in a race: `car_sound_update_all_80067358` checks the horn button every tick at 0x800674F0 ($v0 the player's
+  record 0x800C2140 + 0x28 x player: +0x1C the horn's button mask, ANDed in $t1 with +2 the buttons pressed this tick;
+  +4 the buttons held; $s1 the car, $s2 the player) and, on a press, at most every so often (the clock at 0x80117488 against the player's last horn time) plays
+  menu_play_sound(0x800C1000 [HORN]) at 0x80067558 (the HORN row byte in $t7, read from 0x80205B19 [player x 121 +
+  type]). For 9 that call is skipped, and HAILING sounds from the hook at 0x800674F0: each tick the button is held (+4) keeps it on for
+  0.1 s more, so it holds as long as the button does and fades out over 0.12 s after (car_engines play_horn). The car
+  select's HORN row sounds it for 0.6 s.
+- The sounds are made at startup on a worker (about 20 ms, never on the game thread), none recorded: the engine is two
+  seamless 2.048 s loops at 32 kHz (every tone on a whole number of the loop's cycles), a 55 Hz hum with beating
+  harmonics pulsing twice a second and a phase-shimmering chord near 440 / 660 / 880 Hz with a little hiss, retuned by
+  the car's speed (state +0xE0 >> 2, flat out at 170: hum pitch 0.9-1.35, whine 0.7-1.6 and louder); the horn a
+  0.14 s chirp (740 to 1318 Hz) into a held tone that loops seamlessly (0.512 s: E6 and B6 over E5, vibrato 5.9 Hz,
+  pulse 7.8 Hz, every tone on a whole bin), the chirp's held part being the loop's own end. At gain 0.85 the WARP CORE at speed measures as loud as the PICKUP's engine
+  (RUSH2_AUDIO_LEVELS, about -26 dBFS in stunt arena 25). The car select revs it as it revs Rush 2's engines
+  (src/engine_preview.cpp).
+
+**Hover glow.** Each of the three hexagonal pods under the saucer (tips in PS1UFO.glb at (25.84, 4.2, 0.45),
+(-14.15, 4.2, 21.81), (-11.56, 4.2, -23.29), 1/16 ft, on the UFO fitted to the width cap; `tools/glb_view.py PS1UFO.glb
+--pitch -89`; the glow, rings, jets and nozzles were laid out at that size and grow with the saucer by
+`rush2::fancy_ufo::size`, 1 / 0.649 = 1.540, across about its origin and up about the axle height 3.6, where the
+converter keeps its wheel points, so the figures here are at the cap) shines a soft cone
+of light (radius 9 to 20, 16 below the tip, so it meets the ground) with a bright core, and two rings of light per pod
+run down it every 0.6 s. Models of the port's own in RDRAM 0x80E15680-0x80E16000 (beams) and 0x80E14FC0-0x80E15600
+(ring), vertex colored, unlit, unfogged, G_RM_ZB_XLU_SURF2, colored a pale cyan by their slot's PRIM, which shimmers;
+rush2::battle_render slots 332-387, placed with the car's body pose before each view (pvs_apply 0x8007C27C). Hidden for a
+wrecked car, a car out of the race or not drawn (car +0x7F4 bit 0x10, after a wreck) and a ghost. **[V]**
+
+**Thruster jets.** The UFO's wings work but aren't drawn ("no_wings"); while they hold it in the air
+(rush2::wings::get_pose, src/rush2049/wings_state.cpp), four RCS nozzles on its rim (3.25 ft out, 0.9 ft up: right,
+left, front, back) fire the way that turns it as the stick does: a negative pitch torque drops the nose and a positive
+roll torque drops the right side (measured: stick right in a fall from 90 ft took the right axis' height from 0 to
+-0.99), so the front jet fires up to drop the nose, the right one up to drop the right side, each tilted 0.3 out from
+the rim. A jet is a model of the port's own (UFO_JET, vertices 0x80E15320-0x80E15450, list 0x80E15E40-0x80E15F40): a
+soft plume (radius 3 to 8 over 36, 1/16 ft) round a bright pointed core, colored a blue-white by PRIM; its length runs
+with the stick (0.45-1) and flickers. They are placed with the glow, from the drawn body's pose before each view
+(rush2::battle::car_body_pose), in rush2::battle_render slots 388-419, so they stay on the rim at any speed. (They
+were Rush 2049's contrail smoke first: puffs released on the physics tick never sat on the drawn body and read as
+smoke.) Need the Rush 2049 ROM and Wings on, as the wings do. **[V]**
+
+Test: `tools/test_race.py 25 --cars 66 --env RUSH2_UFO_LOG=1 --env RUSH2_CS_PLACE=717,90,-726,0,1,0,6 --script
+"T0:B:0.1,T6:CL:8,T7:SU:0.5,T7.6:SD:0.5" --shots R7.1,R7.2,...` (SU/SD/SL/SR the stick; R shot times count
+from the race intro, T ones miss the title now and then) (66: the UFO with the installed mods; check `[newcar] UFO`)
+drops it from 90 ft over stunt arena 25's grid after GO (placement time counts from the race intro) with wings and the
+stick held; `RUSH2_UFO_LOG=1` prints the stick and axes while it flies and each horn, `RUSH2_UFO_SOUND_DUMP=<folder>`
+writes the sounds as .wav. The car select: `menus --config cheats.unlock_all_cars=true --env RUSH2_TEST_TRACK=25 --env
+RUSH2_TEST_CAR=66 --script "T1:START,T4:A,T6.5:A,T10:A,..."`, HORN six DD down, ENGINE seven.
 
 ## What the converter makes
 

@@ -5920,7 +5920,7 @@ ref = "us.toml"
 vram = 0x80067358
 name = "car_sound_update_all"
 sig = "void car_sound_update_all(Car *car, s32 a1)"
-desc = "Per-player sound effects, once per physics tick: loops over the first players (players4 points its count at clamped_players 0x8024F000, min(players shown, 2)) and, per record's car, steps +0x660 (1 -> 2, 3 -> 0; car_physics_step_80071D78 sets 1 or 3 on a shift), plays the horn (0x80240350 timers) and engine/skid sounds, runs car_material_effects_update_800663CC (dust bits of +0x7F4) and car_stunt_scoring_update_80065588. Part of the simulation: online every machine runs it with a count of 1 (rush2_online_sim_players_begin/end at 0x8006735C and 0x80067ABC). Patched in us.toml: car type tables moved to 121-entry copies at 0x80200000 (tools/rush2049/cartypes.py) and the players4 relocations."
+desc = "Per-player sound effects, once per physics tick: loops over the first players (players4 points its count at clamped_players 0x8024F000, min(players shown, 2)) and, per record's car, steps +0x660 (1 -> 2, 3 -> 0; car_physics_step_80071D78 sets 1 or 3 on a shift), plays the horn (0x80240350 timers) and engine/skid sounds, runs car_material_effects_update_800663CC (dust bits of +0x7F4) and car_stunt_scoring_update_80065588. Part of the simulation: online every machine runs it with a count of 1 (rush2_online_sim_players_begin/end at 0x8006735C and 0x80067ABC). Patched in us.toml: car type tables moved to 121-entry copies at 0x80200000 (tools/rush2049/cartypes.py) and the players4 relocations. | Horn at 0x80067558: menu_play_sound(0x800C1000 [the HORN row byte, $t7]). At 0x800674F0 $v0 is the player's record (0x800C2140 + 0x28 x player: +0x1C the horn's button mask, +2 the buttons pressed this tick, ANDed into $t1, +4 those held); a press sounds the horn, at most every so often (the clock 0x80117488 against the player's last horn time)."
 status = "inferred"
 ported = true
 area = "car"
@@ -9108,7 +9108,7 @@ ref = "us.toml"
 vram = 0x8008C6E8
 name = "race_start_engine_sounds"
 sig = "void race_start_engine_sounds(s32 a0, s32 a1, s32 a2, s32 a3)"
-desc = "Race setup step between func_8009E664 and func_8008C61C: starts the race's engines."
+desc = "Race setup step between func_8009E664 and func_8008C61C: starts the race's engines. | Takes the slot's engine from 0x800E7BBC [slot] and zeroes one of 10 or more (0x8008C718) before calling func_8008C61C (Fancy UFO's WARP CORE hook there)."
 consts = "0xA = 10 loop/limit; 0x7FFF = max volume/pitch"
 status = "inferred"
 calspeed = [0x800ADE48]
@@ -10456,7 +10456,7 @@ ref = "us.toml"
 vram = 0x80097784
 name = "save_set_field_58a"
 sig = "s32 save_set_field_58a(void *save, s32 a1, s32 a2)"
-desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries)."
+desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries). | ENGINE setter: stores a2 at +0x58A of the type's block (0x800977AC) and writes it to the pak."
 consts = "0x58A = field offset"
 status = "inferred"
 ported = true
@@ -10467,7 +10467,7 @@ ref = "us.toml"
 vram = 0x800977D0
 name = "save_set_field_589"
 sig = "s32 save_set_field_589(void *save, s32 a1, s32 a2)"
-desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries)."
+desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries). | HORN setter: stores a2 at +0x589 of the type's block (0x800977F8) and writes it to the pak."
 consts = "0x589 = field offset"
 status = "inferred"
 ported = true
@@ -12691,7 +12691,7 @@ ref = "us.toml"
 vram = 0x800B2554
 name = "carselect_lookup_value_d"
 sig = "s32 carselect_lookup_value_d(s32 a0, s32 a1)"
-desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries)."
+desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries). | ENGINE getter: the record's byte at +0x58A of the type's 13-byte block (a0 + type x 13)."
 status = "inferred"
 ported = true
 area = "menu"
@@ -12701,7 +12701,7 @@ ref = "us.toml"
 vram = 0x800B2578
 name = "carselect_lookup_value_e"
 sig = "s32 carselect_lookup_value_e(s32 a0, s32 a1)"
-desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries)."
+desc = "Patched in us.toml. Car select name logo: 2049 types use their own logos (the overlay's name table has 22 entries). | HORN getter: the record's byte at +0x589 of the type's 13-byte block."
 status = "inferred"
 ported = true
 area = "menu"
@@ -15022,7 +15022,7 @@ ref = "us.toml"
 vram = 0x803B9478
 name = "menu_screen_car_select_frame"
 sig = "void menu_screen_car_select_frame(void)"
-desc = "Patched in us.toml. Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 121-entry copies at 0x80200000 for the Rush 2049 cars (types 23-35), California Speed's (36-56) and mod cars (57-120; 22 stays Rush 2's \"no car\" marker; include/car_types.h), built at boot by src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms (r * 22 -> r * 121) and row offsets. / Rush 2049 cars on the car select (src/rush2049/car2049.cpp): the per-player car list (0x803CB368) and carousel (0x803CB980, 0x210 per player; now 0x80222100, 0x810) and the asset tables (0x800C185C, 0x8001CD64) move to larger copies; the 2049 types are appended to the list, l... | Car select overlay: value wrap for the ENGINE row. | Car select per-frame step. Hooked: once per frame, at 0x803B9E3C/0x803B9E78 (ENGINE row change), 0x803BA0BC/0x803BA134 (TIRES row change), when all players chose, and when a player backs out. / Left/right on a car select row (0x803B983C, $a1 = step, $s7 = slot) dispatches on its id through the 15-entry table 0x803CADF4; hooked at 0x803B98A4 for WINGS (id 15). / Per-slot loop head 0x803B951C ($s7 = slot) hooked: each panel's own option list (2049 cars' STYLE / TERTIARY COLOR rows, src/rush2049/wings_menu.cpp); 0x803B98A4 hook wraps STYLE (MAIN COLOR case 2) at the car's paint jobs. | At 0x803B96D4, the frame a player confirms, it checks every player has picked; then music_queue_stop_80062FA4, game state 7, carselect_build_list_803B81F0(0), overlay_load_800A62C0(0) start the race. Online, src/online/online_lobby.cpp holds a player who has picked there. | First frame: Rush 2 writes the record's selected type only when the car on show changes (last car halfword 0x803CB394 + player x 2, -1 on the first frame), so a carousel opened on another car than the record's raced as one car drawn with another's physics and wheels; hooked at 0x803BA844 (rush2_car49_select_first_frame, $a3 = car on show, $v0 = last car, $s0 + 0x24 = record) to write it then (docs/rush2049_research/cars.md)."
+desc = "Patched in us.toml. Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 121-entry copies at 0x80200000 for the Rush 2049 cars (types 23-35), California Speed's (36-56) and mod cars (57-120; 22 stays Rush 2's \"no car\" marker; include/car_types.h), built at boot by src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms (r * 22 -> r * 121) and row offsets. / Rush 2049 cars on the car select (src/rush2049/car2049.cpp): the per-player car list (0x803CB368) and carousel (0x803CB980, 0x210 per player; now 0x80222100, 0x810) and the asset tables (0x800C185C, 0x8001CD64) move to larger copies; the 2049 types are appended to the list, l... | Car select overlay: value wrap for the ENGINE row. | Car select per-frame step. Hooked: once per frame, at 0x803B9E3C/0x803B9E78 (ENGINE row change), 0x803BA0BC/0x803BA134 (TIRES row change), when all players chose, and when a player backs out. / Left/right on a car select row (0x803B983C, $a1 = step, $s7 = slot) dispatches on its id through the 15-entry table 0x803CADF4; hooked at 0x803B98A4 for WINGS (id 15). / Per-slot loop head 0x803B951C ($s7 = slot) hooked: each panel's own option list (2049 cars' STYLE / TERTIARY COLOR rows, src/rush2049/wings_menu.cpp); 0x803B98A4 hook wraps STYLE (MAIN COLOR case 2) at the car's paint jobs. | At 0x803B96D4, the frame a player confirms, it checks every player has picked; then music_queue_stop_80062FA4, game state 7, carselect_build_list_803B81F0(0), overlay_load_800A62C0(0) start the race. Online, src/online/online_lobby.cpp holds a player who has picked there. | First frame: Rush 2 writes the record's selected type only when the car on show changes (last car halfword 0x803CB394 + player x 2, -1 on the first frame), so a carousel opened on another car than the record's raced as one car drawn with another's physics and wheels; hooked at 0x803BA844 (rush2_car49_select_first_frame, $a3 = car on show, $v0 = last car, $s0 + 0x24 = record) to write it then (docs/rush2049_research/cars.md). | Row switch at 0x803B98BC: case 7 HORN (0x803B9D20, wraps at 9, plays 0x800C1000 [value] at 0x803B9DD8), case 8 ENGINE (0x803B9E08, wraps at 10, skips the engine in $s2); a step of 0 resets the row to the type's default."
 status = "verified"
 ported = true
 area = "menu"
@@ -15149,7 +15149,7 @@ ref = "docs/functions/rush2_menu.md#rush-2-menu-functions"
 vram = 0x803BC048
 name = "carselect_text_cb_car_title"
 sig = "s32 carselect_text_cb_car_title(HudWidget *w)"
-desc = "Patched in us.toml. Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 121-entry copies at 0x80200000 for the Rush 2049 cars (types 23-35), California Speed's (36-56) and mod cars (57-120; 22 stays Rush 2's \"no car\" marker; include/car_types.h), built at boot by src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms (r * 22 -> r * 121) and row offsets. / Every car's TIRES row gains Rush 2049's SLICKS and PRO SLICKS (src/rush2049/car2049.cpp): the steering values and off-road factor of the added values, the car select's TIRES steps and the row's value text. / Car select ENGINE row: rev the chosen engine ... | Car select overlay: value text for the ENGINE row (shown as ENGINE 1-6 for 2049 cars). | Car select text callback (draws row values, PLAYER %d label, ghost text). Hooked at 0x803BC4F0 (ENGINE row text), 0x803BC5DC (TIRES row), 0x803BC63C, 0x803BC7A8 and for the second round PLAYER label. / Row labels from 0x800C4924 + language * 60 + id * 4 (0x803BC2F4-0x803BC368), values for ids 1-11 through 0x803CAE9C; hooked at 0x803BC310 / 0x803BC350 (WINGS label) and 0x803BC63C (WINGS value). / Per-slot loop head 0x803BC0C8 ($s2 = slot) hooked: each panel's own option list; labels STYLE / TERTIARY COLOR at 0x803BC310 / 0x803BC350, value STYLE n at 0x803BC63C."
+desc = "Patched in us.toml. Rush 2's per-car-type tables (0x800C06B4-0x800C0FDE, 22 entries, 1 or 3 rows) moved to 121-entry copies at 0x80200000 for the Rush 2049 cars (types 23-35), California Speed's (36-56) and mod cars (57-120; 22 stays Rush 2's \"no car\" marker; include/car_types.h), built at boot by src/rush2049/car2049.cpp. Generated by tools/rush2049/cartypes.py toml: table address relocations, row-stride idioms (r * 22 -> r * 121) and row offsets. / Every car's TIRES row gains Rush 2049's SLICKS and PRO SLICKS (src/rush2049/car2049.cpp): the steering values and off-road factor of the added values, the car select's TIRES steps and the row's value text. / Car select ENGINE row: rev the chosen engine ... | Car select overlay: value text for the ENGINE row (shown as ENGINE 1-6 for 2049 cars). | Car select text callback (draws row values, PLAYER %d label, ghost text). Hooked at 0x803BC4F0 (ENGINE row text), 0x803BC5DC (TIRES row), 0x803BC63C, 0x803BC7A8 and for the second round PLAYER label. / Row labels from 0x800C4924 + language * 60 + id * 4 (0x803BC2F4-0x803BC368), values for ids 1-11 through 0x803CAE9C; hooked at 0x803BC310 / 0x803BC350 (WINGS label) and 0x803BC63C (WINGS value). / Per-slot loop head 0x803BC0C8 ($s2 = slot) hooked: each panel's own option list; labels STYLE / TERTIARY COLOR at 0x803BC310 / 0x803BC350, value STYLE n at 0x803BC63C. | Value text: case 6 HORN (0x803BC49C, 0x800C49D4 + language x 36 + value x 4), case 7 ENGINE (0x803BC4F0, 0x800C49F8 + language x 40 + value x 4); the text pointer is in $s0 at 0x803BC63C."
 status = "verified"
 ported = true
 area = "menu"

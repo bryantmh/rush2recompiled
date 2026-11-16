@@ -255,7 +255,7 @@ text = "    rush2_menus49_font(rdram, ctx);"
 [[patches.hook]]
 func = "menu_play_sound_80064908"
 before_vram = 0x80064908
-text = "    if (rush2_announcer_sound(rdram, ctx) || rush2_menus49_sound(rdram, ctx)) return;"
+text = "    if (rush2_fancy_ufo_sound_skip(rdram, ctx) || rush2_announcer_sound(rdram, ctx) || rush2_menus49_sound(rdram, ctx)) return;"
 
 # Race start announcer (src/announcer.cpp, docs/announcer.md): the countdown's sounds
 # (func_80088DF0: 0x71 on 3, 0x72 on 2, 0x69 on 1) and GO's (func_800AE670: 0x6C as the race starts) mark their cue,
@@ -2539,7 +2539,7 @@ text = "    rush2_track1_record_model(rdram, ctx); rush2_collect_record_model(rd
 [[patches.hook]]
 func = "pvs_apply_8007C27C"
 before_vram = 0x8007C27C
-text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_car_lights_view(rdram, ctx); rush2_snowfall_view(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx);"
+text = "    rush2_track1_pvs_camera(rdram, ctx); rush2_car_lights_view(rdram, ctx); rush2_snowfall_view(rdram, ctx); rush2_battle_view(rdram, ctx); rush2_arrows_view(rdram, ctx); rush2_players4_sky_view(rdram, ctx); rush2_fancy_ufo_view(rdram, ctx);"
 
 [[patches.hook]]
 func = "model_find_by_name_8005BE3C"
@@ -9357,7 +9357,7 @@ text = "    rush2_engine_preview_car_select(rdram, ctx);"
 [[patches.hook]]
 func = "menu_screen_car_select_frame_803B9478"
 before_vram = 0x803B9EBC
-text = "    rush2_engine_preview_start(rdram, ctx);"
+text = "    rush2_fancy_ufo_engine_reset(rdram, ctx); rush2_engine_preview_start(rdram, ctx);"
 
 [[patches.hook]]
 func = "race_start_timer_800AE670"
@@ -15657,3 +15657,59 @@ text = "    if (rush2_time_sprint_checkpoint(rdram, ctx)) { ctx->r4 = ctx->r8; g
 func = "checkpoint_passed_8008F220"
 before_vram = 0x8008F418
 text = "    if (rush2_time_sprint_checkpoint_sound(rdram, ctx)) { ctx->r9 = (int32_t)0x8010BCE8; ctx->r24 = MEM_H(0x4, ctx->r9); goto L_8008F4C4; }"
+
+# Fancy UFO (src/sfrush_ps1/fancy_ufo.cpp, docs/sfrush_ps1.md#fancy-ufo): the UFO's own HORN (9) and ENGINE (10) past
+# Rush 2's. The player records keep Rush 2's values (the pick beside them in the saves): the getters give the pick back,
+# the setters store the stand-in. The car select's HORN row steps through HAILING and plays it; its value text, and a
+# race's horn, play it too (the menu_play_sound that follows is skipped, hook above).
+[[patches.hook]]
+func = "carselect_lookup_value_d_800B2554"
+before_vram = 0x800B2570
+text = "    ctx->r2 = MEM_BU(0x58A, ctx->r24); rush2_fancy_ufo_get(rdram, ctx, (uint32_t)ctx->r24 + 0x58A, (int)(ctx->r14 & 0xFF), 0, &ctx->r2); return;"
+
+[[patches.hook]]
+func = "carselect_lookup_value_e_800B2578"
+before_vram = 0x800B2594
+text = "    ctx->r2 = MEM_BU(0x589, ctx->r24); rush2_fancy_ufo_get(rdram, ctx, (uint32_t)ctx->r24 + 0x589, (int)(ctx->r14 & 0xFF), 1, &ctx->r2); return;"
+
+[[patches.hook]]
+func = "save_set_field_58a_80097784"
+before_vram = 0x800977AC
+text = "    rush2_fancy_ufo_set(rdram, ctx, (uint32_t)ctx->r2 + 0x58A, (int)(ctx->r8 & 0xFF), 0);"
+
+[[patches.hook]]
+func = "save_set_field_589_800977D0"
+before_vram = 0x800977F8
+text = "    rush2_fancy_ufo_set(rdram, ctx, (uint32_t)ctx->r2 + 0x589, (int)(ctx->r8 & 0xFF), 1);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9D5C
+text = "    rush2_fancy_ufo_horn_before(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_car_select_frame_803B9478"
+before_vram = 0x803B9DD0
+text = "    rush2_fancy_ufo_horn_value(rdram, ctx);"
+
+[[patches.hook]]
+func = "carselect_text_cb_car_title_803BC048"
+before_vram = 0x803BC49C
+text = "    rush2_car49_horn_text(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_sound_update_all_80067358"
+before_vram = 0x80067558
+text = "    rush2_fancy_ufo_race_horn(rdram, ctx);"
+
+[[patches.hook]]
+func = "car_sound_update_all_80067358"
+before_vram = 0x800674F0
+text = "    rush2_fancy_ufo_horn_held(rdram, ctx);"
+
+# Fancy UFO's WARP CORE (src/rush2049/engine2049.cpp): race_start_engine_sounds zeroes an engine past 9; the slot is
+# marked for src/car_engines.cpp instead and Rush 2's start skipped.
+[[patches.hook]]
+func = "race_start_engine_sounds_8008C6E8"
+before_vram = 0x8008C718
+text = "    rush2_engine49_slot_engine(rdram, ctx);"

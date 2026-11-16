@@ -19,7 +19,9 @@
 #include "recomp.h"
 
 #include "car2049.h"
+#include "car_engines.h"
 #include "engine2049.h"
+#include "fancy_ufo.h"
 #include "rush2_hooks.h"
 
 extern "C" void engine_sound_start_8008C61C(uint8_t* rdram, recomp_context* ctx); // Starts engine a0 on slot a1.
@@ -38,6 +40,7 @@ namespace {
     struct Rev {
         bool active = false;
         bool rush2049 = false; // a 2049 car's engine (src/rush2049/engine2049.cpp)
+        bool warp = false;     // the Fancy UFO's WARP CORE (src/car_engines.cpp)
         Clock::time_point start;
     };
     Rev revs[2];
@@ -65,6 +68,10 @@ namespace {
     }
 
     void set_rev(uint8_t* rdram, int slot, float rpm, float load) {
+        if (revs[slot].warp) {
+            rush2::car_engines::preview_warp(rdram, slot, true, (rpm - idle_rpm) / (peak_rpm - idle_rpm));
+            return;
+        }
         if (revs[slot].rush2049) {
             rush2::engine2049::preview_update(rdram, slot, rpm, (load - idle_load) / (peak_load - idle_load));
             return;
@@ -76,6 +83,10 @@ namespace {
     // Stops one slot's engine: func_8008C49C stops only the slots with an engine set, so the other is hidden from it.
     void stop(uint8_t* rdram, recomp_context* ctx, int slot) {
         revs[slot].active = false;
+        if (revs[slot].warp) {
+            rush2::car_engines::preview_warp(rdram, slot, false, 0.0f);
+            return;
+        }
         if (revs[slot].rush2049) {
             rush2::engine2049::preview_stop(slot);
             return;
@@ -128,6 +139,7 @@ void rush2::engine2049::shop_rev(uint8_t* rdram, recomp_context* ctx, int level)
         stop(rdram, ctx, 0);
     }
     preview_start(rdram, 0, level);
+    revs[0].warp = false;
     revs[0].rush2049 = true;
     set_rev(rdram, 0, idle_rpm, idle_load);
     revs[0].active = true;
@@ -151,11 +163,21 @@ extern "C" void rush2_engine_preview_start(uint8_t* rdram, recomp_context* ctx) 
     }
     int type = (int)(int8_t)ctx->r7;
     int engine = rush2::car2049::engine_sound(rdram, type, (int)(int8_t)ctx->r2);
-    if (engine < 0 || engine >= engines) {
+    // The Fancy UFO's WARP CORE (src/sfrush_ps1/fancy_ufo.cpp), past Rush 2's engines.
+    bool warp = engine == rush2::fancy_ufo::engine_value && rush2::fancy_ufo::is_ufo(type);
+    if (engine < 0 || (engine >= engines && !warp)) {
         return;
     }
     if (revs[slot].active) {
         stop(rdram, ctx, slot);
+    }
+    revs[slot].warp = warp;
+    if (warp) {
+        revs[slot].rush2049 = false;
+        set_rev(rdram, slot, idle_rpm, idle_load);
+        revs[slot].active = true;
+        revs[slot].start = Clock::now();
+        return;
     }
     // A mod car revs its base Rush 2 car's engine (its ENGINE row is Rush 2's).
     if (type >= rush2::car2049::first_type && type < rush2::car2049::types && !rush2::car_types::is_mod(type)) {

@@ -44,6 +44,7 @@
 #include "paint_colors.h"
 #include "car_probes.h"
 #include "engine2049.h"
+#include "fancy_ufo.h"
 #include "font2049.h"
 #include "npc_cars.h"
 #include "online.h"
@@ -1509,6 +1510,11 @@ namespace {
                 bool texturing = true;                       // G_TEXTURE on (lists that never set it are textured)
                 std::vector<const OverTri*> over_tris = lod_tris[lod];
                 std::vector<PendingBlock> pending_blocks;
+                // The list's brake light switches (rush2::car2049::brake_switch), moved after the stripe blocks: a
+                // brake light is drawn blended without writing depth, so a stripe block drawn after it repainted the
+                // body over the lit lamp (issue 80: a striped PS1 Jeep's right lamp, a striped Deuce's both). A car with
+                // stripes has no color schemes, so the switch moves out of no scheme block.
+                std::vector<std::pair<uint32_t, uint32_t>> brake_switches;
                 // Indices are vertex * 2 (F3DEX2).
                 auto panel = [&](uint32_t a, uint32_t b, uint32_t c) {
                     const std::array<int16_t, 3>* v[3] = { &buffer[(a / 2) & 63], &buffer[(b / 2) & 63], &buffer[(c / 2) & 63] };
@@ -1591,9 +1597,19 @@ namespace {
                         int len = int(w0 & 0xFF) + 1, sft = 32 - int((w0 >> 8) & 0xFF) - len;
                         if (sft <= 20 && sft + len >= 22) cycles = int((w1 >> 20) & 3);
                     }
+                    if (pass == 1 && w0 == 0 && w1 == rush2::car2049::brake_marker(1) && pc + 16 <= car.size() &&
+                        (be32(car, pc + 8) >> 24) == 0 && be32(car, pc + 12) == rush2::car2049::brake_marker(2)) {
+                        brake_switches.push_back({ w0, w1 });
+                        brake_switches.push_back({ be32(car, pc + 8), be32(car, pc + 12) });
+                        pc += 8;
+                        continue;
+                    }
                     if (op == 0xDF && pass == 1 && !over_tris.empty() && have_mode && have_combine) {
                         emit_stripe_blocks(out, sites, site_loads, over_tris, render_mode, combine, cycles, alpha_compare,
                                            pending_blocks);
+                    }
+                    if (op == 0xDF && pass == 1) {
+                        for (const auto& [b0, b1] : brake_switches) emit(b0, b1);
                     }
                     if (op == 0xDE && (w1 & 0xFFFFFF) >= txld_start && (w1 & 0xFFFFFF) < txld_end) {
                         const Load& l = load_at(w1 & 0xFFFFFF);
@@ -5318,6 +5334,12 @@ extern "C" void rush2_car49_engine_value(uint8_t* rdram, recomp_context* ctx) {
     int type = (int)(int8_t)ctx->r7;
     int before = engine_before;
     engine_before = -1;
+    // The Fancy UFO's row steps through its WARP CORE too (src/sfrush_ps1/fancy_ufo.cpp).
+    if (int ufo = rush2::fancy_ufo::engine_step(rdram, ctx, before); ufo >= 0) {
+        MEM_B(0, (int32_t)((uint32_t)ctx->r3 + row_offset)) = (int8_t)ufo;
+        ctx->r2 = (uint64_t)ufo;
+        return;
+    }
     if (!is_2049(type) || before < 0) {
         return;
     }
@@ -5355,12 +5377,17 @@ int rush2::car2049::engine_sound(uint8_t* rdram, int type, int value) {
 // $s2, the players' current types at $s6). A 2049 car's ENGINE row reads 2049's engine names; SLICKS and PRO SLICKS
 // read so on every car (Rush 2's table, 0x800C4A40, ends at FULL OFFRD).
 namespace {
-    enum class TextRow { Other, Engine, Tires };
+    enum class TextRow { Other, Engine, Tires, Horn };
     TextRow text_row = TextRow::Other;
 }
 
 extern "C" void rush2_car49_engine_text(uint8_t* rdram, recomp_context* ctx) {
     text_row = TextRow::Engine;
+}
+
+// 0x803BC49C starts the HORN row's value text (for the Fancy UFO's own horn, src/sfrush_ps1/fancy_ufo.cpp).
+extern "C" void rush2_car49_horn_text(uint8_t* rdram, recomp_context* ctx) {
+    text_row = TextRow::Horn;
 }
 
 extern "C" void rush2_car49_tires_text(uint8_t* rdram, recomp_context* ctx) {
@@ -5379,6 +5406,18 @@ extern "C" void rush2_car49_option_text(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     auto text = [&](uint32_t label) { ctx->r16 = (uint64_t)(int64_t)(int32_t)label; };
+    // The Fancy UFO's WARP CORE and HAILING, past Rush 2's names.
+    if (row == TextRow::Horn || row == TextRow::Engine) {
+        bool horn = row == TextRow::Horn;
+        uint32_t ufo = rush2::fancy_ufo::label(rdram, type, horn, row_byte(rdram, horn ? types_::table(types_::horn) : t_engine, player + 1, type));
+        if (ufo != 0) {
+            text(ufo);
+            return;
+        }
+        if (horn) {
+            return;
+        }
+    }
     if (row == TextRow::Tires) {
         int value = row_byte(rdram, t_tires, player + 1, type);
         if (value >= slicks) {
