@@ -32,7 +32,7 @@ namespace rush2::dl {
         // heap list or there's no room left.
         uint32_t copy(uint8_t* rdram, uint32_t dl, const std::function<void(uint32_t&, uint32_t&)>& rewrite,
                       int depth = 0) {
-            uint32_t src = heap_list(dl);
+            uint32_t src = source(dl);
             if (src == 0 || depth > 8) return 0;
             uint32_t count = 0;
             uint64_t hash = 0xCBF29CE484222325ull;
@@ -68,6 +68,47 @@ namespace rush2::dl {
             return copy;
         }
 
+        // Lists in [start, end) (KSEG0) may be copied too, besides the heap's: lists that stay where they are, such as
+        // the Rush 2049 wing model (src/rush2049/wings_render.cpp).
+        void allow(uint32_t start, uint32_t end) {
+            extra_start_ = start;
+            extra_end_ = end;
+        }
+
+        // A copy of `dl`, a list that isn't kept where it is (a side list built again each frame, such as the wings'
+        // list around a car body), in `alloc(bytes)`: it isn't kept, but the lists it calls are copied (and kept) as
+        // copy() does. 0 if it runs past `max_commands` without a G_ENDDL or alloc gives no room.
+        uint32_t copy_once(uint8_t* rdram, uint32_t dl, const std::function<void(uint32_t&, uint32_t&)>& rewrite,
+                           const std::function<uint32_t(uint32_t)>& alloc, uint32_t max_commands = 512) {
+            uint32_t top = dl >> 24;
+            if (top != 0x80 && top != 0x00) return 0;
+            uint32_t src = 0x80000000u | (dl & 0xFFFFFF);
+            uint32_t count = 0;
+            for (uint32_t o = src;; o += 8) {
+                if (count == max_commands) return 0;
+                uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)o);
+                count++;
+                uint8_t op = w0 >> 24;
+                if (op == 0xDF || (op == 0xDE && ((w0 >> 16) & 0xFF) == 1)) break;
+            }
+            uint32_t copy = alloc(count * 8);
+            if (copy == 0) return 0;
+            for (uint32_t i = 0; i < count; i++) {
+                uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)(src + i * 8)), w1 = (uint32_t)MEM_W(4, (int32_t)(src + i * 8));
+                uint8_t op = w0 >> 24;
+                if (op == 0xDE || (op == 0xE0 && ((w0 >> 16) & 0xFF) == 1)) {
+                    uint32_t sub = this->copy(rdram, w1, rewrite);
+                    if (sub != 0) w1 = (w1 & 0xFF000000) | (sub & 0xFFFFFF);
+                }
+                else {
+                    rewrite(w0, w1);
+                }
+                MEM_W(0, (int32_t)(copy + i * 8)) = (int32_t)w0;
+                MEM_W(4, (int32_t)(copy + i * 8)) = (int32_t)w1;
+            }
+            return copy;
+        }
+
         // `bytes` (rounded up to 8) of the copies' space for other data the copies point at (src/car_probes.cpp: the
         // vertices a car's relit copies load), or 0 if there's no room left. Freed by reset() like the copies.
         uint32_t alloc(uint32_t bytes) {
@@ -84,11 +125,22 @@ namespace rush2::dl {
         }
 
     private:
+        // `addr` as KSEG0 if copy() may copy the list there (the heap or the allowed range), else 0.
+        uint32_t source(uint32_t addr) const {
+            uint32_t a = heap_list(addr);
+            if (a != 0 || extra_end_ == 0) return a;
+            uint32_t top = addr >> 24;
+            if (top != 0x80 && top != 0x00) return 0;
+            a = 0x80000000u | (addr & 0xFFFFFF);
+            return a >= extra_start_ && a < extra_end_ ? a : 0;
+        }
+
         struct Copy {
             uint32_t copy;
             uint64_t hash;    // of the source list's commands when it was copied
         };
         uint32_t start_, end_, cursor_;
+        uint32_t extra_start_ = 0, extra_end_ = 0;
         std::map<uint32_t, Copy> copies_;        // source list -> copy
     };
 }

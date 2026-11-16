@@ -319,7 +319,12 @@ namespace {
     float game_offset = 0.0f;
 
     // Drawing (game thread).
-    rush2::dl::Copier copies{ copies_start, copies_end };   // translucent copies of display lists
+    // Translucent copies of display lists: the heap's and the Rush 2049 wing model's (the wings on a car body).
+    rush2::dl::Copier copies = [] {
+        rush2::dl::Copier c{ copies_start, copies_end };
+        c.allow(rush2::wings::model_start, rush2::wings::model_end);
+        return c;
+    }();
     uint32_t side_cursor = side_start;
     std::atomic<uint32_t> fog_color = 0;
 
@@ -872,18 +877,23 @@ namespace {
         return blender | flags | (rm & 0x4) | alpha_compare;
     }
 
-    // A copy of display list `dl` (and the lists it calls) with translucent render modes, or 0 if it can't be made.
-    uint32_t translucent_copy(uint8_t* rdram, uint32_t dl) {
-        return copies.copy(rdram, dl, [](uint32_t& w0, uint32_t& w1) {
-            if (w0 == 0xE200001C) w1 = translucent_mode(w1);
-        });
-    }
-
     uint32_t side_alloc(uint32_t bytes) {
         if (side_cursor + bytes > side_end) side_cursor = side_start;
         uint32_t a = side_cursor;
         side_cursor += bytes;
         return a;
+    }
+
+    // A copy of display list `dl` (and the lists it calls) with translucent render modes, or 0 if it can't be made.
+    // A list outside the heap is a side list made for this frame (the wings' list around a car body, issue 76: drawn
+    // from it as it was, the car showed solid while its wings were out): its copy is made in the side lists' ring,
+    // not kept.
+    uint32_t translucent_copy(uint8_t* rdram, uint32_t dl) {
+        auto rewrite = [](uint32_t& w0, uint32_t& w1) {
+            if (w0 == 0xE200001C) w1 = translucent_mode(w1);
+        };
+        if (rush2::dl::heap_list(dl) != 0) return copies.copy(rdram, dl, rewrite);
+        return copies.copy_once(rdram, dl, rewrite, [](uint32_t bytes) { return side_alloc(bytes); });
     }
 
     // Whether scene node `index` is car `car`'s body or below it.

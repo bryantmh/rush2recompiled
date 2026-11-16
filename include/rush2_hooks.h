@@ -204,6 +204,7 @@ void rush2_car49_dent(uint8_t* rdram, recomp_context* ctx);
 bool rush2_calspeed_brake_lights(uint8_t* rdram, recomp_context* ctx);
 void rush2_livery_mirror_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_livery_mirror_end(uint8_t* rdram, recomp_context* ctx);
+void rush2_inside_out_car_asset(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stream_mirror_begin(uint8_t* rdram, recomp_context* ctx);
 void rush2_track49_stream_mirror_end(uint8_t* rdram, recomp_context* ctx);
 void rush2_car49_setup_desc(uint8_t* rdram, recomp_context* ctx);

@@ -9224,6 +9224,14 @@ func = "mirror_state_update_800776DC"
 before_vram = 0x800776DC
 text = "    rush2_livery_mirror_begin(rdram, ctx); rush2_track49_stream_mirror_begin(rdram, ctx);"
 
+# Inside-Out Car (0x801174E0) turns over only the slots whose asset ($v1, just loaded from slot +0) is 0x1D-0x32,
+# Rush 2's own cars: every other game's car (2049 0x71+, California Speed 0x80+, mod cars 0xA0+) is given 0x1D
+# for the check (issue 84). $v1 isn't read after it.
+[[patches.hook]]
+func = "mirror_state_update_800776DC"
+before_vram = 0x80077748
+text = "    rush2_inside_out_car_asset(rdram, ctx);"
+
 [[patches.hook]]
 func = "mirror_state_update_800776DC"
 before_vram = 0x800777E8

@@ -40,8 +40,8 @@ namespace {
     // 0x80C00000-0x80C90000.
     constexpr uint32_t side_start = 0x80D00000;
     constexpr uint32_t side_end = 0x80E00000;
-    constexpr uint32_t model_address = 0x80E00000;
-    constexpr uint32_t model_max_size = 0x10000;
+    constexpr uint32_t model_address = rush2::wings::model_start;
+    constexpr uint32_t model_max_size = rush2::wings::model_end - rush2::wings::model_start;
     uint32_t side_cursor = side_start;
 
     // Game addresses.

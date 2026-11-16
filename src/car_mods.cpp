@@ -1471,6 +1471,23 @@ extern "C" void rush2_livery_mirror_begin(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// func_800776DC at 0x80077748, the Inside-Out Car cheat's check of the slot's asset ($v1, slot +0): it turns over
+// only assets 0x1D-0x32, Rush 2's own car containers. A car of another game (car2049::car_asset: 2049, California
+// Speed, mod cars) passes as 0x1D so the cheat turns it over too (issue 84).
+extern "C" void rush2_inside_out_car_asset(uint8_t* rdram, recomp_context* ctx) {
+    static const std::array<bool, 256> car_assets = [] {
+        std::array<bool, 256> a{};
+        for (int type = 0; type < rush2::car2049::types; type++) {
+            // Type 22 is Rush 2's "no car" marker (asset 0x33, which the game leaves alone), not a car.
+            if (type >= 22 && type < rush2::car2049::first_type) continue;
+            a[rush2::car2049::car_asset(type) & 0xFF] = true;
+        }
+        return a;
+    }();
+    uint32_t asset = (uint32_t)ctx->r3;
+    if (asset < 256 && car_assets[asset]) ctx->r3 = 0x1D;
+}
+
 // Its exit (0x800777E8): the liveries' words back.
 extern "C" void rush2_livery_mirror_end(uint8_t* rdram, recomp_context* ctx) {
     rush2::car2049::brake_mirror(rdram, false);
