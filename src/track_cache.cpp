@@ -26,6 +26,7 @@
 #include "util/file.h"
 
 #include "rush2.h"
+#include "sim_run.h"
 #include "track_cache.h"
 
 namespace {
@@ -44,8 +45,12 @@ namespace {
     static_assert(sizeof(rush2::track2049::TexPalette) == 72, "update track_cache.cpp for TexPalette");
 #endif
 
+    // A simulation run (RUSH2_SIM, src/sim_run.cpp) keeps its settings and save in a data folder of its own, but shares
+    // the player's track cache: entries are keyed on the source and the build, and written by rename, so every run and
+    // the player's game can use the same converted tracks instead of each test folder converting (and storing) its own
+    // gigabyte. launch_times.txt (src/prewarm.cpp) stays in the run's own folder, since a hidden run's timings differ.
     std::filesystem::path cache_dir() {
-        return recomp::get_config_path() / "track_cache";
+        return (rush2::sim::data_dir().empty() ? recomp::get_config_path() : recompui::file::get_app_folder_path()) / "track_cache";
     }
 
     uint64_t build_stamp() {

@@ -16,6 +16,8 @@ Build only with `python tools/build.py` (`--target T` for one target, `--regen` 
 
 Scratch scripts, logs and test output go in `tmp/` in the project root (gitignored) or the session scratchpad. Never in `build/`, the project root or anywhere else in the tree
 
+Clean up after yourself: when your task is done, delete the tmp/ files and folders your session made, keeping only what a doc or memory points to (and say what you kept). Reuse one run data folder per task (`--data`) instead of a new one per run; converted tracks are shared with build/ in sim runs, so a data folder is only saves and settings. `python tools/tmp_clean.py --apply` deletes every run data folder idle for 2 hours (never follows the junctions into build/)
+
 Prefer reusable tools over one-off scripts. If a script would be useful again, put it in `tools/` with arguments and a comment on what it does, and extend an existing tool before writing a new one
 
 Controller navigation must reach and show everything in a settings page. A row holding buttons in a scrolling page has to scroll itself into view when something in it takes focus: use `rush2::ui::FocusRow` or `OptionsPage::add_row()` (include/options_page.h), never a plain div. Give rows of buttons their own line so the buttons keep their full size.

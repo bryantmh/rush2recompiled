@@ -4,7 +4,8 @@
 // - Settings: RUSH2_DATA_DIR replaces the data folder (src/main.cpp registers it as the config path before anything
 //   reads one), so the run starts from default settings and a fresh save, and nothing the player has set (cheats,
 //   options, opponents, unlocks, records) changes the race or is written to. runs.py fills it with the ROMs and the
-//   one mod the track is in.
+//   one mod the track is in. The converted track cache is the exception: it stays in the player's app folder
+//   (src/track_cache.cpp cache_dir()), shared by every run, since its entries are keyed on their source and the build.
 // - Input: real controllers and the keyboard are ignored; only the --input-script presses reach the game, on player 1.
 // - Output: the window is hidden and no audio is queued (src/main.cpp).
 // - Speed: the menus run in real time; from the first physics tick of the race, ultramodern's turbo
