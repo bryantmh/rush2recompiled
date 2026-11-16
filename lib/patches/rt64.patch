@@ -206,6 +206,88 @@ index 9ac8087..ea7e4db 100644
      struct EnhancementConfiguration {
          struct Framebuffer {
              bool reinterpretFixULS;
+diff --git a/src/common/rt64_filesystem_directory.h b/src/common/rt64_filesystem_directory.h
+index e0d35f7..b1319d2 100644
+--- a/src/common/rt64_filesystem_directory.h
++++ b/src/common/rt64_filesystem_directory.h
+@@ -21,25 +21,46 @@ namespace RT64 {
+ 
+         FileSystemDirectoryIterator(const std::filesystem::path &directoryPath) {
+             this->directoryPath = directoryPath;
+-            dirIterator = std::filesystem::recursive_directory_iterator(directoryPath);
++            std::error_code ec;
++            dirIterator = std::filesystem::recursive_directory_iterator(directoryPath, ec);
++            if (ec) {
++                dirIterator = {};
++            }
+         }
+ 
++        // No filesystem call here may throw: the scan runs on a background thread, and the files in a
++        // pack folder can change while it runs (a file removed mid-scan made relative() throw and abort).
+         const std::string &value() override {
+             if (!pathStrValid) {
+-                pathStr = std::filesystem::relative(dirIterator->path(), directoryPath).u8string();
++                // The iterator's paths all start with directoryPath, so a lexical relative path is exact
++                // and needs no disk access.
++                pathStr = dirIterator->path().lexically_relative(directoryPath).u8string();
+                 pathStrValid = true;
+             }
+ 
+             return pathStr;
+         }
+-        
+-        void increment() override {
+-            pathStrValid = false;
+ 
++        // Advances to the next regular file, or to the end if the folder can no longer be read.
++        void skipToFile(bool advanceFirst) {
+             static const std::filesystem::recursive_directory_iterator endIterator;
+-            do {
+-                dirIterator++;
+-            } while ((dirIterator != endIterator) && !dirIterator->is_regular_file());
++            std::error_code ec;
++            if (advanceFirst) {
++                dirIterator.increment(ec);
++            }
++
++            while (!ec && (dirIterator != endIterator) && !dirIterator->is_regular_file(ec)) {
++                dirIterator.increment(ec);
++            }
++
++            if (ec) {
++                dirIterator = {};
++            }
++        }
++
++        void increment() override {
++            pathStrValid = false;
++            skipToFile(true);
+         }
+ 
+         bool compare(const FileSystemIteratorImplementation *other) const override {
+@@ -61,11 +82,7 @@ namespace RT64 {
+             std::shared_ptr<FileSystemDirectoryIterator> beginIterator = std::make_shared<FileSystemDirectoryIterator>(directoryPath);
+ 
+             // Search for the first iterator that isn't a directory.
+-            static const std::filesystem::recursive_directory_iterator endIterator;
+-            while ((beginIterator->dirIterator != endIterator) && !beginIterator->dirIterator->is_regular_file()) {
+-                beginIterator->dirIterator++;
+-            }
+-
++            beginIterator->skipToFile(false);
+             return { beginIterator };
+         }
+ 
+@@ -115,7 +132,8 @@ namespace RT64 {
+                 return false;
+             }
+ 
+-            return std::filesystem::exists(directoryPath / std::filesystem::u8path(path));
++            std::error_code ec;
++            return std::filesystem::exists(directoryPath / std::filesystem::u8path(path), ec);
+         }
+ 
+         static std::unique_ptr<FileSystem> create(const std::filesystem::path &directoryPath) {
 diff --git a/src/common/rt64_live_textures.h b/src/common/rt64_live_textures.h
 new file mode 100644
 index 0000000..23c80df
