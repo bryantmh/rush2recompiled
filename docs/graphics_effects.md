@@ -355,9 +355,9 @@ car's body is still the one it looked at), again when the car's type, parts or d
   there (so a gray lens on dark paint glows and the paint doesn't); `"lens": false` for hidden lamps (rush2:2's
   closed pop-ups) or none at all (open-wheel racers). Gray headlamps (most of Rush 2049's, several of Rush 2's)
   are below the finder's 175 and come from the table.
-- **What is still missing** (no headlamp pair, no lit texels: the SF Rush PlayStation cars have no brake lights in
-  the game) gets a pair from the body's shape: 34% of its width either side of its middle, at 32% (heads) or 42%
-  (tails) of its height, on the frontmost or rearmost surface straight along z from there.
+- **What is still missing** (no headlamp pair, no lit texels: the SF Rush PlayStation UFO, the one PS1 car without
+  brake lights, docs/car_mods.md#brake-lights) gets a pair from the body's shape: 34% of its width either side of its
+  middle, at 32% (heads) or 42% (tails) of its height, on the frontmost or rearmost surface straight along z from there.
 - **Kept on disk:** `track_cache::directory()/car_lamps.bin`, every result keyed by what the body is drawn from (its
   lists' commands, its vertices, the first bytes of its textures and palettes, not palette entries 161-175, which
   braking relights) and by the build; read on a worker when the option is switched on, written on one a few seconds

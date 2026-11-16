@@ -403,7 +403,28 @@ A brake list draws blended, unlit and full bright (`brake_render_mode`, src/car_
 are soft glows, alpha 0 and near black around a red core, which the body's opaque render mode drew as dark boxes. The
 list clears G_LIGHTING, sets the body's fog cycle with G_RM_ZB_XLU_SURF2 after it and G_CC_MODULATEIDECALA (the
 texture's alpha, from its full-size replacement; a fogged list's shade alpha is the fog), draws white vertices, and
-ends by setting the body's mode and combiner back; a lit livery LOD sets G_LIGHTING again after its switch.
+ends by setting the body's mode and combiner back; a lit livery LOD sets G_LIGHTING again after its switch. Every
+brake light vertex is moved 1.5 model units (0.09 ft) off the body along its normal, toward the back (`brake_lifted`):
+vertices are whole 1/16 ft units, so lamps authored a fraction of a unit over the body (the Deuce's 0.3) were rounded
+onto or under it, and the half of a lamp quad not flat against a curved panel was buried (issue 80: each Deuce lamp
+lost a corner). A decal z mode doesn't fix it: RT64 passes a decal only at the depth already there.
+
+Since brake lights don't write depth, anything drawn over the body after them covers them. A car with stripes
+(`add_damage_textures` in src/rush2049/car2049.cpp) gets its stripe blocks at the end of its lists, so its brake light
+switch moves after them when the lists are rewritten (issue 80: a striped PS1 Jeep's right lamp stayed dark, the
+stripe layer repainting the body over it). A list with color scheme blocks keeps its switches where they are (each
+scheme shows only its own; such a car has no stripes).
+
+The PlayStation SF Rush cars' brake lights (src/sfrush_ps1/ps1_cars.cpp `brake_lights`, issue 80) are made this way
+too: the PS1 shows braking with a glow sprite (docs/sfrush_ps1.md#snow-and-night), so the Games tab's build gives
+each car a `<ID>_BRAKE.glb` of its body faces in the back half facing backward that show a lamp texel, those texels
+at Rush 2's lit red and the rest clear. The lamps are a hand table of texture areas (`lamp_areas`, read off each car's
+art), because the lens red (173, 41, 16) and amber (181, 90, 16) are also the Police's roof flasher, the Mini's
+stickers and lettering and the Bus's paint, and a color rule lit those, specks at the Mini's lamp corners and only
+the rims of the Jet Car's lamps. An area lights its red alone (Police, Mini, Bus, Starsky: the amber beside it is a
+turn signal and stays) or the whole lamp (the Jeep's striped and the Jet Car's rimmed lenses). The UFO has none.
+`tools/glb_view.py CAR.glb OUT.png --yaw 180 --overlay CAR_BRAKE.glb` shows what lights, from the converter's
+offline build (`tools/sfrush_ps1/cpp_test/build.bat`).
 
 Test aid: `RUSH2_TEST_LIVERY=<style>` shows that STYLE on every car with liveries (JUST PLAY has no profile to keep one
 in): `tools/test_race.py 0 --cars 28 --env RUSH2_TEST_LIVERY=1 --script "14:A:5,19.2:B:3" --shots 18.8,19.6` brakes

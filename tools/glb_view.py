@@ -9,6 +9,8 @@ standing on a track's start line and looking back; --fov degrees across, --width
 textures as the game does. --max-edge M
 leaves out triangles with an edge longer than M glb units (a track's water or ground sheets, to frame the rest). --node keeps
 only nodes whose names start with one of the given texts. --views N draws N panels around the model, side by side.
+--overlay GLB [GLB ...] draws more glbs over the model (framed by it), their textures' opaque texels in flat green and
+a little nearer than the model, so they show where they coincide with it (a car's brake light lists over its body).
 Needs numpy and Pillow.
 """
 import argparse, io, json, math, struct
@@ -117,7 +119,8 @@ def triangles(gltf, bin_, keep, scene=0):
     return np.concatenate(P), np.concatenate(U), np.concatenate(C), np.concatenate(T)
 
 
-def render(tris, texs, yaw, pitch, size):
+def render(tris, texs, yaw, pitch, size, overlay_from=None):
+    """overlay_from: triangles from this index on are overlays (see --overlay)."""
     P, U, C, T = tris
     lo, hi = P.reshape(-1, 3).min(0), P.reshape(-1, 3).max(0)
     center = (lo + hi) / 2
@@ -150,6 +153,9 @@ def render(tris, texs, yaw, pitch, size):
         if not inside.any():
             continue
         zz = w0 * z[i, 0] + w1 * z[i, 1] + w2 * z[i, 2]
+        over = overlay_from is not None and i >= overlay_from
+        if over:
+            zz = zz - 0.02 * radius
         sub = depth[miny:maxy, minx:maxx]
         vis = inside & (zz < sub)
         if not vis.any():
@@ -165,6 +171,8 @@ def render(tris, texs, yaw, pitch, size):
             texel = img[ty, tx]
             vis &= texel[..., 3] > 0.3
             col = col * texel
+        if over:
+            col = np.zeros_like(col) + np.array([0.0, 1.0, 0.2, 1.0], np.float32)
         sub[vis] = zz[vis]
         color[miny:maxy, minx:maxx][vis] = col[vis][:, :3]
     return Image.fromarray((np.clip(color, 0, 1) * 255).astype(np.uint8))
@@ -272,6 +280,7 @@ def main():
     ap.add_argument('--cull', type=int, default=0, choices=[-1, 0, 1])
     ap.add_argument('--bilinear', action='store_true')
     ap.add_argument('--no-depth', action='store_true', help='with --eye: draw in file order without a depth test')
+    ap.add_argument('--overlay', nargs='*', default=[], help='glbs drawn over the model in flat green (not with --eye)')
     a = ap.parse_args()
     gltf, bin_ = load(a.glb)
     tris = triangles(gltf, bin_, a.node, a.scene)
@@ -286,7 +295,19 @@ def main():
         render_eye(tris, texs, a.eye, a.at, a.fov, a.width, a.height, a.sky, a.cull, a.bilinear, not a.no_depth).save(a.out)
         print(f'{len(tris[0])} triangles, {len(texs)} textures -> {a.out}')
         return
-    panels = [render(tris, texs, a.yaw + i * 360 / a.views, a.pitch, a.size) for i in range(a.views)]
+    overlay_from = None
+    for path in a.overlay:
+        og, ob = load(path)
+        ot = triangles(og, ob, [], 0)
+        if ot is None:
+            continue
+        if overlay_from is None:
+            overlay_from = len(tris[0])
+        P, U, C, T = ot
+        T = np.where(T >= 0, T + len(texs), T)
+        tris = tuple(np.concatenate([x, y]) for x, y in zip(tris, (P, U, C, T)))
+        texs = texs + textures(og, ob)
+    panels = [render(tris, texs, a.yaw + i * 360 / a.views, a.pitch, a.size, overlay_from) for i in range(a.views)]
     out = Image.new('RGB', (a.size * len(panels), a.size))
     for i, p in enumerate(panels):
         out.paste(p, (i * a.size, 0))

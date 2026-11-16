@@ -1512,9 +1512,16 @@ namespace {
                 std::vector<PendingBlock> pending_blocks;
                 // The list's brake light switches (rush2::car2049::brake_switch), moved after the stripe blocks: a
                 // brake light is drawn blended without writing depth, so a stripe block drawn after it repainted the
-                // body over the lit lamp (issue 80: a striped PS1 Jeep's right lamp, a striped Deuce's both). A car with
-                // stripes has no color schemes, so the switch moves out of no scheme block.
+                // body over the lit lamp (issue 80: a striped PS1 Jeep's right lamp). A switch inside a color scheme's
+                // block stays (a car with schemes has every scheme's switch, each shown only with its scheme).
                 std::vector<std::pair<uint32_t, uint32_t>> brake_switches;
+                bool move_brakes = pass == 1;
+                for (uint32_t pc = list; move_brakes && pc + 8 <= car.size(); pc += 8) {
+                    if ((be32(car, pc) >> 24) == 0xDF) break;
+                    if (be32(car, pc) == 0 && (be32(car, pc + 4) & 0xFFFF0000u) == (rush2::car2049::scheme_marker(0, false) & 0xFFFF0000u)) {
+                        move_brakes = false;
+                    }
+                }
                 // Indices are vertex * 2 (F3DEX2).
                 auto panel = [&](uint32_t a, uint32_t b, uint32_t c) {
                     const std::array<int16_t, 3>* v[3] = { &buffer[(a / 2) & 63], &buffer[(b / 2) & 63], &buffer[(c / 2) & 63] };
@@ -1597,7 +1604,7 @@ namespace {
                         int len = int(w0 & 0xFF) + 1, sft = 32 - int((w0 >> 8) & 0xFF) - len;
                         if (sft <= 20 && sft + len >= 22) cycles = int((w1 >> 20) & 3);
                     }
-                    if (pass == 1 && w0 == 0 && w1 == rush2::car2049::brake_marker(1) && pc + 16 <= car.size() &&
+                    if (move_brakes && w0 == 0 && w1 == rush2::car2049::brake_marker(1) && pc + 16 <= car.size() &&
                         (be32(car, pc + 8) >> 24) == 0 && be32(car, pc + 12) == rush2::car2049::brake_marker(2)) {
                         brake_switches.push_back({ w0, w1 });
                         brake_switches.push_back({ be32(car, pc + 8), be32(car, pc + 12) });

@@ -1252,8 +1252,11 @@ bool rush2::rom2049::dc::front_texture_name(const std::string& name) {
     return f != std::string::npos && name.find_first_not_of("0123456789", f + 2) == std::string::npos;
 }
 
+// C10_BRAKELIGHT: car 10's (type 32) lamps; its brake lights never lit without it (issue 80). The BRAKE objects' glow
+// textures (Cn_BRAKE, BRAKE2) don't match.
 bool rush2::rom2049::dc::tail_texture_name(const std::string& name) {
-    return name.find("TAIL") != std::string::npos || name.find("TLGHT") != std::string::npos;
+    return name.find("TAIL") != std::string::npos || name.find("TLGHT") != std::string::npos ||
+           name.find("BRAKELIGHT") != std::string::npos;
 }
 
 std::vector<uint8_t> rush2::rom2049::dc::tail_texture_mask(const std::vector<uint8_t>& texels, uint32_t w, uint32_t h,

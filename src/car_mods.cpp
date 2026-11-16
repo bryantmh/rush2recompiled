@@ -462,6 +462,18 @@ namespace {
     uint32_t brake_render_mode(uint32_t body) {
         return (body >> 30) == 3 ? (body & 0xCCCC0000u) | 0x00104A50u : 0x00504A50u;
     }
+    // A brake light vertex moved 1.5 model units (0.09 ft) off the body along its normal, the side facing backward.
+    // Vertices are whole model units (1/16 ft), so a lamp authored a fraction of a unit over the body (the Deuce's
+    // 0.3) was rounded onto it or under it, and where a lamp's quad isn't flat against a curved panel part of it was
+    // buried (issue 80: each Deuce lamp lost its outer bottom corner). A decal z mode (ZMODE_DEC) instead doesn't do:
+    // RT64 passes a decal only at the depth already there, so lifted lamps vanish and buried ones stay buried.
+    std::array<float, 3> brake_lifted(const std::array<float, 3>& p, const std::array<float, 3>& n) {
+        constexpr float lift = 1.5f;
+        float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (len < 1e-6f) return { p[0], p[1], p[2] - lift };
+        float k = (n[2] > 0 ? -lift : lift) / len;
+        return { p[0] + n[0] * k, p[1] + n[1] * k, p[2] + n[2] * k };
+    }
     constexpr uint32_t brake_combine[2] = { 0xFC127FFFu, 0xFFFFF238u }; // (G_CC_MODULATEIDECALA, G_CC_PASS2)
     constexpr uint32_t clear_lighting[2] = { 0xD9FDFFFFu, 0u };         // G_GEOMETRYMODE, F3DEX2's G_LIGHTING 0x20000
     constexpr uint32_t set_lighting[2] = { 0xD9FFFFFFu, 0x00020000u };
@@ -515,8 +527,8 @@ namespace {
                         if (slots.empty()) return;
                         uint32_t at = uint32_t(vertices.size());
                         for (uint32_t v : slots) {
-                            const auto& p = part.pos[v];
                             const auto& nn = part.nrm[v];
+                            const std::array<float, 3> p = brake ? brake_lifted(part.pos[v], nn) : part.pos[v];
                             const auto& uv = part.uv[v];
                             // The game's x is glTF's negated (the model dump's convention).
                             int16_t xyz[3] = { int16_t(std::clamp(std::lround(-p[0]), -32767l, 32767l)),
@@ -1019,8 +1031,8 @@ namespace {
                     if (slots.empty()) return;
                     uint32_t at = uint32_t(vertices.size());
                     for (uint32_t v : slots) {
-                        const auto& p = part.pos[v];
                         const auto& nn = part.nrm[v];
+                        const std::array<float, 3> p = brake ? brake_lifted(part.pos[v], nn) : part.pos[v];
                         const auto& uv = part.uv[v];
                         int16_t xyz[3] = { int16_t(std::clamp(std::lround(-p[0]), -32767l, 32767l)),
                                            int16_t(std::clamp(std::lround(p[1]), -32767l, 32767l)),
