@@ -343,6 +343,7 @@ sky          = "none"      # a stock sky: see Sky
 cloud_scroll = 0.0         # sky texture scroll speed (the clouds sky)
 sky_parallax = 0.0         # how much the sky shifts as the camera moves (the clouds sky)
 # car_light  = "#454046"   # a night track: every car drawn darkened by this color: see Night
+# night      = true        # a night track for Car Lights whatever fog_color is: see Night
 # snowfall   = 1           # falling snow: see Snowfall
 
 # [handling]
@@ -416,7 +417,8 @@ car_light = "#454046"   # every car is drawn multiplied by this color
 - The SF Rush PlayStation mod's NIGHT versions use it, with the PlayStation's night textures, fog and sky.
 - A track whose `fog_color` is near black (luminance under 0.1, as `"#0c1424"`) is a night track for Graphics > Car
   Lights: every car's headlamps and tail lamps light it (docs/graphics_effects.md#car-lights). A lighter fog keeps
-  them off.
+  them off, unless `night = true` makes it one anyway: a night track lit by its own textures, whose fog isn't dark
+  (the arcade Metro and Presidio, src/rush2049/track2049.cpp `night_race`).
 
 ### Snowfall
 
@@ -1001,7 +1003,7 @@ Attributes (tick Data > Mesh > Attributes when you export).
 |---|---|---|
 | `[track]` | `name` (required), `author`, `version`, `description`, `type`, `gravity`, `road_hold`, `point_to_point`, `run_in`, `stunts`, `smooth_collision`, `smooth_fold`, `smooth_height` | [track.toml](#tracktoml), [Smooth collision](#smooth-collision) |
 | `[race]` | `start_time`, `finish_time`, `checkpoint_time`, `best_times` | [track.toml](#tracktoml) |
-| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light`, `snowfall` | [Sky](#sky), [Night](#night), [Snowfall](#snowfall) |
+| `[look]` | `fog_color`, `sky`, `cloud_scroll`, `sky_parallax`, `car_light`, `night`, `snowfall` | [Sky](#sky), [Night](#night), [Snowfall](#snowfall) |
 | `[handling]` | `traction`, `air_gravity` | [Handling](#handling) |
 | `[ai]` | `speed_quantiles`, `traction_margin`, `speed_scale` | [AI speeds](#ai-speeds) |
 | `[movers.<name>]` | `mode`, `races`, `start`, `open`, `close`, `open_delay`, `close_delay`, `open_at_start` | [Moving objects](#moving-objects) |

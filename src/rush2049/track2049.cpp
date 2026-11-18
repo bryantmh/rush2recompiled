@@ -119,6 +119,7 @@ namespace {
     std::atomic_uint32_t applied_car_light = 0;     // Its [look] car_light as 0xRRGGBBFF, 0 for none.
     std::atomic<float> applied_air_gravity = 1.0f;  // Its [handling] air_gravity, 1 for none.
     std::atomic<float> applied_snowfall = 0.0f;     // Its [look] snowfall, 0 for none.
+    std::atomic_bool applied_night = false;         // Its [look] night.
     std::atomic_bool applied_stunts = false;        // Its [track] stunts.
     std::mutex traction_mutex;
     std::vector<std::array<float, 2>> applied_traction; // Its [handling] traction steps (mph, factor), under traction_mutex.
@@ -454,6 +455,7 @@ namespace {
             : 0u;
         applied_air_gravity = mod ? mod_settings.air_gravity : 1.0f;
         applied_snowfall = mod ? mod_settings.snowfall : 0.0f;
+        applied_night = mod && mod_settings.night;
         applied_stunts = mod && mod_settings.stunts;
         {
             std::lock_guard lock{ traction_mutex };
@@ -491,6 +493,7 @@ namespace {
         applied_car_light = 0;
         applied_air_gravity = 1.0f;
         applied_snowfall = 0.0f;
+        applied_night = false;
         applied_stunts = false;
         {
             std::lock_guard lock{ traction_mutex };
@@ -585,6 +588,8 @@ bool rush2::track2049::night_race(uint8_t* rdram) {
     // An N64 SF Rush course's NIGHT version (src/rush1/track1.cpp set_race_look) is one too.
     if (rush2::track1::applied_look(rdram) == rush2::diorama_look::Look::night) return true;
     if (!converted_race(rdram)) return false;
+    // A custom track's [look] night (the arcade Metro and Presidio, night tracks as their N64 courses are).
+    if (applied_night) return true;
     int s = MEM_BU(0, (int32_t)track_id);
     float r = MEM_BU(0, (int32_t)(fog_colours + s * 3)), g = MEM_BU(0, (int32_t)(fog_colours + s * 3 + 1)),
           b = MEM_BU(0, (int32_t)(fog_colours + s * 3 + 2));

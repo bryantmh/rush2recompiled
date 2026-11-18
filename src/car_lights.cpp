@@ -125,7 +125,7 @@ namespace {
     constexpr uint32_t panel_shifts = 0x800CE180; // u8 per panel
     constexpr int tail_first = 161, tail_last = 175;   // Rush 2's tail light ramp (func_800599A0)
     // Bumped whenever what is found changes, so the disk cache is found again.
-    constexpr uint32_t finder_version = 8;
+    constexpr uint32_t finder_version = 10;
 
     std::atomic_bool enabled = false;
     std::atomic_bool braking[max_cars] = {};
@@ -625,7 +625,10 @@ namespace {
         bool lit(const Finder::Tri& t, int u, int v) const {
             const int bytes = t.siz == 0 ? 1 : (1 << (t.siz - 1));
             const uint32_t off = uint32_t(v * t.row + (t.siz == 0 ? u / 2 : u * bytes));
-            if (sources.palette && t.fmt == 2 && t.siz == 1) {
+            // Rush 2's tail light ramp, on a body without brake light lists: a mod body's stand-ins (CI8 in Rush 2's car
+            // palette) take its reds for any red or orange paint (the arcade Truck's orange cab roof, issue 88), and its
+            // lamps are its brake lights.
+            if (sources.palette && sources.lists.empty() && t.fmt == 2 && t.siz == 1) {
                 int index = MEM_BU(0, (int32_t)(t.image + off));
                 if (index >= tail_first && index <= tail_last) return true;
             }
@@ -989,6 +992,11 @@ namespace {
             });
         }
         const float brake_lit = std::max(48.0f, 0.5f * brake_top);
+        // The lens texels found, the lamps are those alone: a textured brake triangle with none (the dark or clear
+        // rest of a quad laid over a whole tail panel, the arcade Truck's orange scheme) isn't lamp, and taking it by
+        // its area put one big lamp in the middle of the tailgate (issue 88). Only an all-dark brake texture falls back
+        // to its triangles' areas.
+        const bool brake_texels = brake_top >= brake_lit;
         for (int ti = 0; ti < (int)f.tris.size(); ti++) {
             const Finder::Tri& t = f.tris[ti];
             float facing[3];
@@ -1004,7 +1012,7 @@ namespace {
                     tail_points.push_back({ { q[0], q[1], q[2] }, ti, u, v, 1.0f, size });
                     any = true;
                 });
-                if (any) continue;
+                if (any || brake_texels) continue;
             }
             if (t.whole) {
                 float e1[3], e2[3], mid[3];

@@ -2591,6 +2591,9 @@ static bool build_one(const ArcadeGame& game, const std::filesystem::path& data_
         "smooth_collision = false\n\n" +
         // Alcatraz is at night; the others keep the custom tracks' default fog.
         std::string(track_id == "alcatraz" ? "[look]\nfog_color = \"#0c1424\"\n\n" : "") +
+        // Metro and Presidio are night tracks, as their N64 courses are (whose fog is black): Graphics > Car Lights
+        // lights the cars' lamps there. The arcade's own look stays (no fog_color).
+        std::string(track_id == "metro_arcade" || track_id == "presidio_arcade" ? "[look]\nnight = true\n\n" : "") +
         // The Rock: SF Rush's fog color (the N64 port's, docs/rush1_research.md#7-per-track-values-used); Downtown, The
         // Heights and Sunset have no sky in their data (no SKY00-03 dome), so they get the N64 version's cloud dome.
         (rock ? std::string("[look]\nfog_color = \"#9696be\"\n") + (sky.empty() ? "sky = \"clouds\"\n" : "") + "\n"

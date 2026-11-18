@@ -51,7 +51,9 @@ track select read the new files without a restart; `mods_changed` also has the c
   banners (`tools/build_banners.py --arcade`; until 2026-11-05 with an " A" after the name, which the version button's
   ARCADE replaces), and their round previews are the user's in-game screenshots
   (`tools/arcade2049/previews/<id>.png`, cut by `tools/build_banners.py --arcade` into
-  `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a fog color (its night). Offline
+  `assets/arcade2049/<id>_preview.png`). Only Alcatraz sets a fog color (its night). Metro and Presidio are night tracks as their N64 courses are
+  (`[look] night = true`, so Graphics > Car Lights lights them) and keep the arcade's look, no fog color. The arcade
+  has no car shading over the ground (the N64's per-polygon colours, see roaddat.rom below): not ported. Offline
   (`tools/track_mod_test.bat` + `tools/track_mod_check.py` on the C++ output) all seven pass. Haight and Presidio
   needed the collision steps under "roaddat.rom" below (a cone tip on Haight; copies and a tunnel seam on Presidio)
   and Presidio, at 13,047 polygons, the converter's wide leaves (docs/custom_tracks.md: until 2026-10-19 the game took

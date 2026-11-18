@@ -1536,6 +1536,10 @@ bool rush2::track_mod::parse_settings(const std::string& text, Settings& s, Repo
             report.error("track.toml: car_light must look like \"#454046\".");
         }
     }
+    if (t["look"]["night"]) {
+        if (auto v = t["look"]["night"].value<bool>()) s.night = *v;
+        else report.error("track.toml: [look] night must be true or false.");
+    }
     if (auto* arr = t["handling"]["traction"].as_array()) {
         float last = -1.0f;
         for (auto& e : *arr) {

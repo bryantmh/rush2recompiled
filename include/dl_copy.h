@@ -4,12 +4,15 @@
 // Copies of the game's model display lists with some of their commands rewritten, for drawing a model differently
 // without touching the loaded model (src/ghost.cpp: translucent ghost cars; src/rush2049/car2049.cpp: Rush 2049's car
 // lighting on Rush 2's cars). A list is copied up to its G_ENDDL (or a G_DL branch), and the lists it calls (G_DL, and
-// the 2049 conversion's conditional G_DL, E0 01) are copied the same way. Copies are kept by source address (and
-// made again if the source list's commands changed) until reset(), which frees their space.
+// the 2049 conversion's conditional G_DL, E0 01) are copied the same way. Copies are kept by source address and the
+// state of its commands (a list whose commands changed gets another copy; up to four states a list) until reset(),
+// which frees their space. A copy found again has its calls pointed at the current copies of the lists they reach,
+// which change apart from it (issue 87: a mod car's brake light switch past a scheme branch stayed as first copied).
 
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <vector>
 
 #include "recomp.h"
 
@@ -44,14 +47,31 @@ namespace rush2::dl {
                 uint8_t op = w0 >> 24;
                 if (op == 0xDF || (op == 0xDE && ((w0 >> 16) & 0xFF) == 1)) break;
             }
-            // A list loaded again at the same address (another model) is copied again.
-            auto it = copies_.find(src);
-            if (it != copies_.end() && it->second.hash == hash) return it->second.copy;
+            // A list loaded again at the same address (another model), or whose commands the game switches (a mod car's
+            // brake light switch, src/rush2049/car2049.cpp), is copied again; each state's copy is kept, so a switch
+            // turned back finds its copy instead of filling the space.
+            std::vector<Copy>& kept = copies_[src];
+            for (const Copy& c : kept) {
+                if (c.hash != hash) continue;
+                const uint32_t found = c.copy;   // kept may change below (a list reached from itself)
+                // The lists it calls or branches to are checked each time: they change apart from it (a scheme block
+                // past a branch holds a brake switch, issue 87), and a stale call would draw them as first copied.
+                for (uint32_t i = 0; i < count; i++) {
+                    uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)(src + i * 8)), w1 = (uint32_t)MEM_W(4, (int32_t)(src + i * 8));
+                    uint8_t op = w0 >> 24;
+                    if (op != 0xDE && !(op == 0xE0 && ((w0 >> 16) & 0xFF) == 1)) continue;
+                    uint32_t sub = this->copy(rdram, w1, rewrite, depth + 1);
+                    uint32_t want = sub != 0 ? (w1 & 0xFF000000) | (sub & 0xFFFFFF) : w1;
+                    if ((uint32_t)MEM_W(4, (int32_t)(found + i * 8)) != want) MEM_W(4, (int32_t)(found + i * 8)) = (int32_t)want;
+                }
+                return found;
+            }
             uint32_t bytes = count * 8;
             if (cursor_ + bytes > end_) return 0;
             uint32_t copy = cursor_;
             cursor_ += bytes;
-            copies_[src] = { copy, hash };
+            if (kept.size() >= max_states) kept.erase(kept.begin());   // a model loaded over it: the old states are gone
+            kept.push_back({ copy, hash });
             for (uint32_t i = 0; i < count; i++) {
                 uint32_t w0 = (uint32_t)MEM_W(0, (int32_t)(src + i * 8)), w1 = (uint32_t)MEM_W(4, (int32_t)(src + i * 8));
                 uint8_t op = w0 >> 24;
@@ -139,9 +159,10 @@ namespace rush2::dl {
             uint32_t copy;
             uint64_t hash;    // of the source list's commands when it was copied
         };
+        static constexpr size_t max_states = 4;  // copies kept per source list (lit and unlit brakes take two)
         uint32_t start_, end_, cursor_;
         uint32_t extra_start_ = 0, extra_end_ = 0;
-        std::map<uint32_t, Copy> copies_;        // source list -> copy
+        std::map<uint32_t, std::vector<Copy>> copies_;   // source list -> its copies, one per state of its commands
     };
 }
 

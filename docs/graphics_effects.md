@@ -324,15 +324,18 @@ car's body is still the one it looked at), again when the car's type, parts or d
   with a plain wrap, the far side's lamps landed next to the middle.
 - **Tail lamps:** what the game lights when the car brakes, each texel put back on its triangle by the triangle's
   texture coordinates (barycentric): Rush 2's palette lighting's CI8 entries 161-175 (Rush 2's cars, Rush 2049's on
-  the N64 ROM); for a California Speed or Dreamcast car the texels its lit copies change
+  the N64 ROM; not on a body with brake light lists, whose stand-ins take those reds for any red or orange paint: the
+  arcade Truck's orange cab roof became two lamps, issue 88); for a California Speed or Dreamcast car the texels its lit copies change
   (`rush2::car2049::brake_light_sources`); a mod car's or livery's brake light lists (docs/car_mods.md#brake-lights),
   only those whose switch (`BrakeLightSources::switches`, `rush2::car2049::brake_switch`) is in the lists the body
   draws: a car's copy holds every paint scheme's brake lists and a livery adds its own, and taking them all put lamps
   between and beside the real ones (the first pass on the arcade Mustang's liveries). Their texels at least half as
   bright as the car's brightest brake texel count (the textures are soft glows, a red core in near black; the N64
   copy's alpha bit isn't kept reliably, the transparency comes from the full-size replacements), since those lists
-  are often textured quads spanning both lamps (the arcade Truck's covers the whole tailgate); an untextured one's
-  triangles by their area. A lit switch's call isn't walked as body. Only triangles in the back half of the body facing backward (outward normal z at most
+  are often textured quads spanning both lamps (the arcade Truck's covers the whole tailgate). A textured brake
+  triangle with none of those texels is no lamp (taken by its area, the Truck's tailgate quad made one lamp in the
+  middle, issue 88); only when no brake texel is bright enough (an all-dark brake texture) and for an untextured
+  one are the triangles taken by their area. A lit switch's call isn't walked as body. Only triangles in the back half of the body facing backward (outward normal z at most
   -0.25) count: lit texels on a side face are markers or spill, not the lamp. The texels are grouped (two are one lamp
   when nearer than 1.5 texels of the coarser triangle, never over 0.25 ft, so round lamps side by side stay apart; a
   an untextured brake light triangle's corners are always one lamp), and the groups at least 6% of all become lamps, the

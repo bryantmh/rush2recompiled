@@ -2,7 +2,7 @@
 """Car Lights' lamp review (src/car_lights.cpp, docs/graphics_effects.md#car-lights): draws every car the game dumped
 with its lamps marked, so the lamps found on the bodies can be checked and corrected in assets/car_lamps.json.
 
-    python tools/car_lamps.py sweep DUMP_DIR [--types 0-21,23-72] [--dreamcast] [--livery N] [--track 17]
+    python tools/car_lamps.py sweep DUMP_DIR [--types 0-21,23-72] [--dreamcast] [--livery N] [--track 17] [--data DIR]
     python tools/car_lamps.py sheet DUMP_DIR OUT.png [--only KEY ...] [--size 220] [--table assets/car_lamps.json]
                                   [--grid] [--views front back side top]
     python tools/car_lamps.py table DUMP_DIR [--only KEY ...]
@@ -374,6 +374,8 @@ def sweep(a):
             cmd += ['--games', 'rush2049_source=Dreamcast']
         if a.livery:
             cmd += ['--env', 'RUSH2_TEST_LIVERY=%d' % a.livery]
+        if a.data:
+            cmd += ['--data', a.data]
         print('types', batch, flush=True)
         subprocess.run(cmd, timeout=a.seconds + 90)
     print(len(glob.glob(os.path.join(dump, '*.json'))), 'cars in', dump)
@@ -397,6 +399,7 @@ def main():
     w.add_argument('--livery', type=int, help='every car with liveries shows this STYLE (RUSH2_TEST_LIVERY)')
     w.add_argument('--track', type=int, default=17)
     w.add_argument('--seconds', type=float, default=48)
+    w.add_argument('--data', help="the runs' data folder (test_race.py --data; default its shared one)")
     t = sub.add_parser('table')
     t.add_argument('dump')
     t.add_argument('--only', nargs='*')
