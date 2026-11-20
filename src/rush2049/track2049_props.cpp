@@ -23,6 +23,11 @@
 // 12 floats, so writing a prop's pose there moves it, as for the moving objects (src/rush2049/track2049_movers.cpp, whose
 // hooks call this file). Props present in one race direction only (_FW, _BW) are hidden in the other. Custom tracks'
 // props are Rush 2's own breakables instead (src/track_mod/track_mod_convert.cpp prop_classes).
+//
+// Rush 2's mine cheats take 2049's cones as they take Rush 2's (issue 89, docs/cheats.md#which-objects-the-mine-cheats-take):
+// with Cone Mines or Car Mines on, a cone is drawn with the model Rush 2 loads into its cone class's slot (MINE1,
+// 0x8010D2AC); with Cone Mines a car that hits one is wrecked as breakable_behavior_g_hit (0x8005EF74) does, and with
+// Car Mines alone it becomes a mine as breakable_behavior_g_step (0x8005ED38) does. The mine is removed either way.
 
 #include <algorithm>
 #include <cmath>
@@ -59,6 +64,12 @@ namespace {
     constexpr uint32_t car_snap_vel = 0x7A4;        // f32[3] world
     constexpr uint32_t car_snap_pos = 0x7B0;        // f32[3] world
     constexpr uint32_t car_active = 0x7E4;          // s16
+    constexpr uint32_t car_wreck = 0x648;           // s8: set by breakable_behavior_g_hit, wrecks the car
+    constexpr uint32_t cone_mines = 0x8010C166;     // Cone Mines cheat (u8)
+    constexpr uint32_t car_mines = 0x8010C167;      // Car Mines cheat (u8)
+    constexpr uint32_t cone_handle = 0x8010D2AC;    // Model handle of id 0x716 (the CONE1 class): MINE1 with a mine cheat
+    constexpr uint32_t car_mine_flags = 0x801127EA; // + car * 0x354: the car is a mine (Car Mines, func_8005C1C0)
+    constexpr uint32_t car_mine_stride = 0x354;
 
     constexpr uint32_t main_vram = 0x80086A50;
     constexpr uint32_t model_names_2049 = 0x8011AD68;  // Name pointers of the model handle table.
@@ -254,6 +265,15 @@ namespace {
         }
     }
 
+    bool mine_cheat(uint8_t* rdram) {
+        return MEM_B(0, (int32_t)cone_mines) != 0 || MEM_B(0, (int32_t)car_mines) != 0;
+    }
+
+    // A 2049 cone (type CONE1), which the mine cheats take; not RATCONE.
+    bool is_cone(const movers::TypeInfo& t) {
+        return t.name.rfind("CONE", 0) == 0;
+    }
+
     void set_model(uint8_t* rdram, const Prop& p, const std::string& name) {
         auto it = models.find(name.substr(0, 15));
         if (p.node == 0 || it == models.end()) {
@@ -308,6 +328,10 @@ namespace {
                 // A RESTART reloads no placement file: the records and nodes still hold the last race's props.
                 write_pose(rdram, p);
                 set_model(rdram, p, read_name(rdram, p.record));
+                uint16_t mine = (uint16_t)MEM_HU(0, (int32_t)cone_handle);
+                if (p.node != 0 && is_cone(types[rec.type]) && mine_cheat(rdram) && mine != 0) {
+                    MEM_H(0, (int32_t)(p.node + 0xC)) = mine;
+                }
                 if (p.node != 0) {
                     MEM_W(0, (int32_t)p.node) = (uint32_t)MEM_W(0, (int32_t)p.node) & ~node_hidden;
                 }
@@ -319,8 +343,25 @@ namespace {
     }
 
     // A car hit the prop (the type's init function).
-    void hit(uint8_t* rdram, Prop& p, uint32_t car) {
+    void hit(uint8_t* rdram, Prop& p, uint32_t car, int index) {
         const movers::TypeInfo& t = types[p.rec.type];
+        if (is_cone(t) && MEM_B(0, (int32_t)cone_mines) != 0) {
+            // breakable_behavior_g_hit: a car not already wrecking takes the mine away and is wrecked.
+            if (MEM_B(0, (int32_t)(car + car_wreck)) != 0) {
+                return;
+            }
+            hide(rdram, p);
+            p.state = Prop::State::done;
+            MEM_B(0, (int32_t)(car + car_wreck)) = 1;
+            return;
+        }
+        if (is_cone(t) && MEM_B(0, (int32_t)car_mines) != 0) {
+            // breakable_behavior_g_step with Car Mines: the car becomes a mine and the cone goes.
+            MEM_B(0, (int32_t)(car_mine_flags + index * car_mine_stride)) = 1;
+            hide(rdram, p);
+            p.state = Prop::State::done;
+            return;
+        }
         float v[3];
         for (int i = 0; i < 3; i++) v[i] = read_f(rdram, car + car_snap_vel + i * 4);
         if (t.init == init_knock) {
@@ -475,7 +516,7 @@ void rush2::track2049::props_car(uint8_t* rdram, uint32_t car) {
         float dx = c[0] - p.pos[0], dy = c[1] - p.pos[1], dz = c[2] - p.pos[2];
         float r = p.radius + hit_margin;
         if (dz * dz + (dx * dx + dy * dy) - r * r <= 0.0f) {
-            hit(rdram, p, car);
+            hit(rdram, p, car, index);
         }
     }
 }

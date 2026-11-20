@@ -26,11 +26,16 @@ namespace rush2::diorama_look {
     }
 
     // The PS1's night: a day color's night texel, from its night set's greys (104 -> (20, 20, 38), 136 -> (34, 33, 53),
-    // 168 -> (45, 45, 71)): about half the saturation, then about 0.27 / 0.28 / 0.42 of it, bluer (the PS1's median is
-    // 0.21 of the day's brightness). `lift` scales it.
+    // 168 -> (45, 45, 71)): about 0.27 / 0.28 / 0.42 of it, bluer (the PS1's median is 0.21 of the day's brightness).
+    // Muted colors lose up to about half their saturation first (the PS1 repaints brick and earth in its night blues);
+    // the more saturated a color, the less it loses, so a cone or a painted line stays the same color, only dark, and
+    // headlamps light it in that color (issue 89: a red cone came out dark purple). `lift` scales it.
     inline Rgb night(const Rgb& c, double lift = 1.0) {
         double l = luminance(c);
-        double r = c[0] + (l - c[0]) * 0.55, g = c[1] + (l - c[1]) * 0.55, b = c[2] + (l - c[2]) * 0.55;
+        int hi = std::max({ c[0], c[1], c[2] }), lo = std::min({ c[0], c[1], c[2] });
+        double sat = hi > 0 ? double(hi - lo) / hi : 0.0;
+        double f = 0.55 * (1.0 - sat);
+        double r = c[0] + (l - c[0]) * f, g = c[1] + (l - c[1]) * f, b = c[2] + (l - c[2]) * f;
         return clamp_rgb((r * 0.27 + 2) * lift, (g * 0.28 + 2) * lift, (b * 0.42 + 6) * lift);
     }
 

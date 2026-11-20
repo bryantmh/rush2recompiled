@@ -1437,6 +1437,16 @@ followed: [N64 snow versions](#n64-snow-versions).
   went dark with everything else). Not shared with any other list on any of the seven courses (the converter's log
   counts "banner TLUTs kept lit", 2 each). In game: Downtown's start gantry from 130 ft past it facing back,
   `--env RUSH2_CS_PLACE=3830,147,268,-0.97,-0.24,0,1 --script "1:B:59" --shots T7`.
+- **Strong colors** (issue 89, 2026-11-19): `diorama_look::night` used to take 55% of every color's saturation away
+  before its fitted 0.27 / 0.28 / 0.42 darkening. The fit is to the PS1's greys, which desaturation doesn't change, so
+  that step had no measurement behind it, and it turned the cone (CONE1L1: one red TLUT entry, F802, drawn TEXEL0 x
+  SHADE under red shading) dark purple, which the headlamps lit lavender; road lines went grey. Now a color loses
+  0.55 x (1 - saturation) of it: greys and muted colors (brick, earth) come out as before, saturated ones keep their
+  hue and get only the darkening (cone (255, 0, 16) -> (71, 2, 13), as dark as a white wall; yellow line (247, 214, 0)
+  -> (69, 62, 6)), so reflectors stay dark until headlamps light them in their own color. Not kept lit: the PS1's hand
+  painted night leaves about half its vivid texels at their day colors (Chinatown day/night pages paired: saturation
+  0.8+ and brightness 0.4+ unchanged 40-63%, muted under 1%), but its cones disagree (Embarcadero's stay (255, 0, 0),
+  Chinatown's go (24, 24, 49)), and a cone or road sign is a reflector, not a light.
 - **Lit windows:** with the PS1 mod's night art (always, from 2026-11-14) the buildings wear the PS1's own night
   texels: [N64 night art](#n64-night-art). Without it (no art in the mod), by guess: a building texture (70% of its triangles on walls, a third of those 12 ft high or more; CI with
   glass: entries under 0.55 of the texture's median brightness or blue, 5-60% of its texels, not green or see-through,

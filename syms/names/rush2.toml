@@ -6100,7 +6100,7 @@ desc = "Linear accelerations stage of the physics step: +0x1C, +0x20, +0x24 = th
 consts = "0x80110018 = car_linear_accel_scale (32.2 x the gravity setting); 0x5AC = weight"
 status = "verified"
 area = "car"
-ref = "docs/sfrush_ps1.md#snow-and-night"
+ref = "docs/sfrush_ps1.md#police-lights"
 
 [[func]]
 vram = 0x80069AB4
@@ -7707,12 +7707,12 @@ ref = "docs/rush2049_research/placement.md#11-loading-and-instantiation"
 vram = 0x8007FFA0
 name = "object_behavior_run"
 sig = "void object_behavior_run(void *handle, void *node)"
-desc = "Runs the named object's behavior: table[id-1](handle,node) when id != 0 (behavior table 0x800C526C, 49 entries). | Reads a model's name-record kind (+0x14, the behavior id). Matches Rush 1's func_80081104."
+desc = "Runs a breakable's creator from its model's name-record kind (+0x14): entry kind - 1 of the table at 0x800E79B4 (0x800C526C, 49 entries)."
 consts = "0x3FF = behavior id mask"
 status = "verified"
 rush1 = [0x80081104]
 area = "render"
-ref = "docs/rush2049_research/placement.md#11-loading-and-instantiation"
+ref = "docs/cheats.md#which-objects-the-mine-cheats-take"
 
 [[func]]
 vram = 0x80080030
@@ -13910,10 +13910,10 @@ ref = "us.toml"
 vram = 0x800BC528
 name = "breakable_behavior_alloc_g"
 sig = "void breakable_behavior_alloc_g(void *a0, void *rec)"
-desc = "Breakable behavior callback allocating an instance using cheat_option_d; three handlers breakable_behavior_follow_pair, breakable_behavior_g_hit, breakable_behavior_g_step. (low confidence)"
-status = "inferred"
+desc = "Creator for breakable kind 2 (cones: CONE1O1, Rush 1's CONE1L1), entry 1 of the kind table 0x800C526C: +0x64 = 2, +0x62 = class id (0x80125C54); with Cone Mines (0x8010C166) the cone gets breakable_behavior_g_hit, otherwise breakable_behavior_g_step / 0x8005EC14. The only reader of Cone Mines at race time."
+status = "verified"
 area = "track"
-ref = "docs/functions/rush2_track.md#rush-2-track-functions"
+ref = "docs/cheats.md#which-objects-the-mine-cheats-take"
 
 [[func]]
 vram = 0x800BC5F4
@@ -13938,11 +13938,11 @@ ref = "docs/functions/rush2_track.md#rush-2-track-functions"
 vram = 0x800BC62C
 name = "track_object_spawn_model_pair_a"
 sig = "void track_object_spawn_model_pair_a(void *a0, void *rec)"
-desc = "Placement object creator: breakable_alloc (id 0x778) plus model lookup by name (strings at 800CE174-7B); callbacks breakable_behavior_follow_pair / breakable_behavior_g_step. (low confidence)"
+desc = "Creator for breakable kind 36, Honolulu's surfboards (SRFBRD class, id 0x778, model SRFBRDO1, strings at 800CE174): breakable_alloc plus model lookup; callbacks breakable_behavior_follow_pair / breakable_behavior_g_step, so the Car Mines cheat applies to surfboards (original behavior)."
 consts = "0x778 = breakable id"
-status = "inferred"
+status = "verified"
 area = "track"
-ref = "docs/functions/rush2_track.md#rush-2-track-functions"
+ref = "docs/cheats.md#which-objects-the-mine-cheats-take"
 
 [[func]]
 vram = 0x800BC760
@@ -13962,7 +13962,7 @@ desc = "Placement creator for RATCONE (rat, breakable 0x777): breakable_alloc; w
 consts = "0x777 = behavior id"
 status = "verified"
 area = "track"
-ref = "docs/cheats.md#killer-rats"
+ref = "docs/cheats.md#which-objects-the-mine-cheats-take"
 
 [[func]]
 vram = 0x800BC990

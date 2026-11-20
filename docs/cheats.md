@@ -43,6 +43,33 @@ placed after GO on Las Vegas was put back near the start).
 | Fog Color (0x8010C440) | Distant scenery (and on Manhattan the sky) tinted red; on Las Vegas at Double draw distance the haze is too far out to see. | `race_setup` uses the value (12-19) instead of the track id to index the fog colors at 0x800C1D7C. |
 | No Subways or Buses (recomp) | Train count 0x800D4E74 is 6 on both Manhattan tracks, 0 with it. | `subway_init` (0x800A4210). |
 
+## Which objects the mine cheats take
+
+Issue 89, read off the ROM (2026-11-19). A placed breakable's behavior comes from its model's name-record kind (+0x14):
+`func_8007FFA0` calls entry kind - 1 of the 49-entry table 0x800C526C (installed at 0x800E79B4 by 0x8008BC64).
+
+- **Cone Mines** is read only by kind 2's creator, `breakable_behavior_alloc_g` (0x800BC528, CONE1O1 / Rush 1's
+  CONE1L1): it gives the cone `breakable_behavior_g_hit` (0x8005EF74) instead of the knock-over pair 0x8005ED38 /
+  0x8005EC14. Nothing else turns into a mine.
+- **Car Mines** acts in `breakable_behavior_g_step` (0x8005ED38), which other creators use too: kind 36, Honolulu's
+  surfboards (SRFBRD records, class id 0x778, model SRFBRDO1; creator `track_object_spawn_model_pair_a`, 0x800BC62C)
+  and the creator at 0x800BC888. So hitting a surfboard with Car Mines on turns the car into a mine in the original
+  game too, while Cone Mines leaves the surfboards as they are.
+- Either cheat makes Rush 2 load MINE1 (0x800CEDA4) into the cone class's model slot: model handles are u16s at
+  0x8010C480 indexed by class id, and the CONE1 class's id 0x716 is 0x8010D2AC (`func_8008A01C` draws each breakable
+  with the handle of its +0x62 id). That's why cones look like mines under Car Mines too, and a mine car draws with the
+  same handle (0x8005C1C0, car state 0x801124A0 + car x 0x354, +0x34A).
+- Rush 2049's cones are not Rush 2 breakables: the converter renames them X49<model> and
+  src/rush2049/track2049_props.cpp runs them (2049 tracks 1-6, X49CONE1G1). Since issue 89 it applies both cheats to
+  them as Rush 2 does to its own: drawn with the 0x8010D2AC handle; with Cone Mines a hit wrecks the car (car +0x648 =
+  1, unless already set) and removes the mine; with Car Mines alone the car becomes a mine (+0x34A) and the cone goes.
+  Checked in game on track select id 15 (2049 track 4) with each cheat (2026-11-19).
+- Honolulu's red cones by the EGM building are painted scenery, not objects: track section HAWAIIL17828 (world about
+  (1446-1508, 70, -4626 to -4556)) with the pure red texture HAWAIIL17764. They never knock over and neither cheat
+  touches them, in the original game too.
+- The cones' color at night on SF Rush's N64 NIGHT versions (issue 89, the same report) was the night curve's, not
+  the cheats': see [N64 night versions](sfrush_ps1.md#n64-night-versions).
+
 ## Killer Rats
 
 Cheat item 18, state byte `0x8010C17C` (`cheat_option_k`). Cleared by the boot defaults (`save_set_boot_defaults`,
