@@ -158,6 +158,42 @@ obstacle course (no sky model).
   moves the node to the view's own camera x and z; the scene walker builds the node's matrix as it draws, so views 0
   and 1 are already done, and the next frame's update puts them back.
 
+## Per-view hidden nodes
+
+A scene node's flags word (+0) holds a hidden bit per view, (view mask) << 8. `node_hide_80058D1C` sets them and
+`node_show_80058ED4` clears them (with 0x400) from a view mask in $a2: 1 << view for one view, 3 for every view of
+Rush 2's two. Modes: hide 0 sets the hide-everywhere flag 0x400 on the node, 1 sets the view bits on the node, 2 and 3
+on it and its subtree; show 0 clears the view bits and 0x400 on the node, 1 and 2 on the subtree.
+`scene_walk_8007B518` skips a node with 0x400 and its subtree (0x8007B5AC) and a leaf with the drawn view's bit
+(0x8007B638). The car code uses them every frame: a car's sheen layers and panels are hidden in its own view's close
+cameras (`car_update_draw_nodes_8005CFB0`, its view +0x347), its hood halves (+0xC, +0x10) hidden in every view (3)
+and shown in its own view in the hood camera, its wheels shown or hidden in its own view
+(`node_swap_visibility_8005A528` from `carselect_preview_update_8005A598`).
+
+With four views, view 2's bit is 0x400 and views 2 and 3 tested views 0 and 1's bits (the walker's patched `view & 1`
+at 0x8007B628), so a part hidden in player 3's close camera was hidden in every view, player 1's and player 2's cars
+went missing from players 3's and 4's close cameras, and player 3's hood showed in player 1's hood camera (issue
+found with issue 92's lamp shots). `rush2_players4_view_hide_mask` (hooked at both functions' entry) maps view 2 to
+bit 0x20000 (mask 0x200) and makes 3 every view (0x20000 and 0x800 as well); view 3 keeps 0x800, which nothing else
+reads. `rush2_players4_walk_hide_bit` (0x8007B638) tests the drawn view's own bit. The flags' bits in use: the walker
+reads 0x8-0x80, 0x400, 0x1000, 0x8000, 0x10000 and 0x40000, bits 19-21 (>> 19) and 22-31 (>> 22, a table at
+0x800E7E20) are fields, and a survey of every node's flags on Rush 2, SF Rush, Rush 2049, California Speed and battle
+tracks found 0x20000 never set.
+
+Nodes the game creates hidden in both of its views (flags 0x300: `scene_node_create_type3_800802C0`'s track objects,
+the car parts `race_load_car_assets_80086CA4` makes; only `node_show` with every view clears it) get views 2 and 3's
+bits as well, from `rush2_players4_new_node_flags` at `scene_node_create_8007F6DC`'s entry (the flags are its fifth
+argument, 0x10($sp)). Without it views 2 and 3 drew the hundreds of such nodes on Rush 2049 tracks (768 on Presidio,
+flags 0x10300), which blacked those views out now and then; Las Vegas has none to speak of. A menu-driven check: L is
+VIEW, two presses from the chase camera reach the bumper camera and three the hood.
+
+Hoods: `car_hood_update_8005BFD8` draws a car's hood halves in its own view's hood camera only with one player
+(0x8010C3E2 < 2 at 0x8005C4C4); the recomp lets up to four players have theirs (the compare raised to 5), and its two
+show blocks (0x8005C664, 0x8005C7F4), which test whether the hood is hidden in the car's own view before showing it,
+take the view's own bit from `rush2_players4_view_hidden_bit` (`0x100 << view` is the hide-everywhere flag for view 2).
+The hood's sheen layers (+0xC / +0x10) were already shown in the hood camera for any count by
+`car_update_draw_nodes_8005CFB0`, so split screen showed a hood's sheen sweep with no hood under it.
+
 ## Arrays that share an address with a table
 
 The relocator moves every `lui`/load pair whose address falls in a moved range, so a table that happens to start inside

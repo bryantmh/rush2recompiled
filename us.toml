@@ -10270,8 +10270,11 @@ value = 0x27380280 # addiu $t8, $t9, 0x280
 # Scene lists for views 2 and 3. The scene graph keeps one draw list per view, linked through per-view fields of each
 # node (D_800D9E90, 0x38 bytes) that exist for two views only, so views 2 and 3 draw the lists of views 0 and 1 (all
 # culling happens as they're drawn, with each view's own camera): in func_8007B518, the node link offset (view * 2)
-# and per-view hide bit (0x100 << view) use view & 1, and world polygons (D_800FAF00, a view mask each) for view 0 or 1
-# are drawn in view 2 or 3 too.
+# uses view & 1, and world polygons (D_800FAF00, a view mask each) for view 0 or 1 are drawn in view 2 or 3 too. The
+# per-view hide bit (0x100 << view) has its own bits for views 2 and 3 (0x400 is the hide-everywhere flag):
+# rush2_players4_view_hide_mask remaps the view mask node_hide / node_show set and clear, and
+# rush2_players4_walk_hide_bit tests the drawn view's bit, and rush2_players4_new_node_flags gives a node created hidden
+# in both of Rush 2's views the bits of views 2 and 3 too (src/players4.cpp).
 [[patches.hook]]
 func = "scene_walk_8007B518"
 before_vram = 0x8007B5A4
@@ -10281,6 +10284,44 @@ text = "    rush2_players4_list_offset(rdram, ctx);"
 func = "scene_walk_8007B518"
 vram = 0x8007B628
 value = 0x0010C842 # lw $t9, 0x118($sp) (view) -> srl $t9, $s0, 1 (view & 1)
+
+[[patches.hook]]
+func = "scene_walk_8007B518"
+before_vram = 0x8007B638
+text = "    rush2_players4_walk_hide_bit(rdram, ctx);"
+
+[[patches.hook]]
+func = "node_hide_80058D1C"
+before_vram = 0x80058D1C
+text = "    rush2_players4_view_hide_mask(rdram, ctx);"
+
+[[patches.hook]]
+func = "node_show_80058ED4"
+before_vram = 0x80058ED4
+text = "    rush2_players4_view_hide_mask(rdram, ctx);"
+
+[[patches.hook]]
+func = "scene_node_create_8007F6DC"
+before_vram = 0x8007F6DC
+text = "    rush2_players4_new_node_flags(rdram, ctx);"
+
+# Hoods in split screen: car_hood_update_8005BFD8 draws the hood halves in the hood camera (mode 1) only with one
+# player (0x8010C3E2 < 2 at 0x8005C4C4); every player gets their own hood, and its two show blocks test the view's own
+# hidden bit (0x100 << view there is 0x400, the hide-everywhere flag, for view 2; src/players4.cpp).
+[[patches.instruction]]
+func = "car_hood_update_8005BFD8"
+vram = 0x8005C4C4
+value = 0x2B010005 # slti $at, $t8, 2 -> 5 (up to four players)
+
+[[patches.hook]]
+func = "car_hood_update_8005BFD8"
+before_vram = 0x8005C664
+text = "    ctx->r24 = rush2_players4_view_hidden_bit(ctx->r3);"
+
+[[patches.hook]]
+func = "car_hood_update_8005BFD8"
+before_vram = 0x8005C7F4
+text = "    ctx->r15 = rush2_players4_view_hidden_bit(ctx->r3);"
 
 [[patches.hook]]
 func = "view_fog_setup_8007C624"

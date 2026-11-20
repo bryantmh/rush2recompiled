@@ -1218,6 +1218,54 @@ void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx) {
     ctx->r16 = ((uint32_t)ctx->r6 & 1) * 2;
 }
 
+// A scene node's per-view hide bits (node flags +0, include/scene_nodes.h) are (view mask) << 8: node_hide_80058D1C sets
+// them and node_show_80058ED4 clears them, from a mask of views in $a2 (1 << view for one view, 3 for every view of
+// Rush 2's two), and the scene walker skips a leaf node with the drawn view's bit set (0x8007B638). View 2's natural
+// bit, 0x400, is the hide-everywhere flag the walker skips a node for (0x8007B5AC), so a car part hidden in player 3's
+// own bumper or hood camera vanished from every view; and with views 2 and 3 testing views 0 and 1's bits, player 1's
+// and player 2's cars vanished from player 3's and player 4's close cameras, and player 3's hood showed in player 1's
+// hood camera. View 3 keeps its natural bit, 0x800 (nothing else reads it), and view 2 gets 0x20000: the walker reads
+// 0x8-0x80, 0x400, 0x1000, 0x8000, 0x10000, 0x40000 and the fields at bits 19-31 (>> 19 and >> 22), and no node on
+// Rush 2, SF Rush, Rush 2049, California Speed or battle tracks holds 0x20000 (a survey of every node's flags in 4
+// player races). 3 means every view.
+namespace {
+    constexpr uint32_t view2_mask = 0x200;   // << 8: 0x20000
+}
+
+// node_hide_80058D1C and node_show_80058ED4 entry: $a2 = the views' mask (also run on their own recursion: idempotent).
+void rush2_players4_view_hide_mask(uint8_t* rdram, recomp_context* ctx) {
+    const uint32_t mask = (uint32_t)ctx->r6;
+    uint32_t out = mask & ~0x4u;
+    if (mask & 4) out |= view2_mask;
+    if ((mask & 3) == 3) out |= view2_mask | 8;
+    ctx->r6 = (int32_t)out;
+}
+
+// scene_node_create_8007F6DC entry: the new node's flags are its fifth argument (0x10($sp)). The game creates some nodes
+// hidden in both of its two views, 0x300 (scene_node_create_type3_800802C0's track objects, the car parts
+// race_load_car_assets_80086CA4 makes), which only node_show with every view (3) clears: they get views 2 and 3's bits
+// too, or those views drew them (hundreds of Rush 2049 track nodes that are never meant to show, which blacked views 2
+// and 3 out on Presidio).
+void rush2_players4_new_node_flags(uint8_t* rdram, recomp_context* ctx) {
+    const uint32_t flags = (uint32_t)MEM_W(0x10, ctx->r29);
+    if ((flags & 0x300) == 0x300) {
+        MEM_W(0x10, ctx->r29) = (int32_t)(flags | (view2_mask << 8) | 0x800);
+    }
+}
+
+// func_8007B518 at 0x8007B638, about to test the node's flags ($t1) against the drawn view's hide bit ($t7, made from
+// view & 1 for the shared lists, rush2_players4_list_offset): the view's own bit (the view at 0x118($sp)).
+void rush2_players4_walk_hide_bit(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r15 = rush2_players4_view_hidden_bit((uint64_t)(int64_t)MEM_W(0x118, ctx->r29));
+}
+
+// A view's hidden bit in a node's flags (0-3; the walker above and car_hood_update_8005BFD8's hood show blocks at
+// 0x8005C664 and 0x8005C7F4, which test whether the hood is hidden in the car's own view +0x347 before showing it).
+int32_t rush2_players4_view_hidden_bit(uint64_t view) {
+    const int v = (int)(int8_t)view;
+    return (int32_t)(v == 2 ? view2_mask << 8 : 0x100u << (v & 3));
+}
+
 // func_8007C624, after the view's bit is made to test a world polygon's view mask ($t7 = 1 << view, the view at
 // $sp+0x180): views 2 and 3 also draw the polygons of views 0 and 1. $fp = the polygon. The arrows over the other
 // players' cars (src/arrows.cpp) each belong to one view of the four, and so do the sky dome's pieces (flag 0x2000

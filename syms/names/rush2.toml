@@ -4065,24 +4065,24 @@ ref = "docs/functions/rush2_other.md#rush-2-other-functions"
 [[func]]
 vram = 0x80058D1C
 name = "node_hide"
-sig = "void node_hide(SceneNode *node, s32 mode, s32 a2)"
-desc = "Hides a scene node and (recursively with mode 3) its children by walking the 0x38-byte node list, setting flag 0x400. Called with mode 3 or 1 by node/car animation code. (low confidence on exact semantics)"
-consts = "0x38 = sizeof(SceneNode); 0x400 = hidden flag"
-status = "inferred"
+sig = "void node_hide(s16 node, s32 mode, s32 views)"
+desc = "Hides a scene node by flags (+0): mode 0 sets the hide-everywhere flag 0x400 on the node, 1 sets the per-view bits (a2 << 8, a2 a view mask: 1 << view, 3 every view of two) on the node, 2 and 3 on the node and its subtree. 4 player views: rush2_players4_view_hide_mask remaps the mask at entry (view 2 -> 0x20000)."
+consts = "0x38 = sizeof(SceneNode); 0x400 = hidden in every view; views << 8 = hidden in those views"
+status = "verified"
 area = "render"
-ref = "docs/functions/rush2_render.md#rush-2-render-functions"
+ref = "docs/players4.md#per-view-hidden-nodes"
 
 [[func]]
 vram = 0x80058ED4
 name = "node_show"
-sig = "void node_show(void *node, s32 a1, s32 mode)"
-desc = "Shows node $a0."
-consts = "0x38 = node size; 0x400 = hidden flag"
+sig = "void node_show(s16 node, s32 mode, s32 views)"
+desc = "Shows a scene node: mode 0 clears the per-view bits (a2 << 8, a2 a view mask) and the hide-everywhere flag 0x400 on the node, 1 and 2 on the node and its subtree. 4 player views: the mask is remapped at entry like node_hide's."
+consts = "0x38 = node size; 0x400 = hidden in every view; views << 8 = hidden in those views"
 status = "verified"
 ported = true
 calspeed = [0x800C9C10]
 area = "render"
-ref = "src/unlocks_shop.cpp"
+ref = "docs/players4.md#per-view-hidden-nodes"
 
 [[func]]
 vram = 0x800590AC
@@ -4467,7 +4467,7 @@ ref = "us.toml"
 vram = 0x8005BFD8
 name = "car_hood_update"
 sig = "void car_hood_update(Node *node, s32 a1)"
-desc = "Patched in us.toml. Car preview ids (car select: id = player * 121 + type, was * 22) index the race per-car arrays, which move to 242-entry copies from 0x80178000 (include/car_types.h, tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 121. | Per-frame node callback of a race car ($a0 +0xE = car): the hood camera. Hides the hood halves (car record +0x4/+0x8) and their sheen layers (+0xC/+0x10) in every view unless camera mode (car state +0x348) is 1 with one player (0x8010C3E2 < 2), and while the car is hidden (+0xE4 bit 0x10); in mode 1 swaps each half by damage (+0x4 = part 31 + panel 1 level, +0x8 = part 33 + panel 0 level), shows them in the car's own view (1 << +0x347) and blinks them (0x400) while 0x8010C170 or +0xE4 bit 8 is set. Also swaps the node's model to the car's (func_8005B900). 2049 twin: func_80093B20."
+desc = "Patched in us.toml. Car preview ids (car select: id = player * 121 + type, was * 22) index the race per-car arrays, which move to 242-entry copies from 0x80178000 (include/car_types.h, tools/rush2049/cartypes.py id_toml; strides unchanged), with the id arithmetic re-based from 22 to 121. Split screen: the one-player gate at 0x8005C4C4 is raised to four players and the show blocks at 0x8005C664 / 0x8005C7F4 test the view's own hidden bit (docs/players4.md#per-view-hidden-nodes). | Per-frame node callback of a race car ($a0 +0xE = car): the hood camera. Hides the hood halves (car record +0x4/+0x8) and their sheen layers (+0xC/+0x10) in every view unless camera mode (car state +0x348) is 1 with one player (0x8010C3E2 < 2), and while the car is hidden (+0xE4 bit 0x10); in mode 1 swaps each half by damage (+0x4 = part 31 + panel 1 level, +0x8 = part 33 + panel 0 level), shows them in the car's own view (1 << +0x347) and blinks them (0x400) while 0x8010C170 or +0xE4 bit 8 is set. Also swaps the node's model to the car's (func_8005B900). 2049 twin: func_80093B20."
 consts = "0x16 = car types; 0x38 = node size; 0x1F/0x21 (+2) = hood-half part handles; 0x100 << view = per-view hide bit"
 status = "verified"
 ported = true

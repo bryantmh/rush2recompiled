@@ -108,7 +108,8 @@ cycled 0-3 by the view button in cam_update_all_players_8009D9F4, which zeroes t
 0xC on entering 1). The hood halves `H0_L` / `H0_R` (car record +0x4 / +0x8, parts 31 / 33) are textured copies of
 the hood lying flush with the front panels (`PICKUPH0_L` y 22-36, z 8-98, render mode `C8112078`), so they only show
 from the hood camera. Each frame car_hood_update_8005BFD8 (a race car's node callback) hides them and their sheen
-layers +0xC / +0x10 in every view unless the mode is 1 with one player (0x8010C3E2 < 2), or while the car is hidden
+layers +0xC / +0x10 in every view unless the mode is 1 with one player (0x8010C3E2 < 2; the recomp lets up to four
+players have their hood, 0x8005C4C4, docs/players4.md#per-view-hidden-nodes), or while the car is hidden
 (+0xE4 bit 0x10); in mode 1 it swaps each half by damage (+0x4 = part 31 + panel 1's level, +0x8 = part 33 + panel 0's:
 `H0_L` / `H2_L`, `H0_R` / `H2_R`), shows them in the car's own view (`1 << +0x347`) and blinks them with the car
 (0x400 toggled while 0x8010C170 or +0xE4 bit 8 is set). car_preview_apply_state_80087290 does the same hiding at the

@@ -1717,7 +1717,7 @@ index 69a82ac..478fd47 100644
          uint32_t TMEM;
          uint32_t RGBA32;
 diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
-index 9fae0d4..485e7be 100644
+index 9fae0d4..021feff 100644
 --- a/src/render/rt64_framebuffer_renderer.cpp
 +++ b/src/render/rt64_framebuffer_renderer.cpp
 @@ -4,14 +4,20 @@
@@ -1970,8 +1970,7 @@ index 9fae0d4..485e7be 100644
 +            if ((skyFogIndex < 0) || (colorTarget == nullptr) || (depthTarget == nullptr)) {
 +                return;
 +            }
- 
--                    previousCallType = drawCall.type;
++
 +            SkyFogPass &pass = skyFogPasses[skyFogIndex];
 +            if (pass.done || !pass.fogged || !pass.hasSky || !pass.rectSet || (pass.cb.haze <= 0.0f)) {
 +                return;
@@ -2028,7 +2027,8 @@ index 9fae0d4..485e7be 100644
 +                pendingCarLights.clear();
 +                return;
 +            }
-+
+ 
+-                    previousCallType = drawCall.type;
 +            const int32_t width = int32_t(colorTarget->width);
 +            const int32_t height = int32_t(colorTarget->height);
 +            const int32_t halfWidth = (width + 1) / 2;
@@ -2037,13 +2037,13 @@ index 9fae0d4..485e7be 100644
 +                if (!any) {
 +                    total = r;
 +                    any = true;
-+                }
+                 }
 +                else {
 +                    total.left = std::min(total.left, r.left);
 +                    total.top = std::min(total.top, r.top);
 +                    total.right = std::max(total.right, r.right);
 +                    total.bottom = std::max(total.bottom, r.bottom);
-                 }
++                }
 +            };
  
 -                const auto &triangles = drawCall.triangles;
@@ -2076,7 +2076,13 @@ index 9fae0d4..485e7be 100644
 +                    }
                  }
 +            }
-+
+ 
+-                // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
+-                const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
+-                bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
+-                bool depthWrite = otherMode.zUpd();
+-                if (depthDecal) {
+-                    switchToDepthRead();
 +            if (!anyArea || (anyCB == nullptr)) {
 +                pendingCarLights.clear();
 +                return;
@@ -2136,13 +2142,7 @@ index 9fae0d4..485e7be 100644
 +                RenderTextureBarrier(fbStorage->carLightTexture.get(), RenderTextureLayout::COLOR_WRITE),
 +                RenderTextureBarrier(fbStorage->carGlowTexture.get(), RenderTextureLayout::COLOR_WRITE)
 +            };
- 
--                // A new pass must be started if decals are required and something wrote to the depth buffer before this call.
--                const interop::OtherMode otherMode = triangles.shaderDesc.otherMode;
--                bool depthDecal = (otherMode.zMode() == ZMODE_DEC);
--                bool depthWrite = otherMode.zUpd();
--                if (depthDecal) {
--                    switchToDepthRead();
++
 +            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, lightWrite, uint32_t(std::size(lightWrite)));
 +
 +            // The lamps' light, at half resolution.
@@ -2200,10 +2200,7 @@ index 9fae0d4..485e7be 100644
 +            if (timed) {
 +                worker->commandList->writeTimestamp(carLightQueryPool, 2 + carLightQueryCount * CarLightQueryStride + 2);
 +            }
- 
--                if (previousScissor != triangles.scissor) {
--                    worker->commandList->setScissors(triangles.scissor);
--                    previousScissor = triangles.scissor;
++
 +            // The scene's copy.
 +            RenderTextureBarrier beforeCopy[] = {
 +                RenderTextureBarrier(fbStorage->carLightTexture.get(), RenderTextureLayout::SHADER_READ),
@@ -2218,7 +2215,10 @@ index 9fae0d4..485e7be 100644
 +                RenderTextureBarrier(colorTarget->texture.get(), RenderTextureLayout::COLOR_WRITE),
 +                RenderTextureBarrier(fbStorage->carSceneTexture.get(), RenderTextureLayout::SHADER_READ)
 +            };
-+
+ 
+-                if (previousScissor != triangles.scissor) {
+-                    worker->commandList->setScissors(triangles.scissor);
+-                    previousScissor = triangles.scissor;
 +            worker->commandList->barriers(RenderBarrierStage::GRAPHICS, afterCopy, uint32_t(std::size(afterCopy)));
 +
 +            if (timed) {
@@ -2410,14 +2410,14 @@ index 9fae0d4..485e7be 100644
 -                        drawCallTriangles(drawCall);
 +                }
 +            };
- 
--                        worker->commandList->setPipeline(postBlendDitherNoiseSubPipeline);
++
 +            for (int32_t groupIndex : particleLightGroups) {
 +                const CarLightGroup &g = carLightGroups[groupIndex];
 +                if ((std::fabs(g.viewX - triangles.particleViewX) > 0.5f) || (std::fabs(g.viewY - triangles.particleViewY) > 0.5f)) {
 +                    continue;
 +                }
-+
+ 
+-                        worker->commandList->setPipeline(postBlendDitherNoiseSubPipeline);
 +                level = g.level;
 +                for (uint32_t k = 0; k < g.count; k++) {
 +                    // The light passes (a glow pass has its strength in screen.w).
@@ -2481,9 +2481,9 @@ index 9fae0d4..485e7be 100644
 +                        light[1] += cb.color.y * strength;
 +                        light[2] += cb.color.z * strength;
 +                    }
-                 }
++                }
 +            }
- 
++
 +            const float peak = std::max(light[0], std::max(light[1], light[2]));
 +            if ((level <= 0.0f) || (peak < (1.0f / 1024.0f))) {
 +                return interop::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -2521,8 +2521,8 @@ index 9fae0d4..485e7be 100644
 +            if ((drawCall.type == InstanceDrawCall::Type::IndexedTriangles) && (drawCall.triangles.carLightIndex != -1)) {
 +                if (drawCall.triangles.carLightIndex >= 0) {
 +                    pendingCarLights.push_back(drawCall.triangles.carLightIndex);
-+                }
-+
+                 }
+ 
 +                continue;
 +            }
 +
@@ -3137,7 +3137,7 @@ index 9fae0d4..485e7be 100644
              if (proj.scissorRect.isNull()) {
                  continue;
              }
-@@ -1506,6 +2670,443 @@ namespace RT64 {
+@@ -1506,6 +2670,453 @@ namespace RT64 {
                  viewportClip = convertViewportRect(viewport.rect(viewportClipRatios), p.resolutionScale, p.fbWidth, projInvRatioScale, extOriginPercentage, 0.0f, viewportOrigin, viewportOrigin);
              }
  
@@ -3420,6 +3420,16 @@ index 9fae0d4..485e7be 100644
 +                        continue;
 +                    }
 +
++                    // Seen from behind its lens it doesn't glow (CarGlowPS.hlsl's front fade, zero past 0.2 behind):
++                    // the car's own lamps from the hood, bumper and look-back views (issue 90).
++                    {
++                        const float *axis = l.head ? headAxis : tailAxis;
++                        const float distance = std::sqrt(l.rel[0] * l.rel[0] + l.rel[1] * l.rel[1] + l.rel[2] * l.rel[2]);
++                        if ((distance > 1e-6f) && (-(axis[0] * l.rel[0] + axis[1] * l.rel[1] + axis[2] * l.rel[2]) / distance <= -0.2f)) {
++                            continue;
++                        }
++                    }
++
 +                    float side[3] = { l.rel[1] * up[2] - l.rel[2] * up[1], l.rel[2] * up[0] - l.rel[0] * up[2], l.rel[0] * up[1] - l.rel[1] * up[0] };
 +                    if (unit(side)) {
 +                        const float beside[3] = { l.rel[0] + side[0] * 16.0f, l.rel[1] + side[1] * 16.0f, l.rel[2] + side[2] * 16.0f };
@@ -3581,7 +3591,7 @@ index 9fae0d4..485e7be 100644
              for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
                  const GameCall &call = proj.gameCalls[d];
                  renderIndices.instanceIndex = call.callDesc.callIndex;
-@@ -1623,6 +3224,21 @@ namespace RT64 {
+@@ -1623,6 +3234,21 @@ namespace RT64 {
                          triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
                          triangles.postBlendDitherNoise = false;
  
@@ -3603,7 +3613,7 @@ index 9fae0d4..485e7be 100644
                          float invRatioScale = 1.0f / aspectRatioScale;
                          float horizontalMisalignment = 0.0f;
                          switch (proj.type) {
-@@ -1747,6 +3363,63 @@ namespace RT64 {
+@@ -1747,6 +3373,63 @@ namespace RT64 {
  #           endif
                  {
                      rasterScene.instanceIndices.push_back(instanceIndex);
@@ -3667,7 +3677,7 @@ index 9fae0d4..485e7be 100644
                  }
  
                  instanceDrawCallVector.push_back(instanceDrawCall);
-@@ -1754,6 +3427,8 @@ namespace RT64 {
+@@ -1754,6 +3437,8 @@ namespace RT64 {
              }
          }
  
@@ -6758,10 +6768,10 @@ index 0000000..229908b
 +}
 diff --git a/src/shaders/CarGlowPS.hlsl b/src/shaders/CarGlowPS.hlsl
 new file mode 100644
-index 0000000..1e2be1e
+index 0000000..d19c262
 --- /dev/null
 +++ b/src/shaders/CarGlowPS.hlsl
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,97 @@
 +//
 +// RT64
 +//
@@ -6842,9 +6852,13 @@ index 0000000..1e2be1e
 +
 +            seen /= 5.0f;
 +            const float3 toCamera = normalize(-gConstants.light.xyz);
-+            const float facing = saturate(dot(axis, toCamera));
-+            // A headlamp glares straight on and fades round the side; a tail lamp's lens shows from wider.
-+            const float faced = headlamp ? (0.08f + 0.92f * facing * facing) : (0.25f + 0.75f * facing);
++            const float along = dot(axis, toCamera);
++            const float facing = saturate(along);
++            // A headlamp glares straight on and fades round the side; a tail lamp's lens shows from wider. Seen from
++            // behind its lens (the hood and bumper cameras sit behind the car's own headlamps, the look-back view in
++            // front of its tail lamps) it doesn't glow at all: gone by 0.2 behind square-on (issue 90).
++            const float front = saturate(1.0f + along * 5.0f);
++            const float faced = front * (headlamp ? (0.08f + 0.92f * facing * facing) : (0.25f + 0.75f * facing));
 +            const float x = distance / radius;
 +            const float core = exp(-x * x * 2.0f);
 +            // A faint bloom round it, kept short: a wide one tinted the car's own paint round its brake lights.

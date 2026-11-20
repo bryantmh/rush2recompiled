@@ -554,7 +554,6 @@ uint32_t rush2::car_types::part_record(uint8_t* rdram, int id, int part) {
 namespace {
     constexpr int type_formula = 18, type_formula1 = rush2::car_types::first_2049; // type_dew: above
     constexpr int hood_camera = 1;
-    constexpr uint32_t player_count = 0x8010C3E2;   // s16; the hood is drawn with one player
     constexpr int hood_parts[2] = { 31, 32 };      // H0_L, H2_L (car_hood_update_8005BFD8 swaps by damage)
 
     // How far the hood camera's hood is modeled from the body's middle, in model units (1/16 ft): the camera sits
@@ -633,9 +632,10 @@ namespace {
         }
     }
 
-    // The hood (and so the wheels' shift) is drawn in camera mode 1 with one player.
+    // The hood (and so the wheels' shift) is drawn in camera mode 1, in split screen too (Rush 2 drew it with one
+    // player only; us.toml at 0x8005C4C4, src/players4.cpp).
     bool hood_drawn(uint8_t* rdram, uint32_t car_state, int view) {
-        return view >= 0 && MEM_B(0x348, (int32_t)car_state) == hood_camera && MEM_H(0, (int32_t)player_count) < 2;
+        return view >= 0 && MEM_B(0x348, (int32_t)car_state) == hood_camera;
     }
 }
 

@@ -356,7 +356,8 @@ car's body is still the one it looked at), again when the car's type, parts or d
   (docs/car_mods.md, `rush2::car_lights::set_mod_lamps`) replace what is found, kind by kind. A hand placed lamp's
   lens is the texels within its radius on triangles facing its way, those at least 60% as bright as the brightest
   there (so a gray lens on dark paint glows and the paint doesn't); `"lens": false` for hidden lamps (rush2:2's
-  closed pop-ups) or none at all (open-wheel racers). Gray headlamps (most of Rush 2049's, several of Rush 2's)
+  closed pop-ups, four like the real car's; rush2:11's on the front fender corners where SF Rush's Concept has its
+  lamp decals; rush2:17's beside the grille as on the arcade Deuce, mod:DEUCE, issue 92) or none at all (open-wheel racers). Gray headlamps (most of Rush 2049's, several of Rush 2's)
   are below the finder's 175 and come from the table.
 - **What is still missing** (no headlamp pair, no lit texels: the SF Rush PlayStation UFO, the one PS1 car without
   brake lights, docs/car_mods.md#brake-lights) gets a pair from the body's shape: 34% of its width either side of its
@@ -421,7 +422,9 @@ ambient occlusion):
      pixel (a Gaussian core the lens's size and a faint short bloom, 8% out to 6
      radii: a wide one tinted the car's paint round its brake lights), scaled by how
      squarely the lamp faces the camera (a headlamp glares straight on) and kept only where the depth buffer at and
-     round the lamp shows nothing nearer than it.
+     round the lamp shows nothing nearer than it. Seen from behind its lens it doesn't glow (faded out by 0.2 behind
+     square-on, and no pass at all past that): the hood and bumper cameras sit behind the car's own headlamps and the
+     look-back view in front of its tail lamps (issue 90).
 2. The scene is copied (`copyTexture`, same format and samples) and `CarLightCompositePS` writes scene + albedo x
    light + glow over the lamps' area, per sample with multisampling, leaving pixels no lamp reached alone. The light
    is upsampled from the half resolution pixels round each pixel (the one at half its position, and on an odd row or

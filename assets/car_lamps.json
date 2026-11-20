@@ -72,7 +72,9 @@
     ],
     "mod:DEUCE": [
       {"kind": "tail", "at": [1.37, 1.05, -5.3], "size": 0.3, "lens": false},
-      {"kind": "tail", "at": [-1.37, 1.05, -5.3], "size": 0.3, "lens": false}
+      {"kind": "tail", "at": [-1.37, 1.05, -5.3], "size": 0.3, "lens": false},
+      {"kind": "head", "at": [1.35, 0.87, 4.35], "size": 0.3, "color": [178, 178, 178]},
+      {"kind": "head", "at": [-1.35, 0.87, 4.35], "size": 0.3, "color": [178, 178, 178]}
     ],
     "mod:JEEP": [
       {"kind": "tail", "at": [2.15, 1.75, -5.56], "size": 0.36, "color": [152, 71, 38]},
@@ -115,8 +117,10 @@
       {"kind": "head", "at": [-1.75, 1.86, 6.31], "size": 0.32, "color": [212, 212, 212]}
     ],
     "rush2:2": [
-      {"kind": "head", "at": [1.69, 1.37, 5.84], "size": 0.3, "lens": false},
-      {"kind": "head", "at": [-1.7, 1.37, 5.84], "size": 0.3, "lens": false}
+      {"kind": "head", "at": [1.45, 1.38, 5.83], "size": 0.27, "lens": false},
+      {"kind": "head", "at": [-1.45, 1.38, 5.83], "size": 0.27, "lens": false},
+      {"kind": "head", "at": [2.05, 1.4, 5.72], "size": 0.27, "lens": false},
+      {"kind": "head", "at": [-2.05, 1.4, 5.72], "size": 0.27, "lens": false}
     ],
     "rush2:4": [
       {"kind": "head", "at": [1.37, 1.43, 6.03], "size": 0.15, "color": [148, 148, 148]},
@@ -146,6 +150,10 @@
       {"kind": "head", "at": [2.09, 1.4, 5.44], "size": 0.25, "color": [156, 156, 156]},
       {"kind": "head", "at": [-1.94, 1.33, 5.43], "size": 0.25, "color": [157, 157, 157]}
     ],
+    "rush2:11": [
+      {"kind": "head", "at": [2.3, 1.45, 5.05], "size": 0.3, "lens": false},
+      {"kind": "head", "at": [-2.3, 1.45, 5.05], "size": 0.3, "lens": false}
+    ],
     "rush2:14": [
       {"kind": "head", "at": [1.64, 1.35, 6.62], "size": 0.35, "color": [141, 132, 125]},
       {"kind": "head", "at": [-1.61, 1.32, 6.63], "size": 0.35, "color": [134, 134, 134]}
@@ -161,8 +169,8 @@
       {"kind": "tail", "at": [-2.59, 1.73, -6.53], "size": 0.37, "color": [176, 0, 0]}
     ],
     "rush2:17": [
-      {"kind": "head", "at": [2.06, 0.48, 4.2], "size": 0.38, "color": [197, 197, 197]},
-      {"kind": "head", "at": [-2.06, 0.48, 4.19], "size": 0.38, "color": [196, 196, 196]}
+      {"kind": "head", "at": [1.0, 0.8, 5.2], "size": 0.3, "lens": false},
+      {"kind": "head", "at": [-1.0, 0.8, 5.2], "size": 0.3, "lens": false}
     ],
     "rush2:18": [
       {"kind": "head", "at": [1.85, 0.75, 0.5], "size": 0.25, "lens": false},
