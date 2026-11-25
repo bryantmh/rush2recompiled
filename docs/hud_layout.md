@@ -329,6 +329,17 @@ A new element goes through the catalog, so the previewer knows it before the gam
    can appear. In a game run, `[hud] widget ...` lines in the log mean the catalog is incomplete.
 5. Where a rule's places don't look right, place the element by hand in the HUD editor.
 
+### The HUD's alpha compare threshold
+
+The race HUD's 2D list (gfx_draw_frame_views_8007D9DC, buffers at 0x80AE0000) turns threshold alpha compare on
+(G_SETOTHERMODE_L 0xE2001E01 = 1) but never sets the blend color, whose alpha is the threshold. It relies on the 3D
+scene leaving Rush 2's 0x10 (set by the frame setup at 0x80020178). Copy-mode parts don't care, but a translucent one
+does: the radar frame MAPFRAME (CI4 at 0x806124D0, palette 0x806128D0) is drawn in one cycle as TEXEL0 x PRIM with prim
+alpha 0x60, so any list that leaves a higher blend alpha behind hides it. Issue 97 was the 2049 car stripes' edge
+layers (src/rush2049/car2049.cpp, alpha 0x80): whenever a car with those layers was drawn, the radar showed only its
+dots (reproduced with AI Opponent 3's car set to 1 on track 0). Anything the recomp draws in the 3D scene with its own threshold must push and pop the blend color
+(gEXPushBlendColor / gEXPopBlendColor, as src/ghost.cpp does) or put 0x10 back.
+
 ## Previewer
 
 Build with `cmd //c "tools\hud_preview\build.bat"` (writes `tmp\hud_preview\hud_catalog_gen.exe` and

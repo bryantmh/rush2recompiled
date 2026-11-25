@@ -1371,6 +1371,13 @@ namespace {
                 for (int i = 0; i < 4; i++) out.push_back(uint8_t(w0 >> (24 - 8 * i)));
                 for (int i = 0; i < 4; i++) out.push_back(uint8_t(w1 >> (24 - 8 * i)));
             };
+            // The edge layers' alpha test threshold (G_SETBLENDCOLOR) is pushed and popped around them: the blend color
+            // is what the rest of the frame's alpha compare tests against (Rush 2 leaves alpha 0x10, 0x80020178), and the
+            // race HUD turns alpha compare on without setting it, so alpha 128 left behind hid its translucent radar
+            // frame (alpha 0x60; issue 97). A ghost's cutout threshold (src/ghost.cpp) is kept the same way.
+            GfxCommand push_blend, pop_blend;
+            gEXPushBlendColor(&push_blend);
+            gEXPopBlendColor(&pop_blend);
             // G_RM_ZB_XLU_DECAL in the second cycle (the body's fog cycle kept for whole layers; the edge layers' shade
             // alpha is theirs, so their first cycle passes the color on and fog is off for them).
             const bool fog = (mode >> 30) == 3;
@@ -1437,6 +1444,7 @@ namespace {
                         emit(0xE7000000u, 0);
                         emit(0xE200001Cu, mode_edge);
                         emit(0xE2001E01u, 1);            // G_SETOTHERMODE_L alpha compare: threshold
+                        emit(push_blend.values.word0, push_blend.values.word1);
                         emit(0xF9000000u, 0x00000080u);  // G_SETBLENDCOLOR: alpha 128
                         if (fog) emit(0xD9FEFFFFu, 0);   // G_GEOMETRYMODE: G_FOG off (shade alpha the edge's)
                     }
@@ -1477,6 +1485,7 @@ namespace {
                 emit(0xE7000000u, 0);
                 if (passes.size() > 1) {
                     emit(0xE2001E01u, alpha_compare);
+                    emit(pop_blend.values.word0, pop_blend.values.word1);
                     if (fog) emit(0xD9FFFFFFu, 0x00010000u);
                 }
                 emit(0xE200001Cu, mode);
