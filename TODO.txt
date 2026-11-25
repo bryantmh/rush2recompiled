@@ -22,10 +22,8 @@ California Speed:
 
 strange mismatch between top of dome and sides of sky dome downtown arcade with fog. have seen often on sky domes. they should look smooth "C:\Users\Bryant\Pictures\Screenshots\Screenshot 2026-11-13 002645.png"
 2049 wall I can go right through metro arcade (see "C:\Users\Bryant\Pictures\Screenshots\Screenshot 2026-11-13 003345.png")
-https://github.com/bryantmh/rush2recompiled/issues/69
 SF Rush arcade: maybe add the 5 N64 keys the arcade marks with its own Atari cube but our floor test drops (Heights KEY1-2, Sunset KEY6-8; tools/arcade_collectibles.py notes them)
 New mode idea: Knockout. It's a multilap race, at the end of each lap the person in last place is eliminated. Either their car is stopped or explodes.
 
 PS1/arcade/mod cars in general be added to the random pool for drones
 California Speed also had an arcade version and even had an extra car
-Police cars flashing lights. PS1 police car and police skin for 2049's Magnum

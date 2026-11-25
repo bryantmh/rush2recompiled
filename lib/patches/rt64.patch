@@ -765,7 +765,7 @@ index c29e4b2..f865c16 100644
          void processRDPLists(uint32_t dlStartAdddress, DisplayList* dlStart, DisplayList* dlEnd);
          void processDisplayLists(uint32_t dlStartAdddress, DisplayList *dlStart);
 diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
-index 3227ab1..883cf36 100644
+index 3227ab1..3634fc9 100644
 --- a/src/hle/rt64_present_queue.cpp
 +++ b/src/hle/rt64_present_queue.cpp
 @@ -10,6 +10,9 @@
@@ -806,6 +806,35 @@ index 3227ab1..883cf36 100644
          }
  
          ext.sharedResources->interpolatedCondition.notify_all();
+@@ -447,7 +461,9 @@ namespace RT64 {
+         int processCursor = -1;
+         bool skipPresent = false;
+         uint32_t displayTimingRate = UINT32_MAX;
+-        const bool displayTiming = ext.device->getCapabilities().displayTiming;
++        // Rush 2 recomp: not const, so a Vulkan driver whose refresh query fails is asked once (its error line printed
++        // once) instead of on every present; a failure already meant no display timing limit (UINT32_MAX).
++        bool displayTiming = ext.device->getCapabilities().displayTiming;
+         bool swapChainValid = !ext.swapChain->needsResize();
+         while (presentThreadRunning) {
+             {
+@@ -489,10 +505,16 @@ namespace RT64 {
+                     ext.sharedResources->setSwapChainRate(std::min(ext.appWindow->getRefreshRate(), displayTimingRate));
+                 }
+ 
+-                if (displayTiming) {
++                // Rush 2 recomp: not asked while the swap chain is empty (no Vulkan swap chain to ask about yet).
++                if (displayTiming && swapChainValid && !ext.swapChain->isEmpty()) {
+                     uint32_t newDisplayTimingRate = ext.swapChain->getRefreshRate();
+                     if (newDisplayTimingRate == 0) {
+                         newDisplayTimingRate = UINT32_MAX;
++                        // Rush 2 recomp: on Vulkan a 0 is the driver's query failing, which prints a line each time
++                        // (issue 98: Linux journals filled). Metal's 0 is a window not on a screen yet, so it asks on.
++                        if (ext.createdGraphicsAPI == UserConfiguration::GraphicsAPI::Vulkan) {
++                            displayTiming = false;
++                        }
+                     }
+ 
+                     if (newDisplayTimingRate != displayTimingRate) {
 diff --git a/src/hle/rt64_rdp.cpp b/src/hle/rt64_rdp.cpp
 index a10c11a..69ac824 100644
 --- a/src/hle/rt64_rdp.cpp
@@ -1312,7 +1341,7 @@ index 7a8c13b..c1aaabd 100644
          GameConfiguration gameConfig;
          uint32_t displayListAddress;
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 5a331aa..4d67b30 100644
+index 5a331aa..3ac9c89 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
 @@ -11,6 +11,9 @@
@@ -1333,17 +1362,19 @@ index 5a331aa..4d67b30 100644
  
          // Stall the thread until the barrier is lifted if we're trying to write on a workload being used by the GPU.
          bool waitForBarrier;
-@@ -102,7 +106,8 @@ namespace RT64 {
+@@ -102,7 +106,10 @@ namespace RT64 {
          vertexProcessor = std::make_unique<VertexProcessor>(ext.device);
          framebufferRenderer = std::make_unique<FramebufferRenderer>(ext.workloadGraphicsWorker, true, ext.createdGraphicsAPI, ext.shaderLibrary);
          renderFramebufferManager = std::make_unique<RenderFramebufferManager>(ext.device);
 -        queryPool = ext.device->createQueryPool(2);
-+        // Rush 2 recomp: and five per car lights submit and three per ambient occlusion submit for RUSH2_GPU_LOG.
-+        queryPool = ext.device->createQueryPool(OcclusionQueryFirst + OcclusionQueryLimit * OcclusionQueryStride);
++        // Rush 2 recomp: and five per car lights submit and three per ambient occlusion submit for RUSH2_GPU_LOG. Only
++        // with the log: every slot is read back each frame, and on Vulkan a slot never written fails the whole read
++        // (VK_NOT_READY, an error line per frame: issue 98).
++        queryPool = ext.device->createQueryPool(gpuLog ? OcclusionQueryFirst + OcclusionQueryLimit * OcclusionQueryStride : 2);
  
          projectionProcessor.setup(ext.workloadGraphicsWorker);
          transformProcessor.setup(ext.workloadGraphicsWorker);
-@@ -214,8 +219,10 @@ namespace RT64 {
+@@ -214,8 +221,10 @@ namespace RT64 {
  
          // Find the target refresh rate from the configuration.
          const auto refreshRate = ext.sharedResources->userConfig.refreshRate;
@@ -1354,7 +1385,7 @@ index 5a331aa..4d67b30 100644
              workloadConfig.targetRate = ext.sharedResources->swapChainRate;
              break;
          case UserConfiguration::RefreshRate::Manual:
-@@ -699,7 +706,10 @@ namespace RT64 {
+@@ -699,7 +708,10 @@ namespace RT64 {
  
              workerMutex.lock();
              ext.workloadGraphicsWorker->commandList->begin();
@@ -1366,7 +1397,31 @@ index 5a331aa..4d67b30 100644
              ext.workloadGraphicsWorker->commandList->writeTimestamp(queryPool.get(), 0);
              framebufferRenderer->endFramebuffers(ext.workloadGraphicsWorker, &workload.drawBuffers, &workload.outputBuffers, workloadConfig.raytracingEnabled);
              framebufferRenderer->recordSetup(ext.workloadGraphicsWorker, bufferUploaders, processRSP ? rspProcessor.get() : nullptr, processWorldVertices ? vertexProcessor.get() : nullptr, &workload.outputBuffers, workloadConfig.raytracingEnabled);
-@@ -849,6 +859,46 @@ namespace RT64 {
+@@ -838,6 +850,23 @@ namespace RT64 {
+             }
+ 
+             ext.workloadGraphicsWorker->commandList->writeTimestamp(queryPool.get(), 1);
++
++            // Rush 2 recomp: RUSH2_GPU_LOG's slots this frame didn't use get a timestamp too, so the read back below
++            // finds every slot written (Vulkan fails it otherwise). Their values are never read.
++            if (gpuLog) {
++                for (uint32_t q = framebufferRenderer->carLightQueryCount; q < CarLightQueryLimit; q++) {
++                    for (uint32_t k = 0; k < CarLightQueryStride; k++) {
++                        ext.workloadGraphicsWorker->commandList->writeTimestamp(queryPool.get(), 2 + q * CarLightQueryStride + k);
++                    }
++                }
++
++                for (uint32_t q = framebufferRenderer->occlusionQueryCount; q < OcclusionQueryLimit; q++) {
++                    for (uint32_t k = 0; k < OcclusionQueryStride; k++) {
++                        ext.workloadGraphicsWorker->commandList->writeTimestamp(queryPool.get(), OcclusionQueryFirst + q * OcclusionQueryStride + k);
++                    }
++                }
++            }
++
+             ext.workloadGraphicsWorker->commandList->end();
+             framebufferRenderer->waitForUploaders();
+             ext.workloadGraphicsWorker->execute();
+@@ -849,6 +878,46 @@ namespace RT64 {
              const uint64_t *frameTimestamps = queryPool->getResults();
              rendererGPUProfiler.log(double(frameTimestamps[1] - frameTimestamps[0]) / 1000000.0);
  
@@ -1413,7 +1468,7 @@ index 5a331aa..4d67b30 100644
              // Indicate to the texture cache it's safe to delete the textures if no locks are active.
              ext.textureCache->decrementLock();
          }
-@@ -888,6 +938,16 @@ namespace RT64 {
+@@ -888,6 +957,16 @@ namespace RT64 {
          uint32_t displayRateForTicks = 0;
          int processCursor = -1;
          bool frameReduction = false;
@@ -1430,7 +1485,7 @@ index 5a331aa..4d67b30 100644
          while (threadsRunning) {
              {
                  std::unique_lock<std::mutex> cursorLock(cursorMutex);
-@@ -997,9 +1057,40 @@ namespace RT64 {
+@@ -997,9 +1076,40 @@ namespace RT64 {
                      }
                  }
  
@@ -1472,7 +1527,7 @@ index 5a331aa..4d67b30 100644
                      logicalTicks += workloadConfig.targetRate;
                      displayFrames = uint32_t((logicalTicks - displayTicks) / workload.viOriginalRate);
                      deltaTimeMs = 1.0f / float(workloadConfig.targetRate);
-@@ -1040,6 +1131,7 @@ namespace RT64 {
+@@ -1040,6 +1150,7 @@ namespace RT64 {
                  curFrameCounters.skipped = false;
                  curFrameCounters.presented = 0;
                  curFrameCounters.available = 0;
@@ -1480,7 +1535,7 @@ index 5a331aa..4d67b30 100644
                  curFrameCounters.count = displayFrames;
  
                  // Create as many render targets as required to store the interpolated targets.
-@@ -1064,9 +1156,10 @@ namespace RT64 {
+@@ -1064,9 +1175,10 @@ namespace RT64 {
                  uint32_t targetIndex = 0;
                  uint32_t framesRendered = 0;
                  int64_t renderTimeTotalMicro = 0;
@@ -1492,7 +1547,7 @@ index 5a331aa..4d67b30 100644
                          const int64_t currentTimeMicro = workloadTimer.elapsedMicroseconds() - setupTimeMicro;
                          const int64_t expectedTimeMicro = frame * maxTimePerFrameMicro;
                          const int64_t measuredFrameMicro = renderTimeTotalMicro / framesRendered;
-@@ -1079,11 +1172,81 @@ namespace RT64 {
+@@ -1079,11 +1191,81 @@ namespace RT64 {
  
                      RenderTarget *overrideTarget = nullptr;
                      uint32_t overrideModifier = 0;
@@ -1575,7 +1630,7 @@ index 5a331aa..4d67b30 100644
                          // Override the render target.
                          if (usingMSAA || (frame > 0)) {
                              overrideTarget = interpolatedTargets[targetIndex].get();
-@@ -1132,7 +1295,7 @@ namespace RT64 {
+@@ -1132,7 +1314,7 @@ namespace RT64 {
                      if (generateInterpolatedFrames && (usingMSAA || (frame > 0))) {
                          {
                              std::scoped_lock<std::mutex> cursorLock(cursorMutex);
@@ -1584,7 +1639,7 @@ index 5a331aa..4d67b30 100644
                          }
  
                          {
-@@ -1150,8 +1313,16 @@ namespace RT64 {
+@@ -1150,8 +1332,16 @@ namespace RT64 {
                      }
  
                      framesRendered++;
