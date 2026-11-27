@@ -400,7 +400,12 @@ do). A list drawn after the queue went out (the late pass) gets its tail right a
 
 **The game's late node pass:** `scene_walk_8007B518` skips a node with flag 0x40000 while `0x800FAEA4` is 0, keeping
 the first such node's index in `0x800FAEAC` (-1 when none); at `L_8007D980` `func_8007C624` sets `0x800FAEA4` and walks
-that node's level again from it, drawing only the 0x40000 nodes (and stores -1 in `0x80112490` after). Checked offline with
+that node's level again from it, drawing only the 0x40000 nodes (and stores -1 in `0x80112490` after). The sign writes
+no depth, so in a view with the race start countdown sign that pass now runs just before the sign
+(`draw_late_nodes`, src/rush2049/car2049.cpp, from the same polygon hook as the queue) and `0x800FAEAC` is set to -1
+so `L_8007D980` skips it: drawn after the sign, the late track sections (2049's 0x40040 tree sections, custom tracks'
+translucent sections and billboards) painted over the digit (issue 94, Civic Arcade's trees). Rush 2049 draws its
+polygons after the whole scene walk (view_fog_setup_8009F058), and Rush 2's stock placements have no late nodes. Checked offline with
 `tools/rush2049/cpp_test` (`dc_test` converts the files: every tail well formed, no translucent mode left outside one)
 and in game on Haight: the fence stays over the trees.
 

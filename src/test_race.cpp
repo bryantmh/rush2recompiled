@@ -242,10 +242,12 @@ extern "C" void rush2_test_race_frame(uint8_t* rdram, recomp_context* ctx) {
     }
     // RUSH2_TEST_RACE_VIEW_MODE=<0-3>: the watched car's camera mode once the race is on (car state +0x348, and +0x349
     // the copy the wreck camera returns to; docs/camera.md: 0 bumper, 1 hood, 2 and 3 chase), to shoot a spot as a
-    // player sees it in that view.
+    // player sees it in that view. Also through the race intro and countdown (states 10 and 9), as a player who
+    // pressed VIEW on the grid sees the countdown sign.
     static const char* view_mode = env("RUSH2_TEST_RACE_VIEW_MODE");
+    const uint32_t game_state = (uint32_t)MEM_W(0, (int32_t)0x8010C0D0);
     // Without RUSH2_TEST_RACE_VIEW_CAR every player's car (0-3: split screen shows four cars in that view at once).
-    if (view_mode != nullptr && done && MEM_W(0, (int32_t)0x8010C0D0) == 3) {
+    if (view_mode != nullptr && done && (game_state == 3 || game_state == 9 || game_state == 10)) {
         const uint32_t first = view_car != nullptr ? uint32_t(std::atoi(view_car)) : 0;
         const uint32_t last = view_car != nullptr ? first : 3;
         for (uint32_t car = first; car <= last; car++) {

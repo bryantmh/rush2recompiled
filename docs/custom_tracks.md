@@ -1234,7 +1234,8 @@ merges and renames as needed.
   pointers against the old 8 MB end (0x80800000) rejected data loaded past it: the pause menu's row images, so SKIP
   TRACK was blank. Those checks use `rush2::in_game_ram` (include/rush2.h, the full 16 MB) now.
 - **See-through materials:** BLEND triangles get their own sections (the grid cell is keyed by translucency too),
-  whose records have the late-pass flag 0x40000 (drawn after the opaque nodes, as Rush 2's own transparent ones). Every
+  whose records have the late-pass flag 0x40000 (drawn after the opaque nodes, as Rush 2's own transparent ones; in a
+  view with the countdown sign, before the sign, docs/rush2049_research/dreamcast.md#translucent-strips-drawn-last-v). Every
   list draws its translucent materials last with render mode 0xC8104A50 (fog, then AA z-buffered translucent: Rush 2's
   own); the SKY list uses 0x00504240 (G_RM_XLU_SURF, both cycles). Outside the SKY each translucent batch is drawn
   twice (2026-11-05): first `mode_blend_depth` (0xC8104270: the same blend in the opaque z mode with Z_UPD) under alpha

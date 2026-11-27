@@ -4995,8 +4995,73 @@ extern "C" void rush2_car49_flames_draw(uint8_t* rdram, recomp_context* ctx) {
 // polygons, and the flames change it: its render mode (sp+0x168) and texture (0x80112470) caches are cleared so the
 // next polygon sets them again, and the flames' 2-cycle fog state is undone when the loop has 1-cycle without fog
 // (sp+0x164 = 0, set by flag 0x100 polygons).
+//
+// The game's own late node pass (nodes with flag 0x40000, drawn at L_8007D980 after all the polygons) moves here too
+// (issue 94). The sign writes no depth, so the transparent track sections drawn after it painted over the digit: 2049's
+// tree sections (placement flag 0x40040) and custom tracks' translucent sections and billboards. Rush 2049's view draw
+// (view_fog_setup_8009F058) walks the scene once and draws its polygons, the sign among them, after it; Rush 2's stock
+// placements have no late nodes, so its own tracks draw as before.
+extern "C" void scene_walk_8007B518(uint8_t* rdram, recomp_context* ctx);
+
+namespace {
+    constexpr uint32_t late_node_pass = 0x800FAEA4;   // s16: nonzero while scene_walk draws only the 0x40000 nodes
+    constexpr uint32_t late_node_first = 0x800FAEAC;  // s16: first 0x40000 node the walk skipped, -1 none
+    constexpr uint32_t texture_load_state = 0x80112490; // TLUT mode the texture loads last set (1 = RGBA16), -1 unknown
+
+    // The late pass as func_8007C624 runs it from L_8007D8B0 to 0x8007D9C8, at the polygon loop's cursor ($s6), with
+    // the loop's state put back for the polygons after it.
+    void draw_late_nodes(uint8_t* rdram, recomp_context* ctx) {
+        int16_t first = MEM_H(0, (int32_t)late_node_first);
+        uint32_t cursor_ptr = (uint32_t)ctx->r22;
+        uint32_t sp = (uint32_t)ctx->r29;
+        auto cmd = [&](uint32_t w0, uint32_t w1) {
+            uint32_t cursor = (uint32_t)MEM_W(0, (int32_t)cursor_ptr);
+            MEM_W(0, (int32_t)cursor) = (int32_t)w0;
+            MEM_W(4, (int32_t)cursor) = (int32_t)w1;
+            MEM_W(0, (int32_t)cursor_ptr) = (int32_t)(cursor + 8);
+        };
+        if (MEM_W(0, (int32_t)texture_load_state) != 1) {
+            cmd(0xE3001001, 0x00008000);    // TEXTLUT = RGBA16
+            MEM_W(0, (int32_t)texture_load_state) = 1;
+        }
+        // sp+0x160: the primitive depth the loop set (nonzero: ZSRC = PRIM). Back to per-pixel depth; the next
+        // polygon that wants one sets it again.
+        if (MEM_W(0x160, (int32_t)sp) != 0) {
+            cmd(0xE2001D00, 0);             // ZSRC = PIXEL
+            MEM_W(0x160, (int32_t)sp) = 0;
+        }
+        if (MEM_W(0x164, (int32_t)sp) == 0) {
+            cmd(0xD9FFFFFF, 0x00010000);    // set G_FOG
+            cmd(0xE7000000, 0);             // G_RDPPIPESYNC
+            cmd(0xE3000A01, 0x00100000);    // CYCLETYPE = 2CYCLE
+        }
+        MEM_H(0, (int32_t)late_node_pass) = 1;
+        uint8_t lit = MEM_BU(0, (int32_t)lighting_cache);
+        recomp_context call = *ctx;
+        call.r4 = (int32_t)cursor_ptr;
+        call.r5 = (int32_t)(rush2::scene_nodes::table + (uint32_t)first * rush2::scene_nodes::node_size);
+        call.r6 = MEM_W(0x180, (int32_t)sp);
+        call.r7 = 0;
+        MEM_W(0x10, (int32_t)sp) = 1;
+        MEM_W(0x14, (int32_t)sp) = 0;
+        MEM_W(0x18, (int32_t)sp) = 0;
+        MEM_W(0x1C, (int32_t)sp) = 1;
+        scene_walk_8007B518(rdram, &call);
+        // The polygons after the sign get G_LIGHTING as the loop had it (func_8007AA48 keeps its cache in step with
+        // what it emits, so put both back).
+        if ((MEM_BU(0, (int32_t)lighting_cache) != 0) != (lit != 0)) {
+            cmd(lit ? 0xD9FFFFFF : 0xD9FDFFFF, lit ? 0x00020000 : 0);
+            MEM_B(0, (int32_t)lighting_cache) = (int8_t)lit;
+        }
+        MEM_W(0, (int32_t)texture_load_state) = -1;
+        // Done for this view: L_8007D980 skips its pass.
+        MEM_H(0, (int32_t)late_node_first) = -1;
+    }
+}
+
 extern "C" void rush2_car49_flames_before_poly(uint8_t* rdram, recomp_context* ctx) {
-    if (queued_flames.empty() && !rush2::dc_translucent::pending()) {
+    bool late = MEM_H(0, (int32_t)late_node_first) >= 0;
+    if (queued_flames.empty() && !rush2::dc_translucent::pending() && !late) {
         return;
     }
     // race_countdown_sign_8010C040, moved here for four views (src/players4.cpp): a polygon pointer per view.
@@ -5013,6 +5078,9 @@ extern "C" void rush2_car49_flames_before_poly(uint8_t* rdram, recomp_context* c
     rush2::dc_translucent::emit(rdram, cursor_ptr);
     if (!queued_flames.empty()) {
         emit_queued_flames(rdram, cursor_ptr);
+    }
+    if (late) {
+        draw_late_nodes(rdram, ctx);
     }
     uint32_t sp = (uint32_t)ctx->r29;
     MEM_W(0x168, (int32_t)sp) = -1;
