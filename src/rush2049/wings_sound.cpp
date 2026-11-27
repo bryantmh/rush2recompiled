@@ -14,6 +14,8 @@
 //
 // The game plays it at pitch 0.75: 1535/4096 sample steps per output sample at Rush 2049's 22050 Hz output, at a
 // volume that comes out at 0.1089 (left) and 0.1065 (right) of full scale with the default sound effects volume.
+// The port scales it by Rush 2's SOUND FX volume (0x800D5774, 0-40) over its default 35, as the other 2049 effects
+// (src/rush2049/track2049_audio.cpp), so turning SOUND FX down or off quiets it too (issue 95).
 //
 // From a Dreamcast disc the sound is the disc's counterpart of 0x3D (its 0x4D: an 11025 Hz PCM16 loop, src/rush2049dc/audio2049_dc.cpp),
 // taken once the disc's sound banks have loaded, at the same pitch and gains [I: the disc's wing code isn't traced].
@@ -24,6 +26,7 @@
 #include <mutex>
 #include <vector>
 
+#include "recomp.h"
 #include "audio2049.h"
 #include "wings_internal.h"
 
@@ -38,6 +41,7 @@ namespace {
     constexpr float gain_left = 3568.0f / 32768.0f;
     constexpr float gain_right = 3490.0f / 32768.0f;
     constexpr float release_seconds = 0.020f;
+    constexpr uint32_t sfx_volume = 0x800D5774; // s8: 0-40, Rush 2's SOUND FX volume
 
     struct Voice {
         bool active = false;
@@ -52,6 +56,7 @@ namespace {
     bool from_disc = false;   // pcm comes from a Dreamcast source's banks once they load
     constexpr int wing_sound = 0x3D;
     std::array<Voice, rush2::wings::max_cars> voices;
+    uint8_t* sound_rdram = nullptr; // set by set_sound; the effects volume is read from it as the sound mixes
 
     int16_t clamp16(int32_t v) {
         return int16_t(std::clamp(v, -32768, 32767));
@@ -150,11 +155,12 @@ void rush2::wings::reload_sound() {
     voices = {};
 }
 
-void rush2::wings::set_sound(int car, bool playing) {
+void rush2::wings::set_sound(uint8_t* rdram, int car, bool playing) {
     if (car < 0 || car >= max_cars) {
         return;
     }
     std::lock_guard lock{ sound_mutex };
+    sound_rdram = rdram;
     Voice& v = voices[car];
     if (playing) {
         // A finished voice is freed at key-off, so a new slide starts the sample over.
@@ -176,6 +182,9 @@ void rush2::wings::mix_sound(float* samples, size_t sample_count, uint32_t sampl
     if (pcm.empty() || sample_rate == 0) {
         return;
     }
+    uint8_t* rdram = sound_rdram;
+    const float volume = rdram == nullptr ? 1.0f
+        : std::clamp((int8_t)MEM_B(0, (int32_t)sfx_volume) / rush2::audio2049::rush2_default_volume, 0.0f, 40.0f / 35.0f);
     const double step = pcm_step * 22050.0 / sample_rate;
     const float release_step = 1.0f / (release_seconds * sample_rate);
 
@@ -191,8 +200,8 @@ void rush2::wings::mix_sound(float* samples, size_t sample_count, uint32_t sampl
             float p2 = sample_at(pcm, index + 1), p3 = sample_at(pcm, index + 2);
             float s = p1 + 0.5f * t * (p2 - p0 + t * (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3 + t * (3.0f * (p1 - p2) + p3 - p0)));
 
-            samples[i + 0] += s * gain_left * v.envelope * pcm_scale;
-            samples[i + 1] += s * gain_right * v.envelope * pcm_scale;
+            samples[i + 0] += s * gain_left * volume * v.envelope * pcm_scale;
+            samples[i + 1] += s * gain_right * volume * v.envelope * pcm_scale;
 
             v.pos += step;
             if (v.pos >= double(pcm.size())) {

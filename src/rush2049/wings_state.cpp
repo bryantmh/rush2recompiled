@@ -209,7 +209,7 @@ namespace {
 
         bool animating = (w.flags & (opening | closing)) != 0;
         if (animating != was_animating) {
-            rush2::wings::set_sound(int(&w - cars.data()), animating);
+            rush2::wings::set_sound(rdram, int(&w - cars.data()), animating);
         }
     }
 }
@@ -406,7 +406,7 @@ extern "C" void rush2_wings_car_init(uint8_t* rdram, recomp_context* ctx) {
     int index = car_index_of(rdram, (uint32_t)ctx->r18);
     if (index >= 0) {
         if (cars[index].flags & (opening | closing)) {
-            rush2::wings::set_sound(index, false);
+            rush2::wings::set_sound(rdram, index, false);
         }
         cars[index] = CarWings{};
     }

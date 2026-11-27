@@ -56,7 +56,7 @@ namespace rush2::wings {
 
     // Sound (src/rush2049/wings_sound.cpp).
     void reload_sound();
-    void set_sound(int car, bool playing);
+    void set_sound(uint8_t* rdram, int car, bool playing);
 }
 
 extern "C" {
