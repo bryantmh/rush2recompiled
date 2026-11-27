@@ -10305,6 +10305,18 @@ func = "scene_node_create_8007F6DC"
 before_vram = 0x8007F6DC
 text = "    rush2_players4_new_node_flags(rdram, ctx);"
 
+# The finish camera flags (0x800BFC50, a byte per car): the track loads clear only cars 0 and 1's, so players 3 and 4
+# started the race after one they finished in the finish orbit camera, with VIEW doing nothing (src/players4.cpp).
+[[patches.hook]]
+func = "race_load_track_800A5110"
+before_vram = 0x800A5798
+text = "    rush2_players4_clear_finish_cams(rdram);"
+
+[[patches.hook]]
+func = "track_load_path_wrapper_800A37C8"
+before_vram = 0x800A37D8
+text = "    rush2_players4_clear_finish_cams(rdram);"
+
 # Hoods in split screen: car_hood_update_8005BFD8 draws the hood halves in the hood camera (mode 1) only with one
 # player (0x8010C3E2 < 2 at 0x8005C4C4); every player gets their own hood, and its two show blocks test the view's own
 # hidden bit (0x100 << view there is 0x400, the hide-everywhere flag, for view 2; src/players4.cpp).

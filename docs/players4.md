@@ -158,6 +158,16 @@ obstacle course (no sky model).
   moves the node to the view's own camera x and z; the scene walker builds the node's matrix as it draws, so views 0
   and 1 are already done, and the next frame's update puts them back.
 
+## Finish camera flags
+
+`finish_cam_flags_800BFC50` is a byte per car: `checkpoint_passed_8008F220` sets a car's to 1 at 0x8008F3A0 when a
+player's car finishes (its time at 0x800BFC30 + car * 4). `cam_update_all_players_8009D9F4` reads the flag of its
+view's car (player record +0, 0x8009DD08): set, the view goes to the finish orbit (mode 5; mode 10 on tracks 7 and 9)
+and the VIEW button is never checked. The track loads (`race_load_track_800A5110` at 0x800A5798,
+`track_load_path_wrapper_800A37C8` at 0x800A37D8) clear cars 0 and 1 only, so after a race player 3 or 4 finished,
+their next race started with the camera circling the car and VIEW doing nothing. `rush2_players4_clear_finish_cams`
+(hooked at both clears) clears cars 2-7.
+
 ## Per-view hidden nodes
 
 A scene node's flags word (+0) holds a hidden bit per view, (view mask) << 8. `node_hide_80058D1C` sets them and

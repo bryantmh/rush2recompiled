@@ -1178,6 +1178,10 @@ void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx) {
                     // per-player byte at 0x802407F0 (moved from 0x800C2274), is the race's laps (0x8010C0E2,
                     // postrace_records_update_800A952C at 0x800A9840): the finish also completes the laps.
                     MEM_B(player, (int32_t)0x802407F0) = (int8_t)MEM_H(0, (int32_t)0x8010C0E2);
+                    // As crossing the line does (checkpoint_passed_8008F220 at 0x8008F3A0): the finish camera flag and
+                    // its time (rush2_players4_clear_finish_cams).
+                    MEM_B(car, (int32_t)0x800BFC50) = 1;
+                    MEM_W(car * 4, (int32_t)0x800BFC30) = (int32_t)clock_bits;
                     break;
                 }
             }
@@ -1209,6 +1213,19 @@ void rush2_players4_frame_buffers(uint8_t* rdram, recomp_context* ctx) {
         if (read && port >= 2) {
             MEM_B(0, (int32_t)rumble_mask) = (int8_t)(MEM_BU(0, (int32_t)rumble_mask) | (1 << port));
         }
+    }
+}
+
+// The finish camera flags, one byte per car at 0x800BFC50 (checkpoint_passed_8008F220 sets a car's at 0x8008F3A0 when
+// a player's car finishes, with its time at 0x800BFC30 + car * 4): cam_update_all_players_8009D9F4 (0x8009DD08) puts a
+// view whose car has its flag in the finish orbit (mode 5, or 10 on tracks 7 and 9) and skips VIEW. The track loads
+// (race_load_track_800A5110 at 0x800A5798, track_load_path_wrapper_800A37C8 at 0x800A37D8) clear only cars 0 and 1,
+// Rush 2's two players, so once player 3 or 4 had finished a race, their next race started in the orbit camera with
+// VIEW doing nothing. Cars 2-7 are cleared with them.
+void rush2_players4_clear_finish_cams(uint8_t* rdram) {
+    constexpr uint32_t finish_cam_flags = 0x800BFC50;   // u8[8]
+    for (int car = 2; car < 8; car++) {
+        MEM_B(car, (int32_t)finish_cam_flags) = 0;
     }
 }
 

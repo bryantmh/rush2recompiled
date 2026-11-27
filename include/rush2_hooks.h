@@ -122,6 +122,7 @@ int rush2_players4_finish_rebuild(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_race_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_frame_views(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_list_offset(uint8_t* rdram, recomp_context* ctx);
+void rush2_players4_clear_finish_cams(uint8_t* rdram);
 void rush2_players4_walk_hide_bit(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_view_hide_mask(uint8_t* rdram, recomp_context* ctx);
 void rush2_players4_new_node_flags(uint8_t* rdram, recomp_context* ctx);

@@ -2468,12 +2468,12 @@ ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
 
 [[var]]
 vram = 0x800BFC50
-name = "track_load_flag"
-type = "u8"
-desc = "Byte written by race_load_track and track_load_path_wrapper. (low confidence)"
-area = "track"
-status = "inferred"
-ref = "docs/functions/rush2_globals.md#rush-2-global-variables"
+name = "finish_cam_flags"
+type = "u8[8]"
+desc = "Per car: 1 once a player's car finished (checkpoint_passed_8008F220 at 0x8008F3A0, time at 0x800BFC30 + car * 4); cam_update_all_players_8009D9F4 then holds the view in the finish orbit (mode 5, 10 on tracks 7/9) and ignores VIEW. The track loads clear cars 0-1; the recomp clears 2-7 too."
+area = "camera"
+status = "verified"
+ref = "docs/players4.md#finish-camera-flags"
 
 [[var]]
 vram = 0x800C07BC
