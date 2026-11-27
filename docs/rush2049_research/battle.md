@@ -266,6 +266,18 @@ loads no texture of its own. The port once drew only the base, so a mine looked 
 from the far side. `rush2::battle_render::team_mine_model` now builds one list per team: the base, a copy of
 MINE_CAP's TXLD load list with the team texture's image and palette (all 32 x 32 CI8, 256 colors), the cap. The
 color is the owner's team (`rush2::battle::team_of`). The glow (index 6) is not made in this path.
+
+**Culling.** No model in files 76, 63, 61 or 62 sets its geometry mode (no G_GEOMETRYMODE in any list), so
+battle_render's pass drew them with whatever cull mode the view's last polygon left, and Rush 2's tracks and cars
+(SF Rush's converted lists carry their own cull bits) leave either one on. In Rush 2's view frame (it flips handedness,
+src/car_lights.cpp's lens glow) the models' outsides are what G_CULL_BACK keeps: with G_CULL_FRONT inherited every
+battle model drew inside out, a falling mine looking hollow with its cap's inside showing (reported 2026-11-27 in a
+3-4 player circuit race with BATTLE on, the same look as before the cap). `rush2_battle_render_view` now pushes the
+geometry mode, gives each Rush 2049 model (a list in the files' rooms, 0x80E20000-0x80F18000, the mine's team lists
+included) G_CULL_BACK and the billboards and the port's own models no culling, and pops it after. Checked: forcing
+G_CULL_FRONT on the models drops the mine's cap and shows the base's untextured top. 3-player recipe: `test_race.py 0
+--cars 0,0,0 --drones 0 --env RUSH2_TEST_RACE_BATTLE=1 --env R2_BATTLE_TEST=give3,fire`, mines falling about 1-3 s
+after "racing".
 - **Models** (`src/rush2049/battle_render.cpp`): 2049's files 76 (weapons, projectiles, effects), 63 (coins) and 61 (the
   explosion's frames) are copied as they are into spare RDRAM (0x80E20000 - 0x80E80000) and rebased as 2049's loader
   does, like the wings (src/rush2049/wings_render.cpp). What the battle places (60 slots: 0-31 shots and effects, 32-39 mounts,

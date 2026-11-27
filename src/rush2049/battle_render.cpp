@@ -661,6 +661,14 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
     mul_mtx(root_m, view_m, view_m);
 
     DlWriter dl{ rdram, side_alloc((uint32_t)(32 + count * 10) * 8) };
+    // Rush 2049's models set their render modes but never their culling (the mine's lists have no G_GEOMETRYMODE), so
+    // they drew with whatever the view's last polygon left; each model's culling is set below, and the view's geometry
+    // mode is put back after them.
+    GfxCommand push_geometry, pop_geometry;
+    gEXPushGeometryMode(&push_geometry);
+    gEXPopGeometryMode(&pop_geometry);
+    dl.cmd(push_geometry.values.word0, push_geometry.values.word1);
+    dl.cmd(0xD9F9F9FF, 0x00000000);   // clear G_CULL_BOTH
     for (const auto& c : prologue) dl.cmd(c[0], c[1]);
     dl.cmd(G_MTX_LOAD_MODELVIEW_W0, root);
     for (int pass = 0; pass < 2; pass++) {
@@ -705,6 +713,13 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
                 dl.float_matrix(write_floats(rdram, m), 0x00);   // push, multiply
             }
             dl.cmd(0xFA000000, it.rgba);
+            // Rush 2049's models (and the mine's lists, made in file 76's room) set no culling of their own, and Rush
+            // 2's tracks and cars (SF Rush's lists among them) leave G_CULL_FRONT or G_CULL_BACK on as they were drawn:
+            // a G_CULL_FRONT left on culled the models' outsides, so every battle model showed inside out. Their
+            // outsides are what G_CULL_BACK keeps (checked in game: with G_CULL_FRONT a mine loses its cap). Billboards
+            // (turned to face the camera) and the port's own models are drawn two-sided.
+            bool rush2049_model = it.dl >= model_files[0].address && it.dl < model_files[3].address + model_files[3].max_size;
+            dl.cmd(0xD9F9F9FF, rush2049_model && !it.billboard ? 0x00000400u : 0u);
             dl.cmd(G_DL_CALL, it.dl);
             dl.cmd(G_POPMTX_W0, 0x40);
             dl.pop_group();
@@ -717,6 +732,7 @@ extern "C" void rush2_battle_render_view(uint8_t* rdram, recomp_context* ctx) {
         dl.cmd(G_MTX_MUL_PROJECTION_W0, lookat);
     }
     for (const auto& c : epilogue) dl.cmd(c[0], c[1]);
+    dl.cmd(pop_geometry.values.word0, pop_geometry.values.word1);
     if (MEM_BU(0, (int32_t)lighting_cache) != 0) dl.cmd(0xD9FFFFFF, 0x00020000);
     // Test aid: R2_BATTLE_TEST=dlfault loads unknown microcode once (G_LOAD_UCODE of address 0), to check that RT64
     // ends the list and writes dl_fault.txt (docs/crash_reports.md#display-list-faults).
