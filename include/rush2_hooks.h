@@ -277,6 +277,12 @@ void rush2_circuit_more_input(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_more_grey(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_more_step(uint8_t* rdram, recomp_context* ctx);
 void rush2_circuit_more_stepped(uint8_t* rdram, recomp_context* ctx);
+// Circuits for three and four players (src/circuit.cpp).
+void rush2_circuit_players_s7(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_players_t8(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_players_t3(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_players_a0(uint8_t* rdram, recomp_context* ctx);
+void rush2_circuit_players_t6(uint8_t* rdram, recomp_context* ctx);
 int rush2_circuit_fixed_difficulty(uint8_t* rdram, recomp_context* ctx);
 // Circuit drone skill entry kept within the car's 14 (src/circuit.cpp, GitHub issue 60).
 void rush2_circuit_skill_entry(uint8_t* rdram, recomp_context* ctx);

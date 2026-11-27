@@ -2643,6 +2643,35 @@ func = "save_reset_pak_settings_block_800B2A58"
 before_vram = 0x800B2BBC
 text = "    rush2_circuit_started(rdram, ctx);"
 
+# Circuits for three and four players: players 3 and 4 join at the race start, so the menus pick the one or two player
+# circuit block, but the five places that work out profile + 0x464 + players * 0x60 saw three or four in the race and
+# landed on the car settings, ending the circuit after every race. They take the menus' block instead
+# (src/circuit.cpp, docs/players4.md#circuit-blocks); each hook is before the block is stored in 0x800D3E40.
+[[patches.hook]]
+func = "circuit_generate_800A7DCC"
+before_vram = 0x800A7E24
+text = "    rush2_circuit_players_s7(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_write_settings_to_pak_800A8D1C"
+before_vram = 0x800A8D68
+text = "    rush2_circuit_players_t6(rdram, ctx);"
+
+[[patches.hook]]
+func = "menu_screen_circuit_menu_803B7018"
+before_vram = 0x803B710C
+text = "    rush2_circuit_players_t8(rdram, ctx);"
+
+[[patches.hook]]
+func = "circuit_set_deaths_800B29DC"
+before_vram = 0x800B2A24
+text = "    rush2_circuit_players_t3(rdram, ctx);"
+
+[[patches.hook]]
+func = "save_reset_pak_settings_block_800B2A58"
+before_vram = 0x800B2AA4
+text = "    rush2_circuit_players_a0(rdram, ctx);"
+
 [[patches.hook]]
 func = "circuit_generate_800A7DCC"
 before_vram = 0x800A7E5C

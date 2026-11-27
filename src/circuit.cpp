@@ -472,6 +472,55 @@ extern "C" void rush2_circuit_races_left(uint8_t* rdram, recomp_context* ctx) {
     ctx->r19 = (uint64_t)(int64_t)races;
 }
 
+// Circuits for three and four players (docs/players4.md#circuit-blocks). A profile (0x6C0 bytes) keeps a circuit per
+// player count at +0x464 + players * 0x60: one player's at +0x4C4, two players' at +0x524. Five functions work the
+// block out from the player count (circuit_generate_800A7DCC, save_write_settings_to_pak_800A8D1C,
+// circuit_set_deaths_800B29DC, save_reset_pak_settings_block_800B2A58 and menu_screen_circuit_menu_803B7018). Players 3
+// and 4 join at the race start, so the menus (and the circuit menu that points 0x800D3E40 at the block) run with one
+// or two players, but the race's results see three or four: their block lands on the per-car-type settings from
+// +0x584 (save_set_default_car_record_80097AA0), whose "races finished" byte is past the circuit's length, so every
+// race completed the circuit. With three or four players each of the five takes the circuit the menus chose instead:
+// the block 0x800D3E40 points at when it is that profile's one or two player block, else the two player block.
+namespace {
+    constexpr uint32_t profile_blocks = 0x464;          // + players * 0x60
+    constexpr uint32_t block_size = 0x60;
+    constexpr uint32_t race_players = 0x8010C3E2;       // s16
+
+    void set_block_reg(uint8_t* rdram, uint64_t& reg) {
+        int players = (int16_t)MEM_H(0, (int32_t)race_players);
+        if (players != 3 && players != 4) return;
+        uint32_t profile = (uint32_t)reg - profile_blocks - uint32_t(players) * block_size;
+        uint32_t one = profile + profile_blocks + block_size, two = one + block_size;
+        uint32_t current = (uint32_t)MEM_W(0, (int32_t)circuit_block);
+        uint32_t block = current == one ? one : two;
+        reg = (uint64_t)(int64_t)(int32_t)block;
+    }
+}
+
+// Each before the block it worked out is stored in 0x800D3E40: circuit_generate_800A7DCC at 0x800A7E24 ($s7),
+// save_write_settings_to_pak_800A8D1C at 0x800A8D68 ($t6) and menu_screen_circuit_menu_803B7018 at 0x803B710C ($t8).
+extern "C" void rush2_circuit_players_s7(uint8_t* rdram, recomp_context* ctx) {
+    set_block_reg(rdram, ctx->r23);
+}
+
+extern "C" void rush2_circuit_players_t6(uint8_t* rdram, recomp_context* ctx) {
+    set_block_reg(rdram, ctx->r14);
+}
+
+extern "C" void rush2_circuit_players_t8(uint8_t* rdram, recomp_context* ctx) {
+    set_block_reg(rdram, ctx->r24);
+}
+
+// circuit_set_deaths_800B29DC at 0x800B2A24 ($t3, about to be stored in 0x800D3E40).
+extern "C" void rush2_circuit_players_t3(uint8_t* rdram, recomp_context* ctx) {
+    set_block_reg(rdram, ctx->r11);
+}
+
+// save_reset_pak_settings_block_800B2A58 at 0x800B2AA4 ($a0, about to be stored in 0x800D3E40 and cleared).
+extern "C" void rush2_circuit_players_a0(uint8_t* rdram, recomp_context* ctx) {
+    set_block_reg(rdram, ctx->r4);
+}
+
 // More Circuit Settings. A circuit race takes its DIFFICULTY and DEATHS from the circuit block, not the menu settings
 // (func_80094698: 0x8010C211 = block +1 bits 3-5, 0x8010BC98 = block +1 bit 1). func_800B2A58 starts a circuit with
 // difficulty 2 and the menu's DEATHS (+0x11); the track select's DEATHS step writes the block too (func_800B29DC).

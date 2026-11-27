@@ -168,6 +168,21 @@ and the VIEW button is never checked. The track loads (`race_load_track_800A5110
 their next race started with the camera circling the car and VIEW doing nothing. `rush2_players4_clear_finish_cams`
 (hooked at both clears) clears cars 2-7.
 
+## Circuit blocks
+
+A profile (0x6C0 bytes) keeps a circuit per player count, 0x60 bytes at +0x464 + players * 0x60: one player's at
++0x4C4, two players' at +0x524; the pointer to the one in use is 0x800D3E40. Five functions work the address out from
+record 0x800D39D2's profile and the player count 0x8010C3E2, each storing it in the pointer: `circuit_generate_800A7DCC`
+(0x800A7E20, $s7), `save_write_settings_to_pak_800A8D1C` (0x800A8D64, $t6), `circuit_set_deaths_800B29DC`
+(0x800B2A20, $t3), `save_reset_pak_settings_block_800B2A58` (0x800B2AA0, $a0) and `menu_screen_circuit_menu_803B7018`
+(0x803B7108, $t8). Players 3 and 4 join at the race start, so Select Player and the circuit menu run with one or two
+players and pick that block, but the race's results run with three or four: the block lands at +0x584 or +0x5E4, the
+per-car-type settings (`save_set_default_car_record_80097AA0`), whose "races finished" byte (+2) is already past the
+circuit length, so the circuit ended after every race (and the results wrote places over car settings). Each of the
+five is hooked just before the store (src/circuit.cpp, `rush2_circuit_players_*`): with three or four players it takes
+the circuit the menus chose, the block 0x800D3E40 already points at when that is the profile's one or two player
+block, else the two player block.
+
 ## Per-view hidden nodes
 
 A scene node's flags word (+0) holds a hidden bit per view, (view mask) << 8. `node_hide_80058D1C` sets them and
